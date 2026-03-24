@@ -1,0 +1,159 @@
+:root {
+  color: #e8edf8;
+  background: #101522;
+  font-family: Inter, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.appShell {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: #101522;
+}
+
+.mapPane {
+  position: relative;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.mapPane canvas {
+  cursor: grab;
+}
+
+.mapPane canvas:active {
+  cursor: grabbing;
+}
+
+.map3DContainer {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.mapViewButtons {
+  position: absolute;
+  top: 0.85rem;
+  left: 0.85rem;
+  display: flex;
+  gap: 0.5rem;
+  z-index: 10;
+}
+
+.mapViewButtons button {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(16, 24, 42, 0.84);
+  color: #eaf1ff;
+  border-radius: 10px;
+  padding: 0.48rem 0.68rem;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.chatPane {
+  min-width: 300px;
+  background: #171f32;
+}
+
+.chatPanel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chatHeader {
+  padding: 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.chatHeader h2 {
+  margin: 0 0 0.35rem 0;
+  font-size: 1.1rem;
+}
+
+.chatHeader p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: #a8b4cb;
+}
+
+.chatMessages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 1rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.chatBubble {
+  max-width: 90%;
+  padding: 0.62rem 0.8rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.chatBubble.assistant {
+  background: #253352;
+  color: #dce7ff;
+  align-self: flex-start;
+}
+
+.chatBubble.user {
+  background: #35558f;
+  color: #f4f7ff;
+  align-self: flex-end;
+}
+
+.chatForm {
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0.85rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chatForm input {
+  flex: 1;
+  background: #10182a;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #e8edf8;
+  border-radius: 10px;
+  padding: 0.62rem 0.75rem;
+  outline: none;
+}
+
+.chatForm input:focus {
+  border-color: #7fa6ff;
+}
+
+.chatForm button {
+  border: none;
+  border-radius: 10px;
+  padding: 0.62rem 0.9rem;
+  background: #4f7cd6;
+  color: #fff;
+  cursor: pointer;
+}
+
+.chatForm button:disabled {
+  background: #52607d;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1080px) {
+  .appShell {
+    grid-template-columns: 1fr;
+  }
+
+  .chatPane {
+    height: 38vh;
+    min-width: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}

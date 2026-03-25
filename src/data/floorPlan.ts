@@ -1,6 +1,7 @@
 import {
-  wallRects,
-  floorRects,
+  wallRects as rawWallRects,
+  wallPolylines as rawWallPolylines,
+  floorRects as rawFloorRects,
   mapWidth,
   mapDepth,
   MAP_RESOLUTION,
@@ -13,7 +14,12 @@ export const FLOOR_HEIGHT_M = 3
 export const WALL_THICKNESS_M = 0.16
 export const PLAYER_RADIUS_M = 0.24
 
-export { wallRects, floorRects, mapWidth, mapDepth, MAP_RESOLUTION }
+// Cleaned up unused functions
+
+export const wallRects = rawWallRects
+export const floorRects = rawFloorRects
+export const wallPolylines = rawWallPolylines.filter(loop => loop.length >= 3)
+export { mapWidth, mapDepth, MAP_RESOLUTION }
 export type { WallRect }
 
 export function computeFloorCenter(): Point2 {

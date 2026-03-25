@@ -1,88 +1,167 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { Grid, PerspectiveCamera } from '@react-three/drei'
+import type { ThreeEvent } from '@react-three/fiber'
+import { PerspectiveCamera } from '@react-three/drei'
 import {
+  BufferGeometry,
   BoxGeometry,
+  Float32BufferAttribute,
   Group,
-  InstancedMesh,
-  Matrix4,
   MeshStandardMaterial,
-  Vector3,
+  Path,
+  Shape,
+  ShapeGeometry,
 } from 'three'
 import type { RefObject } from 'react'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import {
-  wallRects,
+  wallPolylines,
   floorRects,
-  mapWidth,
-  mapDepth,
   FLOOR_HEIGHT_M,
-  WALL_THICKNESS_M,
 } from '../data/floorPlan'
 import { useWorldMovement } from '../hooks/useWorldMovement'
 
 type ViewMode = 'firstPerson' | 'overview'
 
-const GRID_SIZE = Math.max(mapWidth, mapDepth) + 10
+const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 }) // DoubleSide
+const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
+const ceilingMaterial = new MeshStandardMaterial({ color: '#FAF6F0', roughness: 0.95, metalness: 0.0, side: 2 })
+const SURFACE_WALL_OVERLAP_M = 0.05
 
-const unitBox = new BoxGeometry(1, 1, 1)
-const wallMaterial = new MeshStandardMaterial({ color: '#cfd9ea', metalness: 0.08, roughness: 0.84 })
-const floorMaterial = new MeshStandardMaterial({ color: '#f2f4f8' })
+function WallRibbonMesh() {
+  const wallGeometry = useMemo(() => {
+    const yBottom = -SURFACE_WALL_OVERLAP_M
+    const yTop = FLOOR_HEIGHT_M + SURFACE_WALL_OVERLAP_M
+    const positions: number[] = []
+    const indices: number[] = []
 
-function WallInstances() {
-  const meshRef = useRef<InstancedMesh>(null)
-
-  useEffect(() => {
-    const mesh = meshRef.current
-    if (!mesh) return
-
-    const mat = new Matrix4()
-    const scaleVec = new Vector3()
-    for (let i = 0; i < wallRects.length; i++) {
-      const r = wallRects[i]
-      mat.makeTranslation(r.cx, FLOOR_HEIGHT_M * 0.5, r.cz)
-      scaleVec.set(r.w || WALL_THICKNESS_M, FLOOR_HEIGHT_M, r.d || WALL_THICKNESS_M)
-      mat.scale(scaleVec)
-      mesh.setMatrixAt(i, mat)
+    for (const loop of wallPolylines) {
+      if (loop.length < 2) continue
+      const base = positions.length / 3
+      for (const [x, z] of loop) {
+        positions.push(x, yBottom, z)
+        positions.push(x, yTop, z)
+      }
+      const n = loop.length
+      for (let i = 0; i < n; i++) {
+        const next = (i + 1) % n
+        const b0 = base + i * 2,      t0 = base + i * 2 + 1
+        const b1 = base + next * 2,   t1 = base + next * 2 + 1
+        indices.push(b0, b1, t1, b0, t1, t0)
+      }
     }
-    mesh.instanceMatrix.needsUpdate = true
+
+    if (positions.length === 0) {
+      return new BoxGeometry(0.001, 0.001, 0.001) as BufferGeometry
+    }
+
+    const geo = new BufferGeometry()
+    geo.setAttribute('position', new Float32BufferAttribute(positions, 3))
+    geo.setIndex(indices)
+    geo.computeVertexNormals()
+    return geo
+  }, [])
+
+  return <mesh geometry={wallGeometry} material={wallMaterial} frustumCulled={false} />
+}
+
+function RoomSurfaces({ isFirstPerson }: { isFirstPerson: boolean }) {
+  const shapeGeometry = useMemo(() => {
+    if (wallPolylines.length === 0) return new BufferGeometry()
+    let maxArea = -1
+    let outerLoopIdx = 0
+    for (let i = 0; i < wallPolylines.length; i++) {
+      const loop = wallPolylines[i]
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (const [x, z] of loop) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      const area = (maxX - minX) * (maxZ - minZ)
+      if (area > maxArea) {
+        maxArea = area
+        outerLoopIdx = i
+      }
+    }
+
+    const outerPoints = wallPolylines[outerLoopIdx]
+    const shape = new Shape()
+    shape.moveTo(outerPoints[0][0], -outerPoints[0][1])
+    for (let i = 1; i < outerPoints.length; i++) {
+      shape.lineTo(outerPoints[i][0], -outerPoints[i][1])
+    }
+
+    for (let i = 0; i < wallPolylines.length; i++) {
+      if (i === outerLoopIdx) continue
+      const loop = wallPolylines[i]
+      if (loop.length < 3) continue
+      const path = new Path()
+      path.moveTo(loop[0][0], -loop[0][1])
+      for (let j = 1; j < loop.length; j++) {
+        path.lineTo(loop[j][0], -loop[j][1])
+      }
+      shape.holes.push(path)
+    }
+    
+    const geo = new ShapeGeometry(shape)
+    geo.rotateX(-Math.PI / 2) // Lay it flat on XZ
+    return geo
   }, [])
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[unitBox, wallMaterial, wallRects.length]}
-      frustumCulled={false}
-    />
+    <>
+      <mesh geometry={shapeGeometry} material={floorMaterial} frustumCulled={false} position={[0, -SURFACE_WALL_OVERLAP_M + 0.001, 0]} />
+      {isFirstPerson && (
+        <mesh 
+          geometry={shapeGeometry} 
+          material={ceilingMaterial} 
+          frustumCulled={false} 
+          position={[0, FLOOR_HEIGHT_M + SURFACE_WALL_OVERLAP_M - 0.001, 0]} 
+        />
+      )}
+    </>
   )
 }
 
-function FloorInstances() {
-  const meshRef = useRef<InstancedMesh>(null)
-  const FLOOR_THICKNESS = 0.02
-
-  useEffect(() => {
-    const mesh = meshRef.current
-    if (!mesh) return
-
-    const mat = new Matrix4()
-    const scaleVec = new Vector3()
-    for (let i = 0; i < floorRects.length; i++) {
-      const r = floorRects[i]
-      mat.makeTranslation(r.cx, FLOOR_THICKNESS * 0.5, r.cz)
-      scaleVec.set(r.w, FLOOR_THICKNESS, r.d)
-      mat.scale(scaleVec)
-      mesh.setMatrixAt(i, mat)
+function BookstoreLights() {
+  const positions = useMemo(() => {
+    let minX = Infinity, maxX = -Infinity
+    let minZ = Infinity, maxZ = -Infinity
+    for (const r of floorRects) {
+      minX = Math.min(minX, r.cx - r.w / 2)
+      maxX = Math.max(maxX, r.cx + r.w / 2)
+      minZ = Math.min(minZ, r.cz - r.d / 2)
+      maxZ = Math.max(maxZ, r.cz + r.d / 2)
     }
-    mesh.instanceMatrix.needsUpdate = true
+
+    const result: [number, number, number][] = []
+    const spacing = 10
+    const y = FLOOR_HEIGHT_M - 0.5
+    for (let x = minX + spacing / 2; x <= maxX; x += spacing) {
+      for (let z = minZ + spacing / 2; z <= maxZ; z += spacing) {
+        const hasFloor = floorRects.some(r =>
+          x >= r.cx - r.w / 2 && x <= r.cx + r.w / 2 &&
+          z >= r.cz - r.d / 2 && z <= r.cz + r.d / 2,
+        )
+        if (hasFloor) result.push([x, y, z])
+      }
+    }
+    return result
   }, [])
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[unitBox, floorMaterial, floorRects.length]}
-      frustumCulled={false}
-    />
+    <>
+      {positions.map((pos, i) => (
+        <pointLight
+          key={i}
+          position={pos}
+          color="#FFE0B2"
+          intensity={2.5}
+          distance={14}
+          decay={2}
+        />
+      ))}
+    </>
   )
 }
 
@@ -258,6 +337,19 @@ function SceneContent({ mode }: { mode: ViewMode }) {
   const isFirstPerson = mode === 'firstPerson'
   useWorldMovement(worldRef, yawRef, isFirstPerson)
 
+  const [markers, setMarkers] = useState<{x:number, z:number}[]>([])
+
+  const handleDoubleClick = (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation()
+    const { x, z } = e.point
+    setMarkers(prev => {
+      const next = [...prev, { x, z }]
+      const str = next.map(p => `{ cx: ${p.x.toFixed(2)}, cz: ${p.z.toFixed(2)}, radius: 0.4 },`).join('\n')
+      navigator.clipboard.writeText(str)
+      return next
+    })
+  }
+
   useEffect(() => {
     if (!worldRef.current) return
 
@@ -278,10 +370,10 @@ function SceneContent({ mode }: { mode: ViewMode }) {
 
   return (
     <>
-      <color attach="background" args={['#0c111d']} />
-      <ambientLight intensity={0.65} />
-      <directionalLight position={[20, 30, 10]} intensity={1.1} />
-      <directionalLight position={[-20, 25, -15]} intensity={0.35} />
+      <color attach="background" args={['#1a1410']} />
+      <ambientLight color="#FFF5E6" intensity={0.5} />
+      <directionalLight position={[20, 30, 10]} color="#FFECD2" intensity={0.8} />
+      <directionalLight position={[-20, 25, -15]} color="#FFECD2" intensity={0.3} />
 
       {isFirstPerson ? (
         <>
@@ -309,23 +401,16 @@ function SceneContent({ mode }: { mode: ViewMode }) {
         </>
       )}
 
-      <group ref={worldRef}>
-        <FloorInstances />
-
-        <Grid
-          args={[GRID_SIZE, GRID_SIZE]}
-          position={[0, 0.001, 0]}
-          cellSize={1}
-          cellThickness={0.25}
-          sectionSize={5}
-          sectionThickness={0.5}
-          fadeDistance={60}
-          fadeStrength={1.4}
-          cellColor="#4f5d78"
-          sectionColor="#7483a5"
-        />
-
-        <WallInstances />
+      <group ref={worldRef} onDoubleClick={handleDoubleClick}>
+        <RoomSurfaces isFirstPerson={isFirstPerson} />
+        <WallRibbonMesh />
+        <BookstoreLights />
+        {markers.map((m, idx) => (
+          <mesh key={idx} position={[m.x, FLOOR_HEIGHT_M * 0.5, m.z]}>
+            <sphereGeometry args={[0.3, 16, 16]} />
+            <meshStandardMaterial color="#FF3333" emissive="#FF3333" emissiveIntensity={0.5} />
+          </mesh>
+        ))}
       </group>
     </>
   )

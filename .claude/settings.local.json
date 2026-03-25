@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find C:UserschanwooDocumentsprojectsBookJukBookJuk_WEB -type f -name package.json -o -name tsconfig.json -o -name vite.config* -o -name README.md -o -name .cursorrules -o -name *copilot*)",
+      "Bash(node scripts/processMap.mjs)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+---
+description: Treat mapData.ts as generated output only
+globs: src/data/mapData.ts
+alwaysApply: false
+---
+
+# Generated Map Data Rule
+
+- `src/data/mapData.ts` is generated output. Do not hand-edit it.
+- If map shape or map thresholds change, update inputs (`*.pgm` / YAML) or `scripts/processMap.mjs`, then regenerate.
+- Use `node scripts/processMap.mjs` from repo root to regenerate.
+- Put generated-map changes in a separate commit from app logic when possible.
+- Prefer editing `src/data/floorPlan.ts` for post-processing and runtime constants.

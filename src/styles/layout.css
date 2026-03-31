@@ -55,6 +55,11 @@
   cursor: pointer;
 }
 
+.mapViewButtons button[data-active='true'] {
+  border-color: #7fa6ff;
+  background: rgba(58, 86, 141, 0.95);
+}
+
 .chatPane {
   min-width: 300px;
   background: #171f32;

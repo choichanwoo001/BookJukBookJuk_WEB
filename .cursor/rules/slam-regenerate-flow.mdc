@@ -1,0 +1,12 @@
+---
+description: Keep SLAM map regeneration flow consistent
+alwaysApply: true
+---
+
+# SLAM Regeneration Flow
+
+- Map pipeline is `PGM + YAML -> scripts/processMap.mjs -> src/data/mapData.ts -> src/data/floorPlan.ts`.
+- Before regenerating, confirm YAML `image`, `resolution`, and `origin` are correct for the current PGM.
+- Regenerate with `node scripts/processMap.mjs` after map asset or extraction logic updates.
+- Do not patch large coordinate arrays in `mapData.ts` manually.
+- If map output changed unexpectedly, verify YAML references before changing runtime code.

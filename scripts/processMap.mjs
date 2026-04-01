@@ -759,6 +759,109 @@ function nearestSegmentAngle(point, polylines) {
   return { angle: bestAngle, distance: bestDist }
 }
 
+function computePrincipalAxes(polylines) {
+  const axes = [0, Math.PI / 2, Math.PI, -Math.PI / 2]
+  let diagAngle = null
+  let diagLen = 0
+  for (const loop of polylines) {
+    if (loop.length < 2) continue
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i]
+      const b = loop[(i + 1) % loop.length]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      if (len < 3.0) continue
+      const angle = Math.atan2(b[1] - a[1], b[0] - a[0])
+      const nearOrthogonal = axes.slice(0, 4).some(ref => {
+        let diff = angle - ref
+        while (diff > Math.PI) diff -= 2 * Math.PI
+        while (diff < -Math.PI) diff += 2 * Math.PI
+        return Math.abs(diff) < 0.2
+      })
+      if (!nearOrthogonal && len > diagLen) {
+        diagLen = len
+        diagAngle = angle
+      }
+    }
+  }
+  if (diagAngle !== null) {
+    axes.push(diagAngle, diagAngle + Math.PI / 2, diagAngle + Math.PI, diagAngle - Math.PI / 2)
+  }
+  return axes
+}
+
+function snapYawToNearestAxis(rawAngle, principalAxes) {
+  let a = rawAngle
+  while (a > Math.PI) a -= 2 * Math.PI
+  while (a < -Math.PI) a += 2 * Math.PI
+  let bestAngle = 0
+  let bestDist = Infinity
+  for (const ref of principalAxes) {
+    let diff = a - ref
+    while (diff > Math.PI) diff -= 2 * Math.PI
+    while (diff < -Math.PI) diff += 2 * Math.PI
+    if (Math.abs(diff) < bestDist) {
+      bestDist = Math.abs(diff)
+      bestAngle = ref
+    }
+  }
+  while (bestAngle > Math.PI) bestAngle -= 2 * Math.PI
+  while (bestAngle < -Math.PI) bestAngle += 2 * Math.PI
+  return bestAngle
+}
+
+function componentOrientedBBox(component, imgWidth) {
+  const n = component.indices.length
+  if (n < 2) return { angle: 0, w: RESOLUTION, d: RESOLUTION }
+
+  let sumCol = 0, sumRow = 0
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    sumCol += col
+    sumRow += row
+  }
+  const meanCol = sumCol / n
+  const meanRow = sumRow / n
+
+  let scc = 0, srr = 0, scr = 0
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    const dc = col - meanCol
+    const dr = row - meanRow
+    scc += dc * dc
+    srr += dr * dr
+    scr += dc * dr
+  }
+
+  // Principal axis angle in pixel space (direction of max variance)
+  const thetaPx = 0.5 * Math.atan2(2 * scr, scc - srr)
+  const cosT = Math.cos(thetaPx)
+  const sinT = Math.sin(thetaPx)
+
+  // Project all pixels onto principal axes to get oriented extent
+  let minU = Infinity, maxU = -Infinity
+  let minV = Infinity, maxV = -Infinity
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    const dc = col - meanCol
+    const dr = row - meanRow
+    const u = dc * cosT + dr * sinT
+    const v = -dc * sinT + dr * cosT
+    if (u < minU) minU = u
+    if (u > maxU) maxU = u
+    if (v < minV) minV = v
+    if (v > maxV) maxV = v
+  }
+
+  const extentU = (maxU - minU + 1) * RESOLUTION
+  const extentV = (maxV - minV + 1) * RESOLUTION
+
+  // World angle: negate pixel angle because row↓ maps to world Z↑
+  return { angle: -thetaPx, w: extentU, d: extentV }
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
@@ -772,6 +875,9 @@ function median(values) {
 }
 
 async function main() {
+  const deltaArg = process.argv.indexOf('--delta')
+  const deltaImageName = deltaArg >= 0 ? process.argv[deltaArg + 1] : null
+
   const config = parseYamlMapConfig(YAML_PATH)
   RESOLUTION = config.resolution
   ORIGIN_X = config.originX
@@ -865,6 +971,7 @@ async function main() {
   const { labels: wallLabels, components: wallComponents } = wallExtract
   const shelfLabels = new Set()
   const shelfComponentRects = []
+  const shelfComponentObjects = []
   const pillarCandidateRects = []
   for (const c of wallComponents) {
     const [x1, z1] = pxToWorld(c.minX, c.minY, height)
@@ -902,7 +1009,7 @@ async function main() {
       c.fillRatio >= 0.1
     )
     const pillarLike = pillar || tinyPillar
-    const looksLikeShelf = (
+    const looksLikeShelfNearOuterWall = (
       !pillarLike &&
       !c.touchesBoundary &&
       nearOuterWall &&
@@ -917,6 +1024,22 @@ async function main() {
       area >= 0.08 &&
       area <= 20
     )
+    // ver1 interior shelf blocks are often square-ish and far from the outer boundary.
+    const looksLikeInteriorShelfBlock = (
+      !pillarLike &&
+      !c.touchesBoundary &&
+      !nearOuterWall &&
+      c.size >= 20 &&
+      c.fillRatio >= 0.45 &&
+      smallSide >= 0.35 &&
+      smallSide <= 1.8 &&
+      longSide >= 0.35 &&
+      longSide <= 2.2 &&
+      aspect <= 2.6 &&
+      area >= 0.12 &&
+      area <= 4.84
+    )
+    const looksLikeShelf = looksLikeShelfNearOuterWall || looksLikeInteriorShelfBlock
     if (pillarLike) {
       pillarCandidateRects.push({
         label: c.label,
@@ -938,6 +1061,7 @@ async function main() {
         w: Math.round(w * 1000) / 1000,
         d: Math.round(d * 1000) / 1000,
       })
+      shelfComponentObjects.push(c)
     }
   }
 
@@ -1058,18 +1182,130 @@ async function main() {
     .map(c => c.holeLoop)
   console.log(`  classified loops: ${classifiedLoops.length} total, ${wallHolePolylines.length} holes, ${classifiedLoops.filter(c => c.isRoom).length} rooms`)
   const fallbackPolylines = wallPolylines.length > 0 ? wallPolylines : centerLoops
-  const bookshelfInstances = bookshelfRects.map((r) => {
-    const longSide = Math.max(r.w, r.d)
-    const shortSide = Math.min(r.w, r.d)
-    const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
-    return {
-      cx: r.cx,
-      cz: r.cz,
-      w: Math.round(longSide * 1000) / 1000,
-      d: Math.round(shortSide * 1000) / 1000,
-      yaw: Math.round(nearest.angle * 10000) / 10000,
+  const principalAxes = computePrincipalAxes(fallbackPolylines)
+  console.log(`  principal axes: [${principalAxes.map(a => a.toFixed(4)).join(', ')}]`)
+
+  let finalBookshelfRects = bookshelfRects
+  let finalBookshelfInstances
+
+  if (deltaImageName) {
+    console.log(`\nDelta mode: extracting new shelves from ${deltaImageName}`)
+    const deltaPath = resolve(ROOT, deltaImageName)
+    const deltaRaster = await parseRasterImage(deltaPath, config.negate)
+    const dw = deltaRaster.width
+    const dh = deltaRaster.height
+
+    let deltaGrid = classifyRaster(deltaRaster.pixels, wallThreshold, Math.max(freeThreshold, 245), deltaRaster.backgroundValue, 30)
+    removeWallNoisePreservingPillars(deltaGrid, dw, dh)
+    deltaGrid = morphClose(deltaGrid, dw, dh)
+    removeWallNoisePreservingPillars(deltaGrid, dw, dh)
+
+    console.log(`  delta image: ${dw}x${dh}, base: ${width}x${height}`)
+
+    const deltaWallGrid = new Uint8Array(dw * dh)
+    let deltaCount = 0
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        const di = y * dw + x
+        if (deltaGrid[di] !== WALL) continue
+        const baseIsWall = (x < width && y < height) ? grid[y * width + x] === WALL : false
+        if (!baseIsWall) {
+          deltaWallGrid[di] = WALL
+          deltaCount++
+        }
+      }
     }
-  })
+    console.log(`  delta wall pixels: ${deltaCount}`)
+
+    const baseWorldMinX = ORIGIN_X - offsetX
+    const baseWorldMaxX = ORIGIN_X + (width - 1) * RESOLUTION - offsetX
+    const baseWorldMinZ = ORIGIN_Y - offsetZ
+    const baseWorldMaxZ = ORIGIN_Y + (height - 1) * RESOLUTION - offsetZ
+
+    const closedDelta = morphClose(deltaWallGrid, dw, dh)
+    const { components: deltaComponents } = extractComponents(closedDelta, dw, dh, WALL)
+    const deltaShelfRects = []
+    const deltaShelfComponents = []
+    for (const c of deltaComponents) {
+      const [x1, z1] = pxToWorld(c.minX, c.minY, dh)
+      const [x2, z2] = pxToWorld(c.maxX + 1, c.maxY + 1, dh)
+      const w = Math.abs(x2 - x1)
+      const d = Math.abs(z2 - z1)
+      const cx = (x1 + x2) / 2 - offsetX
+      const cz = (z1 + z2) / 2 - offsetZ
+      const smallSide = Math.min(w, d)
+      const longSide = Math.max(w, d)
+
+      const inBaseArea = (
+        cx >= baseWorldMinX + 1 && cx <= baseWorldMaxX - 1 &&
+        cz >= baseWorldMinZ + 1 && cz <= baseWorldMaxZ - 1
+      )
+
+      const isShelf = (
+        !c.touchesBoundary &&
+        inBaseArea &&
+        c.size >= 15 &&
+        smallSide >= 0.9 &&
+        smallSide <= 2.5 &&
+        longSide >= 1.0 &&
+        longSide <= 3.0
+      )
+
+      if (isShelf) {
+        deltaShelfRects.push({
+          cx: Math.round(cx * 1000) / 1000,
+          cz: Math.round(cz * 1000) / 1000,
+          w: Math.round(w * 1000) / 1000,
+          d: Math.round(d * 1000) / 1000,
+        })
+        deltaShelfComponents.push(c)
+      }
+    }
+
+    console.log(`  delta components: ${deltaComponents.length}, shelf candidates: ${deltaShelfRects.length}`)
+    deltaShelfRects.forEach((r, i) => console.log(`    shelf ${i}: cx=${r.cx} cz=${r.cz} w=${r.w} d=${r.d}`))
+
+    finalBookshelfRects = deltaShelfRects
+
+    finalBookshelfInstances = deltaShelfRects.map((r, i) => {
+      const comp = deltaShelfComponents[i]
+      const obb = componentOrientedBBox(comp, dw)
+      const longSide = Math.max(obb.w, obb.d)
+      const shortSide = Math.min(obb.w, obb.d)
+      const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
+      const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
+      const wallAxis = snapYawToNearestAxis(nearest.angle, principalAxes)
+      const wallCandidates = [wallAxis, wallAxis + Math.PI / 2, wallAxis - Math.PI / 2, wallAxis + Math.PI]
+      const snappedYaw = snapYawToNearestAxis(rawAngle, wallCandidates)
+      return {
+        cx: r.cx,
+        cz: r.cz,
+        w: Math.round(longSide * 1000) / 1000,
+        d: Math.round(shortSide * 1000) / 1000,
+        yaw: Math.round(snappedYaw * 10000) / 10000,
+      }
+    })
+  } else {
+    finalBookshelfInstances = bookshelfRects.map((r, i) => {
+      const comp = shelfComponentObjects[i]
+      const obb = componentOrientedBBox(comp, width)
+      const longSide = Math.max(obb.w, obb.d)
+      const shortSide = Math.min(obb.w, obb.d)
+      const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
+      // Snap to wall-aligned axes: nearest wall direction ± 90°
+      const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
+      const wallAxis = snapYawToNearestAxis(nearest.angle, principalAxes)
+      const wallCandidates = [wallAxis, wallAxis + Math.PI / 2, wallAxis - Math.PI / 2, wallAxis + Math.PI]
+      const snappedYaw = snapYawToNearestAxis(rawAngle, wallCandidates)
+      return {
+        cx: r.cx,
+        cz: r.cz,
+        w: Math.round(longSide * 1000) / 1000,
+        d: Math.round(shortSide * 1000) / 1000,
+        yaw: Math.round(snappedYaw * 10000) / 10000,
+      }
+    })
+  }
 
   const floorRects = pixelRectsToWorld(rawFloorRects, height, offsetX, offsetZ)
 
@@ -1077,7 +1313,7 @@ async function main() {
   let maxX = -Infinity
   let minZ = Infinity
   let maxZ = -Infinity
-  for (const r of [...wallRects, ...bookshelfRects, ...floorRects]) {
+  for (const r of [...wallRects, ...finalBookshelfRects, ...floorRects]) {
     minX = Math.min(minX, r.cx - r.w / 2)
     maxX = Math.max(maxX, r.cx + r.w / 2)
     minZ = Math.min(minZ, r.cz - r.d / 2)
@@ -1086,8 +1322,9 @@ async function main() {
   const mapWidth = Math.round((maxX - minX) * 100) / 100
   const mapDepth = Math.round((maxZ - minZ) * 100) / 100
 
-  const ts = `// Auto-generated from ${config.imageName} — do not edit manually.
-// Run: node scripts/processMap.mjs
+  const sourceLabel = deltaImageName ? `${config.imageName} + delta ${deltaImageName}` : config.imageName
+  const ts = `// Auto-generated from ${sourceLabel} — do not edit manually.
+// Run: node scripts/processMap.mjs${deltaImageName ? ' --delta ' + deltaImageName : ''}
 
 export type WallRect = { cx: number; cz: number; w: number; d: number }
 export type BookshelfInstance = { cx: number; cz: number; w: number; d: number; yaw: number }
@@ -1098,8 +1335,8 @@ export const mapWidth = ${mapWidth}
 export const mapDepth = ${mapDepth}
 
 export const wallRects: WallRect[] = ${JSON.stringify(wallRects)}
-export const bookshelfRects: WallRect[] = ${JSON.stringify(bookshelfRects)}
-export const bookshelfInstances: BookshelfInstance[] = ${JSON.stringify(bookshelfInstances)}
+export const bookshelfRects: WallRect[] = ${JSON.stringify(finalBookshelfRects)}
+export const bookshelfInstances: BookshelfInstance[] = ${JSON.stringify(finalBookshelfInstances)}
 export const pillarRects: WallRect[] = ${JSON.stringify(pillarRects)}
 export const wallPolylines: Point2[][] = ${JSON.stringify(wallPolylines)}
 export const wallHolePolylines: Point2[][] = ${JSON.stringify(wallHolePolylines)}
@@ -1109,7 +1346,7 @@ export const floorRects: WallRect[] = ${JSON.stringify(floorRects)}
   writeFileSync(outPath, ts, 'utf-8')
   console.log(`Wrote ${outPath}`)
   console.log(`  wallRects: ${wallRects.length}`)
-  console.log(`  bookshelfRects: ${bookshelfRects.length}`)
+  console.log(`  bookshelfRects: ${finalBookshelfRects.length}`)
   console.log(`  pillarRects: ${pillarRects.length}`)
   console.log(`  wallPolylines: ${wallPolylines.length}, wallHolePolylines: ${wallHolePolylines.length}`)
   console.log(`  floorRects: ${floorRects.length}`)

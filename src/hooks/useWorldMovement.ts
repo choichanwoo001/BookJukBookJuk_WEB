@@ -7,11 +7,10 @@ import {
   wallRects,
   bookshelfRects,
   pillarRects,
-  isOnFloor,
   PLAYER_RADIUS_M,
   SPAWN_POINT_WORLD,
-  WALL_THICKNESS_M,
 } from '../data/floorPlan'
+import { pointInAnyRect } from '../utils/rectUtils'
 
 type KeyState = {
   keyW: boolean
@@ -28,24 +27,11 @@ function normalizeVector(x: number, y: number) {
   return vector
 }
 
-function intersectsRectSet(
-  rects: Array<{ cx: number; cz: number; w: number; d: number }>,
-  x: number,
-  z: number,
-  radius: number,
-) {
-  return rects.some((r) => {
-    const halfW = (r.w || WALL_THICKNESS_M) * 0.5 + radius
-    const halfD = (r.d || WALL_THICKNESS_M) * 0.5 + radius
-    return x >= r.cx - halfW && x <= r.cx + halfW && z >= r.cz - halfD && z <= r.cz + halfD
-  })
-}
-
 function canOccupy(point: [number, number]) {
-  if (!isOnFloor(point[0], point[1])) return false
-  if (intersectsRectSet(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
-  if (intersectsRectSet(bookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
-  if (intersectsRectSet(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (!pointInAnyRect(baseFloorRects, point[0], point[1])) return false
+  if (pointInAnyRect(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyRect(bookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   return true
 }
 
@@ -67,7 +53,7 @@ function findSpawnPosition() {
   return [0, 0] as [number, number]
 }
 
-const INITIAL_PLAYER_POS = findSpawnPosition()
+export const INITIAL_PLAYER_POS = findSpawnPosition()
 
 type DynamicCollisionOverrides = {
   floorRects?: Array<{ cx: number; cz: number; w: number; d: number }>
@@ -80,6 +66,7 @@ export function useWorldMovement(
   yawRef?: RefObject<number>,
   enabled = true,
   overrides?: DynamicCollisionOverrides,
+  characterYawRef?: RefObject<number>,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -116,14 +103,10 @@ export function useWorldMovement(
     const effectiveWallRects = overrides?.wallRects ?? wallRects
     const effectiveBookshelfRects = overrides?.bookshelfRects ?? bookshelfRects
     const canOccupyWithOverrides = (point: [number, number]) => {
-      const onFloor = effectiveFloorRects.some(r =>
-        point[0] >= r.cx - r.w / 2 && point[0] <= r.cx + r.w / 2 &&
-        point[1] >= r.cz - r.d / 2 && point[1] <= r.cz + r.d / 2,
-      )
-      if (!onFloor) return false
-      if (intersectsRectSet(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
-      if (intersectsRectSet(effectiveBookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
-      if (intersectsRectSet(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (!pointInAnyRect(effectiveFloorRects, point[0], point[1])) return false
+      if (pointInAnyRect(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (pointInAnyRect(effectiveBookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
       return true
     }
 
@@ -149,5 +132,9 @@ export function useWorldMovement(
 
     worldRef.current.position.x = -current[0]
     worldRef.current.position.z = -current[1]
+
+    if (characterYawRef && (direction.x !== 0 || direction.y !== 0)) {
+      characterYawRef.current = Math.atan2(-direction.x, -direction.y)
+    }
   })
 }

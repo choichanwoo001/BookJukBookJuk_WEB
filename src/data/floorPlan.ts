@@ -11,6 +11,7 @@ import {
   MAP_RESOLUTION,
 } from './mapData'
 import type { WallRect, BookshelfInstance } from './mapData'
+import { pointInAnyRect } from '../utils/rectUtils'
 
 export type Point2 = [number, number]
 
@@ -119,10 +120,7 @@ export function computeFloorCenter(): Point2 {
 }
 
 export function isOnFloor(x: number, z: number): boolean {
-  return floorRects.some(r =>
-    x >= r.cx - r.w / 2 && x <= r.cx + r.w / 2 &&
-    z >= r.cz - r.d / 2 && z <= r.cz + r.d / 2
-  )
+  return pointInAnyRect(floorRects, x, z)
 }
 
 export const SPAWN_POINT_WORLD: Point2 = computeFloorCenter()

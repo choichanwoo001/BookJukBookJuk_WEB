@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(node scripts/processMap.mjs)",
+      "Bash(node scripts/processMap.mjs --delta ver1.jpg)",
+      "Bash(node -e \":*)"
+    ]
+  }
+}

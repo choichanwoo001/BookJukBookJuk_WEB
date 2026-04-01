@@ -151,6 +151,103 @@
   cursor: not-allowed;
 }
 
+.editPanel {
+  position: absolute;
+  bottom: 0.85rem;
+  left: 0.85rem;
+  background: rgba(16, 24, 42, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  min-width: 210px;
+  z-index: 10;
+  font-size: 0.82rem;
+  color: #eaf1ff;
+  backdrop-filter: blur(8px);
+}
+
+.editPanelHeader {
+  padding: 0.5rem 0.7rem;
+  font-weight: 600;
+  font-size: 0.88rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editToolTabs {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem 0;
+}
+
+.editToolTabs button {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(16, 24, 42, 0.6);
+  color: #eaf1ff;
+  border-radius: 8px;
+  padding: 0.38rem 0.5rem;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.editToolTabs button[data-active='true'] {
+  border-color: #7fa6ff;
+  background: rgba(58, 86, 141, 0.95);
+}
+
+.editPanelBody {
+  padding: 0.5rem 0.7rem;
+}
+
+.editPanelRow {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.15rem 0;
+}
+
+.editLabel {
+  color: #8fa4c8;
+}
+
+.editValue {
+  font-family: 'Consolas', 'Monaco', monospace;
+  color: #b8d4ff;
+}
+
+.editPanelHint {
+  padding: 0.3rem 0;
+  color: #6b7fa0;
+  font-size: 0.76rem;
+}
+
+.editPanelActions {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.editPanelActions button {
+  flex: 1;
+  border: 1px solid rgba(127, 166, 255, 0.4);
+  background: rgba(58, 86, 141, 0.6);
+  color: #c8dbff;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.editPanelActions button:hover {
+  background: rgba(79, 124, 214, 0.8);
+}
+
+.editPanelActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  background: rgba(58, 86, 141, 0.35);
+}
+
 @media (max-width: 1080px) {
   .appShell {
     grid-template-columns: 1fr;

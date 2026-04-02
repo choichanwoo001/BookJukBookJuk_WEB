@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PerspectiveCamera } from '@react-three/drei'
 import { Group, Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { useThree } from '@react-three/fiber'
 import {
   wallRects as baseWallRects,
-  bookshelfRects as baseBookshelfRects,
   pillarRects,
   floorRects,
   floorFillRects,
   FLOOR_HEIGHT_M,
 } from '../../data/floorPlan'
+import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
 import {
   THIRD_PERSON_LOCKED_PITCH,
@@ -38,8 +38,6 @@ import {
   OverviewPanController,
 } from './CameraControllers'
 import { StickmanPlayer } from './StickmanPlayer'
-import { CoordinateGrid } from './CoordinateGrid'
-
 const EDIT_YAW_DRAG_SENSITIVITY = 0.008
 const EDIT_YAW_WHEEL_SENSITIVITY = 0.0025
 const DRAG_CLICK_SUPPRESS_MS = 180
@@ -221,10 +219,17 @@ export function SceneContent({
   const isBookshelfDraggingRef = useRef(false)
   const lastDragEndAtMsRef = useRef(0)
   const controlsEnabled = true
+  const bookshelfCollisionRects = useMemo(
+    () =>
+      bookshelfRenderInstances.map(inst =>
+        axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
+      ),
+    [bookshelfRenderInstances],
+  )
   useWorldMovement(worldRef, yawRef, isThirdPerson && controlsEnabled, {
     floorRects,
     wallRects: baseWallRects,
-    bookshelfRects: baseBookshelfRects,
+    bookshelfRects: bookshelfCollisionRects,
   }, characterYawRef)
 
   useEffect(() => {
@@ -390,7 +395,6 @@ export function SceneContent({
           onDoubleClick={isAreaSelection ? createPickHandler('floor') : undefined}
           onClick={isBookshelfEdit ? handleDeselect : undefined}
         />
-        <CoordinateGrid />
         <WallRibbonMesh
           onDoubleClick={isAreaSelection ? createPickHandler('wall') : undefined}
           onClick={isBookshelfEdit ? handleDeselect : undefined}

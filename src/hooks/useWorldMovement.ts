@@ -5,7 +5,7 @@ import { useFrame } from '@react-three/fiber'
 import {
   floorRects as baseFloorRects,
   wallRects,
-  bookshelfRects,
+  allBookshelfCollisionRects,
   pillarRects,
   PLAYER_RADIUS_M,
   SPAWN_POINT_WORLD,
@@ -30,7 +30,7 @@ function normalizeVector(x: number, y: number) {
 function canOccupy(point: [number, number]) {
   if (!pointInAnyRect(baseFloorRects, point[0], point[1])) return false
   if (pointInAnyRect(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
-  if (pointInAnyRect(bookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyRect(allBookshelfCollisionRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   return true
 }
@@ -101,7 +101,7 @@ export function useWorldMovement(
 
     const effectiveFloorRects = overrides?.floorRects ?? baseFloorRects
     const effectiveWallRects = overrides?.wallRects ?? wallRects
-    const effectiveBookshelfRects = overrides?.bookshelfRects ?? bookshelfRects
+    const effectiveBookshelfRects = overrides?.bookshelfRects ?? allBookshelfCollisionRects
     const canOccupyWithOverrides = (point: [number, number]) => {
       if (!pointInAnyRect(effectiveFloorRects, point[0], point[1])) return false
       if (pointInAnyRect(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false

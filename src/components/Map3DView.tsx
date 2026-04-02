@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { bookshelfInstances } from '../data/floorPlan'
+import { bookshelfInstances, manualBookshelfInstances } from '../data/floorPlan'
 import { DEFAULT_BOOKSHELF_SIZE, FIXED_SELECTION_RADIUS_M } from '../config/constants'
+import { nearestWallInfo } from '../utils/wallAlignment'
 import type { ViewMode, PickPoint, CircleSelection, FixtureRenderInstance } from '../types/scene'
 import { findNearestBookshelfInCircle } from '../utils/bookshelfSelection'
 import { SceneContent } from './scene/SceneContent'
@@ -20,7 +21,7 @@ function selectionToText(selection: CircleSelection) {
 }
 
 function buildInitialInstances(): FixtureRenderInstance[] {
-  return bookshelfInstances.map<FixtureRenderInstance>(item => ({
+  const fromMap = bookshelfInstances.map<FixtureRenderInstance>(item => ({
     cx: item.cx,
     cz: item.cz,
     w: item.w,
@@ -28,6 +29,15 @@ function buildInitialInstances(): FixtureRenderInstance[] {
     yaw: item.yaw,
     h: DEFAULT_BOOKSHELF_SIZE.h,
   }))
+  const fromManual = manualBookshelfInstances.map<FixtureRenderInstance>(m => ({
+    cx: m.cx,
+    cz: m.cz,
+    w: m.w,
+    d: m.d,
+    yaw: m.yaw,
+    h: m.h,
+  }))
+  return [...fromMap, ...fromManual]
 }
 
 function radToDeg(rad: number) {
@@ -88,7 +98,15 @@ function Map3DView() {
     for (let i = 0; i < instances.length; i++) {
       const cur = instances[i]
       const orig = initialInstances[i]
-      if (!orig || cur.cx !== orig.cx || cur.cz !== orig.cz || cur.yaw !== orig.yaw) {
+      if (
+        !orig
+        || cur.cx !== orig.cx
+        || cur.cz !== orig.cz
+        || cur.yaw !== orig.yaw
+        || cur.w !== orig.w
+        || cur.d !== orig.d
+        || cur.h !== orig.h
+      ) {
         changed.push({ index: i, instance: cur })
       }
     }
@@ -136,6 +154,22 @@ function Map3DView() {
     setInstances((prev) => prev.filter((_, i) => i !== selectedIndex))
     setSelectedIndex(null)
   }
+
+  const handleSnapYawToWallParallel = useCallback(() => {
+    if (selectedIndex === null) return
+    const inst = instances[selectedIndex]
+    const info = nearestWallInfo(inst.cx, inst.cz)
+    if (!info) return
+    handleUpdateInstance(selectedIndex, { yaw: info.tangentYaw })
+  }, [selectedIndex, instances, handleUpdateInstance])
+
+  const handleSnapYawToWallPerpendicular = useCallback(() => {
+    if (selectedIndex === null) return
+    const inst = instances[selectedIndex]
+    const info = nearestWallInfo(inst.cx, inst.cz)
+    if (!info) return
+    handleUpdateInstance(selectedIndex, { yaw: info.normalYaw })
+  }, [selectedIndex, instances, handleUpdateInstance])
 
   return (
     <div className="map3DContainer">
@@ -202,6 +236,10 @@ function Map3DView() {
               <div className="editPanelRow">
                 <span className="editLabel">Yaw</span>
                 <span className="editValue">{radToDeg(selected.yaw).toFixed(1)}°</span>
+              </div>
+              <div className="editPanelActions">
+                <button type="button" onClick={handleSnapYawToWallParallel}>벽 평행(yaw)</button>
+                <button type="button" onClick={handleSnapYawToWallPerpendicular}>벽 직각(yaw)</button>
               </div>
               <div className="editPanelHint">클릭: 선택 | 드래그: 이동 | Shift+드래그: 회전 | 휠: 미세 회전</div>
             </div>

@@ -1,7 +1,5 @@
 import {
   wallRects as rawWallRects,
-  bookshelfRects as rawBookshelfRects,
-  bookshelfInstances as rawBookshelfInstances,
   pillarRects as rawPillarRects,
   wallPolylines as rawWallPolylines,
   wallHolePolylines as rawWallHolePolylines,
@@ -11,6 +9,7 @@ import {
   MAP_RESOLUTION,
 } from './mapData'
 import type { WallRect, BookshelfInstance } from './mapData'
+import { axisAlignedBoundsForRotatedBookshelf } from '../utils/bookshelfCollision'
 import { pointInAnyRect } from '../utils/rectUtils'
 
 export type Point2 = [number, number]
@@ -30,18 +29,6 @@ export type ManualFixtureInstance = {
   yaw: number
   h: number
 }
-
-type RectZone = {
-  minX: number
-  maxX: number
-  minZ: number
-  maxZ: number
-}
-
-const BOOKSHELF_REMOVE_ZONES: RectZone[] = [
-  // User flagged bookshelf/desk around this coordinate as invalid.
-  { minX: -1.8, maxX: -0.2, minZ: 10.2, maxZ: 11.6 },
-]
 
 const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
   // Floor fill near center (x=-2.938, z=8.543).
@@ -64,14 +51,6 @@ const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
 // Coordinate values: t = WALL_THICKNESS_M/2 = 0.08
 const MANUAL_WALL_PATCH_LOOPS: [number, number][][] = []
 
-function isInsideZone(x: number, z: number, zone: RectZone) {
-  return x >= zone.minX && x <= zone.maxX && z >= zone.minZ && z <= zone.maxZ
-}
-
-function isInAnyZone(x: number, z: number, zones: RectZone[]) {
-  return zones.some(zone => isInsideZone(x, z, zone))
-}
-
 function normalizeWallThickness(rects: WallRect[], thickness: number): WallRect[] {
   return rects.map((r) => {
     if (r.w <= 0 || r.d <= 0) return r
@@ -84,12 +63,8 @@ function normalizeWallThickness(rects: WallRect[], thickness: number): WallRect[
 export const wallRects = normalizeWallThickness(rawWallRects, WALL_THICKNESS_M)
 export const floorFillRects = MANUAL_FLOOR_FILL_RECTS
 export const floorRects = [...rawFloorRects, ...MANUAL_FLOOR_FILL_RECTS]
-export const bookshelfRects = rawBookshelfRects.filter(
-  rect => !isInAnyZone(rect.cx, rect.cz, BOOKSHELF_REMOVE_ZONES),
-)
-export const bookshelfInstances = rawBookshelfInstances.filter(
-  item => !isInAnyZone(item.cx, item.cz, BOOKSHELF_REMOVE_ZONES),
-)
+export const bookshelfRects: WallRect[] = []
+export const bookshelfInstances: BookshelfInstance[] = []
 export const pillarRects = rawPillarRects
 export const wallPolylines = [
   ...rawWallPolylines.filter(loop => loop.length >= 3),
@@ -97,13 +72,43 @@ export const wallPolylines = [
 ]
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
 
-// Manual fixture placements gathered from 3D map click annotations.
-// yaw uses radians.
-export const manualFixtureInstances: ManualFixtureInstance[] = []
+// Photo / measured placements (persist here; map pipeline `bookshelfInstances` stays empty).
+// yaw radians; w,d meters; h shelf height.
+const MANUAL_BOOKSHELF_H = FLOOR_HEIGHT_M * 0.78
+
+export const manualFixtureInstances: ManualFixtureInstance[] = [
+  {
+    kind: 'bookshelf',
+    cx: -7.169,
+    cz: 14.413,
+    w: 1.758,
+    d: 0.745,
+    yaw: -0.4103,
+    h: MANUAL_BOOKSHELF_H,
+  },
+  {
+    kind: 'bookshelf',
+    cx: -13.369,
+    cz: 13.338,
+    w: 1.74,
+    d: 0.697,
+    yaw: 1.1605,
+    h: MANUAL_BOOKSHELF_H,
+  },
+]
 
 export const counterInstances = manualFixtureInstances.filter(v => v.kind === 'counter')
 export const displayLowInstances = manualFixtureInstances.filter(v => v.kind === 'displayLow')
 export const manualBookshelfInstances = manualFixtureInstances.filter(v => v.kind === 'bookshelf')
+
+/** Map-derived rects + oriented AABB from manual shelves (player collision). */
+export const allBookshelfCollisionRects: WallRect[] = [
+  ...bookshelfRects,
+  ...manualBookshelfInstances.map(m =>
+    axisAlignedBoundsForRotatedBookshelf(m.cx, m.cz, m.w, m.d, m.yaw),
+  ),
+]
+
 export { mapWidth, mapDepth, MAP_RESOLUTION }
 export type { WallRect, BookshelfInstance }
 

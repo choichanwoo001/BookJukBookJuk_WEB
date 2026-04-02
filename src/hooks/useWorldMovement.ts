@@ -3,12 +3,14 @@ import type { RefObject } from 'react'
 import { Group, Vector2 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import {
+  floorRects as baseFloorRects,
   wallRects,
-  isOnFloor,
+  bookshelfRects,
+  pillarRects,
   PLAYER_RADIUS_M,
   SPAWN_POINT_WORLD,
-  WALL_THICKNESS_M,
 } from '../data/floorPlan'
+import { pointInAnyRect } from '../utils/rectUtils'
 
 type KeyState = {
   keyW: boolean
@@ -25,17 +27,11 @@ function normalizeVector(x: number, y: number) {
   return vector
 }
 
-function intersectsWallRect(x: number, z: number, radius: number) {
-  return wallRects.some((r) => {
-    const halfW = (r.w || WALL_THICKNESS_M) * 0.5 + radius
-    const halfD = (r.d || WALL_THICKNESS_M) * 0.5 + radius
-    return x >= r.cx - halfW && x <= r.cx + halfW && z >= r.cz - halfD && z <= r.cz + halfD
-  })
-}
-
 function canOccupy(point: [number, number]) {
-  if (!isOnFloor(point[0], point[1])) return false
-  if (intersectsWallRect(point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (!pointInAnyRect(baseFloorRects, point[0], point[1])) return false
+  if (pointInAnyRect(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyRect(bookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   return true
 }
 
@@ -57,12 +53,20 @@ function findSpawnPosition() {
   return [0, 0] as [number, number]
 }
 
-const INITIAL_PLAYER_POS = findSpawnPosition()
+export const INITIAL_PLAYER_POS = findSpawnPosition()
+
+type DynamicCollisionOverrides = {
+  floorRects?: Array<{ cx: number; cz: number; w: number; d: number }>
+  wallRects?: Array<{ cx: number; cz: number; w: number; d: number }>
+  bookshelfRects?: Array<{ cx: number; cz: number; w: number; d: number }>
+}
 
 export function useWorldMovement(
   worldRef: RefObject<Group | null>,
   yawRef?: RefObject<number>,
   enabled = true,
+  overrides?: DynamicCollisionOverrides,
+  characterYawRef?: RefObject<number>,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -95,6 +99,17 @@ export function useWorldMovement(
   useFrame((_, delta) => {
     if (!worldRef.current || !enabled) return
 
+    const effectiveFloorRects = overrides?.floorRects ?? baseFloorRects
+    const effectiveWallRects = overrides?.wallRects ?? wallRects
+    const effectiveBookshelfRects = overrides?.bookshelfRects ?? bookshelfRects
+    const canOccupyWithOverrides = (point: [number, number]) => {
+      if (!pointInAnyRect(effectiveFloorRects, point[0], point[1])) return false
+      if (pointInAnyRect(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (pointInAnyRect(effectiveBookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      return true
+    }
+
     const key = keyStateRef.current
     const moveX = (key.keyD ? 1 : 0) + (key.keyA ? -1 : 0)
     const moveZ = (key.keyS ? 1 : 0) + (key.keyW ? -1 : 0)
@@ -110,12 +125,16 @@ export function useWorldMovement(
     const step = WALK_SPEED_MPS * delta
 
     const xCandidate: [number, number] = [current[0] + direction.x * step, current[1]]
-    if (canOccupy(xCandidate)) current[0] = xCandidate[0]
+    if (canOccupyWithOverrides(xCandidate)) current[0] = xCandidate[0]
 
     const zCandidate: [number, number] = [current[0], current[1] + direction.y * step]
-    if (canOccupy(zCandidate)) current[1] = zCandidate[1]
+    if (canOccupyWithOverrides(zCandidate)) current[1] = zCandidate[1]
 
     worldRef.current.position.x = -current[0]
     worldRef.current.position.z = -current[1]
+
+    if (characterYawRef && (direction.x !== 0 || direction.y !== 0)) {
+      characterYawRef.current = Math.atan2(-direction.x, -direction.y)
+    }
   })
 }

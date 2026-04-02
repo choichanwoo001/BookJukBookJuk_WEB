@@ -1,0 +1,11 @@
+---
+description: Run lint and build checks before merge
+alwaysApply: true
+---
+
+# Pre-Merge Quality Gates
+
+- After meaningful code changes, run `npm run lint` and `npm run build` before asking for commit/PR.
+- Fix introduced lint/type/build issues in changed files first.
+- Keep generated-map updates separate from app-logic updates when preparing commits.
+- If validation is skipped due to time or environment limits, explicitly report what was not verified.

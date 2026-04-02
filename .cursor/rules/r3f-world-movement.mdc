@@ -1,0 +1,12 @@
+---
+description: Preserve world-group movement pattern in R3F
+globs: "{src/components/Map3DView.tsx,src/hooks/useWorldMovement.ts}"
+alwaysApply: false
+---
+
+# R3F World Movement Rule
+
+- Keep first-person movement based on world-group translation (`worldRef`) instead of moving camera position directly.
+- Keep collision checks in `useWorldMovement` (`isOnFloor`, wall/bookshelf/pillar rect intersection) as the single movement gate.
+- Reuse shared constants from `src/data/floorPlan.ts` (`PLAYER_RADIUS_M`, `WALL_THICKNESS_M`, `FLOOR_HEIGHT_M`).
+- When changing controls, preserve compatibility between camera mode switching and world translation.

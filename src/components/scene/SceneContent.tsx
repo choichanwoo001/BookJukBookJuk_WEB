@@ -12,10 +12,14 @@ import {
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
+import { bookshelfOverlayLayerInstances } from '../../data/bookshelfOverlayLayer'
 import {
   THIRD_PERSON_LOCKED_PITCH,
   floorMaterial,
   bookshelfMaterial,
+  bookshelfOverlayLayerMaterial,
+  counterMaterial,
+  displayLowMaterial,
   pillarMaterial,
   markerMaterial,
   areaMaterial,
@@ -30,6 +34,7 @@ import {
   SelectedBookshelfOverlay,
   BookstoreLights,
 } from './Meshes'
+import { MapDiffOverlayMesh } from './MapDiffOverlayMesh'
 import {
   CameraZoomController,
   OverviewZoomController,
@@ -40,8 +45,6 @@ import {
 import { StickmanPlayer } from './StickmanPlayer'
 const EDIT_YAW_DRAG_SENSITIVITY = 0.008
 const EDIT_YAW_WHEEL_SENSITIVITY = 0.0025
-const DRAG_CLICK_SUPPRESS_MS = 180
-
 function EditDragController({
   selectedIndex,
   instances,
@@ -92,6 +95,7 @@ function EditDragController({
     const onPointerDown = (e: PointerEvent) => {
       if (suspend) return
       if (e.button !== 0) return
+      if (e.altKey) return
       const idx = selectedRef.current
       if (idx === null) return
 
@@ -190,20 +194,26 @@ export function SceneContent({
   mode,
   editTool,
   bookshelfRenderInstances,
+  staticFixtureInstances,
   selections,
   onAddSelection,
   selectedBookshelfIndex,
   onSelectBookshelf,
   onUpdateBookshelf,
+  showMapDiffLayer,
+  showBookshelfOverlayLayer,
 }: {
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
   bookshelfRenderInstances: FixtureRenderInstance[]
+  staticFixtureInstances: FixtureRenderInstance[]
   selections: CircleSelection[]
   onAddSelection: (point: PickPoint) => void
   selectedBookshelfIndex?: number | null
   onSelectBookshelf?: (index: number | null) => void
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
+  showMapDiffLayer?: boolean
+  showBookshelfOverlayLayer?: boolean
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
@@ -217,8 +227,15 @@ export function SceneContent({
   const isAreaSelection = isEdit && editTool === 'areaSelection'
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
-  const lastDragEndAtMsRef = useRef(0)
   const controlsEnabled = true
+  const counterRenderInstances = useMemo(
+    () => staticFixtureInstances.filter((inst) => inst.kind === 'counter'),
+    [staticFixtureInstances],
+  )
+  const displayRenderInstances = useMemo(
+    () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
+    [staticFixtureInstances],
+  )
   const bookshelfCollisionRects = useMemo(
     () =>
       bookshelfRenderInstances.map(inst =>
@@ -282,9 +299,11 @@ export function SceneContent({
     }
   }, [])
 
-  const createPickHandler = (surface: SurfaceKind) => (event: ThreeEvent<MouseEvent>) => {
+  const createPickHandler = (surface: SurfaceKind) => (event: ThreeEvent<PointerEvent>) => {
+    if (!event.altKey) return
     if (!worldRef.current) return
     event.stopPropagation()
+    event.nativeEvent.preventDefault()
     const localPoint = worldRef.current.worldToLocal(event.point.clone())
     onAddSelection({
       x: localPoint.x,
@@ -294,19 +313,24 @@ export function SceneContent({
     })
   }
 
-  const handleBookshelfClick = useCallback((event: ThreeEvent<MouseEvent>) => {
+  const handleBookshelfPointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
     if (!isBookshelfEdit || !onSelectBookshelf) return
+    if (!event.altKey) return
     event.stopPropagation()
+    event.nativeEvent.preventDefault()
     const instanceId = event.instanceId
-    if (instanceId === undefined) return
+    if (instanceId === undefined || instanceId === null) return
     if (isBookshelfDraggingRef.current) return
-
-    if (performance.now() - lastDragEndAtMsRef.current < DRAG_CLICK_SUPPRESS_MS) return
 
     onSelectBookshelf(instanceId)
   }, [isBookshelfEdit, onSelectBookshelf])
 
-  const handleDeselect = useCallback(() => {
+  const clearBookshelfSelection = useCallback(() => {
+    onSelectBookshelf?.(null)
+  }, [onSelectBookshelf])
+
+  const handleDeselect = useCallback((event: ThreeEvent<MouseEvent>) => {
+    if (event.altKey) return
     onSelectBookshelf?.(null)
   }, [onSelectBookshelf])
 
@@ -316,7 +340,6 @@ export function SceneContent({
 
   const handleDragEnd = useCallback(() => {
     isBookshelfDraggingRef.current = false
-    lastDragEndAtMsRef.current = performance.now()
   }, [])
 
   const selectedInst = selectedBookshelfIndex !== null && selectedBookshelfIndex !== undefined
@@ -380,7 +403,7 @@ export function SceneContent({
           selectedIndex={selectedBookshelfIndex ?? null}
           instances={bookshelfRenderInstances}
           onUpdate={onUpdateBookshelf}
-          onDeselect={handleDeselect}
+          onDeselect={clearBookshelfSelection}
           suspend={isSpacePressed}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
@@ -392,18 +415,42 @@ export function SceneContent({
           yOffset={0}
           material={floorMaterial}
           fillRects={floorFillRects}
-          onDoubleClick={isAreaSelection ? createPickHandler('floor') : undefined}
           onClick={isBookshelfEdit ? handleDeselect : undefined}
+          onPointerDown={isAreaSelection ? createPickHandler('floor') : undefined}
         />
+        <MapDiffOverlayMesh visible={showMapDiffLayer ?? false} />
+        <group visible={showBookshelfOverlayLayer ?? false}>
+          <RotatedFixtureInstances
+            instances={bookshelfOverlayLayerInstances}
+            material={bookshelfOverlayLayerMaterial}
+          />
+        </group>
         <WallRibbonMesh
-          onDoubleClick={isAreaSelection ? createPickHandler('wall') : undefined}
           onClick={isBookshelfEdit ? handleDeselect : undefined}
+          onPointerDown={isAreaSelection ? createPickHandler('wall') : undefined}
         />
         <RotatedFixtureInstances
           instances={bookshelfRenderInstances}
           material={bookshelfMaterial}
-          onDoubleClick={isAreaSelection ? createPickHandler('bookshelf') : undefined}
-          onClick={isBookshelfEdit ? handleBookshelfClick : undefined}
+          onPointerDown={
+            isBookshelfEdit
+              ? handleBookshelfPointerDown
+              : isAreaSelection
+                ? createPickHandler('bookshelf')
+                : undefined
+          }
+        />
+        <RotatedFixtureInstances
+          instances={counterRenderInstances}
+          material={counterMaterial}
+          onClick={isBookshelfEdit ? handleDeselect : undefined}
+          onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
+        />
+        <RotatedFixtureInstances
+          instances={displayRenderInstances}
+          material={displayLowMaterial}
+          onClick={isBookshelfEdit ? handleDeselect : undefined}
+          onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
         />
         {isBookshelfEdit && selectedInst && (
           <SelectedBookshelfOverlay instance={selectedInst} />
@@ -413,8 +460,8 @@ export function SceneContent({
           height={FLOOR_HEIGHT_M}
           yOffset={0}
           material={pillarMaterial}
-          onDoubleClick={isAreaSelection ? createPickHandler('pillar') : undefined}
           onClick={isBookshelfEdit ? handleDeselect : undefined}
+          onPointerDown={isAreaSelection ? createPickHandler('pillar') : undefined}
         />
         <BookstoreLights floorRenderRects={floorRects} />
         {selections.map((selection) => (

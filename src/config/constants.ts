@@ -24,6 +24,10 @@ export const OVERVIEW_Y_MAX = 120
 export const PLAYER_SCALE = 0.7
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
 
+/** Min/max for editable fixture width & depth (m) in edit mode. */
+export const MIN_FIXTURE_PLAN_M = 0.05
+export const MAX_FIXTURE_PLAN_M = 20
+
 // --- Selection ---
 export const SURFACE_WALL_OVERLAP_M = 0.04
 export const FIXED_SELECTION_RADIUS_M = 0.35
@@ -39,6 +43,18 @@ export const GAIT_MOVE_THRESHOLD = 0.03
 // --- Materials ---
 export const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 })
 export const bookshelfMaterial = new MeshStandardMaterial({ color: '#8E5C42', roughness: 0.78, metalness: 0.02, side: 2 })
+
+/** 맵 차이와 같이 토글되는 후보 책장 오버레이 (본편 책장과 구분). */
+export const bookshelfOverlayLayerMaterial = new MeshStandardMaterial({
+  color: '#B8956A',
+  roughness: 0.72,
+  metalness: 0.04,
+  emissive: '#1a3a52',
+  emissiveIntensity: 0.22,
+  side: 2,
+})
+export const counterMaterial = new MeshStandardMaterial({ color: '#6D4C41', roughness: 0.76, metalness: 0.03, side: 2 })
+export const displayLowMaterial = new MeshStandardMaterial({ color: '#A1887F', roughness: 0.8, metalness: 0.02, side: 2 })
 export const pillarMaterial = new MeshStandardMaterial({ color: '#D9D0C3', roughness: 0.86, metalness: 0.0, side: 2 })
 export const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
 export const playerMaterial = new MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.85, metalness: 0.0 })

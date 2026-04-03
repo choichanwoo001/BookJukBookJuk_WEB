@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { bookshelfInstances, manualBookshelfInstances } from '../data/floorPlan'
-import { DEFAULT_BOOKSHELF_SIZE, FIXED_SELECTION_RADIUS_M } from '../config/constants'
+import { bookshelfInstances, counterInstances, displayLowInstances } from '../data/floorPlan'
+import {
+  DEFAULT_BOOKSHELF_SIZE,
+  FIXED_SELECTION_RADIUS_M,
+  MAX_FIXTURE_PLAN_M,
+  MIN_FIXTURE_PLAN_M,
+} from '../config/constants'
 import { nearestWallInfo } from '../utils/wallAlignment'
 import type { ViewMode, PickPoint, CircleSelection, FixtureRenderInstance } from '../types/scene'
 import { findNearestBookshelfInCircle } from '../utils/bookshelfSelection'
@@ -21,7 +26,8 @@ function selectionToText(selection: CircleSelection) {
 }
 
 function buildInitialInstances(): FixtureRenderInstance[] {
-  const fromMap = bookshelfInstances.map<FixtureRenderInstance>(item => ({
+  return bookshelfInstances.map<FixtureRenderInstance>(item => ({
+    kind: 'bookshelf',
     cx: item.cx,
     cz: item.cz,
     w: item.w,
@@ -29,19 +35,84 @@ function buildInitialInstances(): FixtureRenderInstance[] {
     yaw: item.yaw,
     h: DEFAULT_BOOKSHELF_SIZE.h,
   }))
-  const fromManual = manualBookshelfInstances.map<FixtureRenderInstance>(m => ({
-    cx: m.cx,
-    cz: m.cz,
-    w: m.w,
-    d: m.d,
-    yaw: m.yaw,
-    h: m.h,
+}
+
+function buildStaticInstances(): FixtureRenderInstance[] {
+  const counters = counterInstances.map<FixtureRenderInstance>((item) => ({
+    kind: 'counter',
+    cx: item.cx,
+    cz: item.cz,
+    w: item.w,
+    d: item.d,
+    yaw: item.yaw,
+    h: item.h,
   }))
-  return [...fromMap, ...fromManual]
+  const displays = displayLowInstances.map<FixtureRenderInstance>((item) => ({
+    kind: 'displayLow',
+    cx: item.cx,
+    cz: item.cz,
+    w: item.w,
+    d: item.d,
+    yaw: item.yaw,
+    h: item.h,
+  }))
+  return [...counters, ...displays]
 }
 
 function radToDeg(rad: number) {
   return ((rad * 180) / Math.PI)
+}
+
+function clampFixturePlanDimension(value: number): number {
+  return Math.min(MAX_FIXTURE_PLAN_M, Math.max(MIN_FIXTURE_PLAN_M, value))
+}
+
+function isEditableDomTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return target.isContentEditable
+}
+
+/** Offset copy so the duplicate does not sit on top of the source (same as "책장 추가"). */
+function offsetDuplicateBookshelf(source: FixtureRenderInstance): FixtureRenderInstance {
+  return {
+    ...source,
+    kind: 'bookshelf',
+    cx: source.cx + Math.max(0.8, source.w * 0.75),
+    cz: source.cz + Math.max(0.8, source.d * 0.75),
+  }
+}
+
+/** Parse a single bookshelf from clipboard JSON (object, or array from "전체 복사"). */
+function parseBookshelfFromClipboardText(text: string): FixtureRenderInstance | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.trim())
+  } catch {
+    return null
+  }
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    parsed = parsed[0]
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const o = parsed as Record<string, unknown>
+  const cx = typeof o.cx === 'number' ? o.cx : Number(o.cx)
+  const cz = typeof o.cz === 'number' ? o.cz : Number(o.cz)
+  const w = typeof o.w === 'number' ? o.w : Number(o.w)
+  const d = typeof o.d === 'number' ? o.d : Number(o.d)
+  const yaw = typeof o.yaw === 'number' ? o.yaw : Number(o.yaw)
+  const h = typeof o.h === 'number' ? o.h : Number(o.h)
+  if (![cx, cz, w, d, yaw, h].every(Number.isFinite)) return null
+  return {
+    kind: 'bookshelf',
+    cx,
+    cz,
+    w: clampFixturePlanDimension(w),
+    d: clampFixturePlanDimension(d),
+    yaw,
+    h: clampFixturePlanDimension(h),
+  }
 }
 
 function Map3DView() {
@@ -49,8 +120,12 @@ function Map3DView() {
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
   const [instances, setInstances] = useState<FixtureRenderInstance[]>(buildInitialInstances)
+  const staticInstances = useMemo(() => buildStaticInstances(), [])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [showMapDiffLayer, setShowMapDiffLayer] = useState(false)
+  const [showBookshelfOverlayLayer, setShowBookshelfOverlayLayer] = useState(false)
   const initialInstances = useMemo(() => buildInitialInstances(), [])
+  const copiedBookshelfRef = useRef<FixtureRenderInstance | null>(null)
 
   const handleAddSelection = useCallback((point: PickPoint) => {
     setSelections((prev) => [
@@ -130,12 +205,9 @@ function Map3DView() {
     setInstances((prev) => {
       const base = selectedIndex !== null ? prev[selectedIndex] : null
       const created: FixtureRenderInstance = base
-        ? {
-            ...base,
-            cx: base.cx + Math.max(0.8, base.w * 0.75),
-            cz: base.cz + Math.max(0.8, base.d * 0.75),
-          }
+        ? offsetDuplicateBookshelf(base)
         : {
+            kind: 'bookshelf',
             cx: 0,
             cz: 0,
             w: DEFAULT_BOOKSHELF_SIZE.w,
@@ -148,6 +220,58 @@ function Map3DView() {
       return next
     })
   }
+
+  const copySelectedBookshelfToClipboard = useCallback(() => {
+    if (selectedIndex === null) return
+    const inst = instances[selectedIndex]
+    if (!inst) return
+    const snapshot: FixtureRenderInstance = { ...inst, kind: 'bookshelf' }
+    copiedBookshelfRef.current = snapshot
+    navigator.clipboard.writeText(JSON.stringify(snapshot)).catch(() => {})
+  }, [selectedIndex, instances])
+
+  const pasteBookshelfAsNew = useCallback((template: FixtureRenderInstance) => {
+    const created = offsetDuplicateBookshelf(template)
+    setInstances((prev) => {
+      const next = [...prev, created]
+      setSelectedIndex(next.length - 1)
+      return next
+    })
+  }, [])
+
+  const handlePasteBookshelf = useCallback(async () => {
+    let template: FixtureRenderInstance | null = null
+    try {
+      const text = await navigator.clipboard.readText()
+      template = parseBookshelfFromClipboardText(text)
+    } catch {
+      /* clipboard API unavailable or denied */
+    }
+    if (!template) template = copiedBookshelfRef.current
+    if (!template) return
+    pasteBookshelfAsNew(template)
+  }, [pasteBookshelfAsNew])
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (mode !== 'edit' || editTool !== 'bookshelfEdit') return
+      if (!e.ctrlKey && !e.metaKey) return
+      if (isEditableDomTarget(e.target)) return
+      const k = e.key.toLowerCase()
+      if (k === 'c') {
+        if (selectedIndex === null) return
+        e.preventDefault()
+        copySelectedBookshelfToClipboard()
+        return
+      }
+      if (k === 'v') {
+        e.preventDefault()
+        void handlePasteBookshelf()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mode, editTool, selectedIndex, copySelectedBookshelfToClipboard, handlePasteBookshelf])
 
   const handleDeleteBookshelf = () => {
     if (selectedIndex === null) return
@@ -178,15 +302,34 @@ function Map3DView() {
           mode={mode}
           editTool={editTool}
           bookshelfRenderInstances={instances}
+          staticFixtureInstances={staticInstances}
           selections={selections}
           onAddSelection={handleAddSelection}
           selectedBookshelfIndex={isEdit ? selectedIndex : null}
           onSelectBookshelf={isEdit ? handleSelectBookshelf : undefined}
           onUpdateBookshelf={isEdit ? handleUpdateInstance : undefined}
+          showMapDiffLayer={showMapDiffLayer}
+          showBookshelfOverlayLayer={showBookshelfOverlayLayer}
         />
       </Canvas>
 
       <div className="mapViewButtons">
+        <label className="mapDiffLayerToggle">
+          <input
+            type="checkbox"
+            checked={showMapDiffLayer}
+            onChange={(e) => setShowMapDiffLayer(e.target.checked)}
+          />
+          맵 차이 (ver0↔ver2)
+        </label>
+        <label className="mapDiffLayerToggle">
+          <input
+            type="checkbox"
+            checked={showBookshelfOverlayLayer}
+            onChange={(e) => setShowBookshelfOverlayLayer(e.target.checked)}
+          />
+          책장 후보 (오버레이)
+        </label>
         <button type="button" data-active={mode === 'overview'} onClick={() => { setMode('overview'); setSelectedIndex(null) }}>
           전체 보기
         </button>
@@ -237,16 +380,50 @@ function Map3DView() {
                 <span className="editLabel">Yaw</span>
                 <span className="editValue">{radToDeg(selected.yaw).toFixed(1)}°</span>
               </div>
+              <div className="editPanelRow">
+                <span className="editLabel">가로 (폭, m)</span>
+                <input
+                  type="number"
+                  className="editPanelInput"
+                  min={MIN_FIXTURE_PLAN_M}
+                  max={MAX_FIXTURE_PLAN_M}
+                  step={0.01}
+                  value={selected.w}
+                  onChange={(e) => {
+                    if (selectedIndex === null) return
+                    const v = Number(e.target.value)
+                    if (!Number.isFinite(v)) return
+                    handleUpdateInstance(selectedIndex, { w: clampFixturePlanDimension(v) })
+                  }}
+                />
+              </div>
+              <div className="editPanelRow">
+                <span className="editLabel">세로 (깊이, m)</span>
+                <input
+                  type="number"
+                  className="editPanelInput"
+                  min={MIN_FIXTURE_PLAN_M}
+                  max={MAX_FIXTURE_PLAN_M}
+                  step={0.01}
+                  value={selected.d}
+                  onChange={(e) => {
+                    if (selectedIndex === null) return
+                    const v = Number(e.target.value)
+                    if (!Number.isFinite(v)) return
+                    handleUpdateInstance(selectedIndex, { d: clampFixturePlanDimension(v) })
+                  }}
+                />
+              </div>
               <div className="editPanelActions">
                 <button type="button" onClick={handleSnapYawToWallParallel}>벽 평행(yaw)</button>
                 <button type="button" onClick={handleSnapYawToWallPerpendicular}>벽 직각(yaw)</button>
               </div>
-              <div className="editPanelHint">클릭: 선택 | 드래그: 이동 | Shift+드래그: 회전 | 휠: 미세 회전</div>
+              <div className="editPanelHint">Alt+클릭: 선택 | 드래그: 이동 | Shift+드래그: 회전 | 휠: 미세 회전 | Ctrl+C / Ctrl+V: 복사·붙여넣기</div>
             </div>
           ) : (
             <div className="editPanelBody">
               <div className="editPanelHint">
-                {editTool === 'bookshelfEdit' ? '책장을 클릭하여 선택하세요' : '영역선택 모드에서 더블클릭으로 포인트를 기록하면 구역 안 책장이 선택됩니다'}
+                {editTool === 'bookshelfEdit' ? 'Alt+클릭으로 책장을 선택하세요' : '영역선택 모드에서 Alt+클릭으로 포인트를 기록하면 구역 안 책장이 선택됩니다'}
               </div>
             </div>
           )}
@@ -255,6 +432,18 @@ function Map3DView() {
               <div className="editPanelActions">
                 <button type="button" onClick={handleAddBookshelf}>책장 추가</button>
                 <button type="button" onClick={handleDeleteBookshelf} disabled={selectedIndex === null}>선택 삭제</button>
+              </div>
+              <div className="editPanelActions">
+                <button
+                  type="button"
+                  onClick={copySelectedBookshelfToClipboard}
+                  disabled={selectedIndex === null}
+                >
+                  복사 (Ctrl+C)
+                </button>
+                <button type="button" onClick={() => void handlePasteBookshelf()}>
+                  붙여넣기 (Ctrl+V)
+                </button>
               </div>
               <div className="editPanelActions">
                 <button type="button" onClick={handleCopyChanged}>변경분 복사</button>

@@ -12,12 +12,13 @@ const DEFAULT_IMAGE = 'KakaoTalk_20260329_205358459.pgm'
 const YAML_PATH = resolve(ROOT, 'b2floor_edited.yaml')
 
 const MIN_CLUSTER_SIZE = 28
-const AXIS_SNAP_DEG = 8
+/** Looser snap reduces stair-stepping along diagonals vs strict Manhattan alignment. */
+const AXIS_SNAP_DEG = 22
 const CENTER_LOOP_SIMPLIFY_M = 0.15
-const RENDER_LOOP_SIMPLIFY_M = 0.25
+const RENDER_LOOP_SIMPLIFY_M = 0.38
 const HOLE_LOOP_SIMPLIFY_M = 0.08
 const CENTER_LOOP_MIN_SEGMENT_M = 0.12
-const RENDER_LOOP_MIN_SEGMENT_M = 0.2
+const RENDER_LOOP_MIN_SEGMENT_M = 0.28
 const HOLE_LOOP_MIN_SEGMENT_M = 0.08
 
 let RESOLUTION = 0.05
@@ -877,13 +878,17 @@ function median(values) {
 async function main() {
   const deltaArg = process.argv.indexOf('--delta')
   const deltaImageName = deltaArg >= 0 ? process.argv[deltaArg + 1] : null
+  const imageArg = process.argv.indexOf('--image')
+  const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
+  const mapOffsetOnly = process.argv.includes('--map-offset-only')
 
   const config = parseYamlMapConfig(YAML_PATH)
   RESOLUTION = config.resolution
   ORIGIN_X = config.originX
   ORIGIN_Y = config.originY
-  const imagePath = resolve(ROOT, config.imageName)
-  const imageExt = extname(config.imageName).toLowerCase()
+  const configImageName = imageOverride ?? config.imageName
+  const imagePath = resolve(ROOT, configImageName)
+  const imageExt = extname(configImageName).toLowerCase()
   const isPgm = imageExt === '.pgm' || imageExt === '.pnm'
   const { wallThreshold, freeThreshold } = thresholdsFromYaml(config.occupiedThresh, config.freeThresh)
 
@@ -941,6 +946,22 @@ async function main() {
   const offsetX = totalArea > 0 ? sumX / totalArea : 0
   const offsetZ = totalArea > 0 ? sumZ / totalArea : 0
   console.log(`  center offset: (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
+
+  if (mapOffsetOnly) {
+    console.log(
+      JSON.stringify({
+        offsetX,
+        offsetZ,
+        width,
+        height,
+        originX: ORIGIN_X,
+        originZ: ORIGIN_Y,
+        resolution: RESOLUTION,
+        image: configImageName,
+      }),
+    )
+    process.exit(0)
+  }
 
   const rawLoops = extractFreeBoundaryLoops(grid, width, height)
   const centerLoops = rawLoops
@@ -1333,6 +1354,14 @@ export type Point2 = [number, number]
 export const MAP_RESOLUTION = ${RESOLUTION}
 export const mapWidth = ${mapWidth}
 export const mapDepth = ${mapDepth}
+/** YAML origin; 3D geometry uses pxToWorld minus mapImageOffset. */
+export const MAP_IMAGE_ORIGIN_X = ${ORIGIN_X}
+export const MAP_IMAGE_ORIGIN_Z = ${ORIGIN_Y}
+export const MAP_IMAGE_WIDTH_PX = ${width}
+export const MAP_IMAGE_HEIGHT_PX = ${height}
+/** Area-weighted centroid of floor rects in world (pxToWorld); subtracted in mapData coords. */
+export const mapImageOffsetX = ${Math.round(offsetX * 10000) / 10000}
+export const mapImageOffsetZ = ${Math.round(offsetZ * 10000) / 10000}
 
 export const wallRects: WallRect[] = ${JSON.stringify(wallRects)}
 export const bookshelfRects: WallRect[] = ${JSON.stringify(finalBookshelfRects)}

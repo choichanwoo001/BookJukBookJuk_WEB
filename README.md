@@ -92,6 +92,30 @@ npm run build
 node scripts/processMap.mjs
 ```
 
+ver0/ver1 차이 검출 JSON(파이썬 출력) 반영:
+
+```bash
+npm run fixtures:convert -- --input detected_fixtures.json
+```
+
+이미지 2장 차이 기반으로 책장 자동 검출(`detectedFixtures.ts` 생성):
+
+```bash
+npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --output src/data/detectedFixtures.ts
+```
+
+디버그 마스크까지 함께 저장:
+
+```bash
+npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --debug-dir scripts/samples
+```
+
+샘플 JSON 스모크 테스트:
+
+```bash
+npm run fixtures:convert -- --input scripts/samples/detected_fixtures.sample.json --dry-run
+```
+
 ---
 
 ## 5) 향후 정리 예정 항목

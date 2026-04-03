@@ -41,8 +41,29 @@
   top: 0.85rem;
   left: 0.85rem;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   z-index: 10;
+}
+
+.mapDiffLayerToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(16, 24, 42, 0.84);
+  color: #eaf1ff;
+  font-size: 0.84rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mapDiffLayerToggle input {
+  cursor: pointer;
 }
 
 .mapViewButtons button {
@@ -211,6 +232,24 @@
 .editValue {
   font-family: 'Consolas', 'Monaco', monospace;
   color: #b8d4ff;
+}
+
+.editPanelRow input[type='number'].editPanelInput {
+  width: 5.2rem;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.8rem;
+  color: #b8d4ff;
+  background: rgba(8, 14, 28, 0.85);
+  border: 1px solid rgba(127, 166, 255, 0.35);
+  border-radius: 6px;
+  padding: 0.22rem 0.4rem;
+  outline: none;
+}
+
+.editPanelRow input[type='number'].editPanelInput:focus {
+  border-color: #7fa6ff;
 }
 
 .editPanelHint {

@@ -15,33 +15,28 @@ import type { InstancedMesh as ThreeInstancedMesh } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import {
   wallPolylines,
-  wallHolePolylines,
   FLOOR_HEIGHT_M,
   type WallRect,
 } from '../../data/floorPlan'
 import { pointInAnyRect } from '../../utils/rectUtils'
+import { getFloorOuterAndHolePolygons, getFillRectsClippedToValidFloor } from '../../utils/floorPolygon'
 import {
   wallMaterial,
   SURFACE_WALL_OVERLAP_M,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
 
-function signedArea2D(pts: [number, number][]) {
-  let area = 0
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i]
-    const b = pts[(i + 1) % pts.length]
-    area += a[0] * b[1] - b[0] * a[1]
-  }
-  return area * 0.5
-}
+/** Grid step for clipping manual floor fill rects to outer − void (meters). */
+const FLOOR_FILL_CLIP_CELL_M = 0.14
 
 export function WallRibbonMesh({
   onDoubleClick,
   onClick,
+  onPointerDown,
 }: {
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const wallGeometry = useMemo(() => {
     const yBottom = -SURFACE_WALL_OVERLAP_M
@@ -78,7 +73,16 @@ export function WallRibbonMesh({
     return geo
   }, [])
 
-  return <mesh geometry={wallGeometry} material={wallMaterial} frustumCulled={false} onDoubleClick={onDoubleClick} onClick={onClick} />
+  return (
+    <mesh
+      geometry={wallGeometry}
+      material={wallMaterial}
+      frustumCulled={false}
+      onDoubleClick={onDoubleClick}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+    />
+  )
 }
 
 export function FloorPolygonMesh({
@@ -87,24 +91,21 @@ export function FloorPolygonMesh({
   fillRects,
   onDoubleClick,
   onClick,
+  onPointerDown,
 }: {
   yOffset: number
   material: MeshStandardMaterial
   fillRects?: WallRect[]
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const geometry = useMemo(() => {
     if (wallPolylines.length === 0) return new BufferGeometry()
 
-    let outerIdx = 0
-    let outerAbsArea = 0
-    for (let i = 0; i < wallPolylines.length; i++) {
-      const a = Math.abs(signedArea2D(wallPolylines[i]))
-      if (a > outerAbsArea) { outerAbsArea = a; outerIdx = i }
-    }
+    const { outer: outerPts, holes: holePolys } = getFloorOuterAndHolePolygons(wallPolylines)
+    if (outerPts.length < 3) return new BufferGeometry()
 
-    const outerPts = wallPolylines[outerIdx]
     const shape = new Shape()
     shape.moveTo(outerPts[0][0], outerPts[0][1])
     for (let i = 1; i < outerPts.length; i++) {
@@ -112,8 +113,7 @@ export function FloorPolygonMesh({
     }
     shape.closePath()
 
-    for (const holePts of wallHolePolylines) {
-      if (holePts.length < 3) continue
+    for (const holePts of holePolys) {
       const hole = new Path()
       hole.moveTo(holePts[0][0], holePts[0][1])
       for (let j = 1; j < holePts.length; j++) {
@@ -135,16 +135,31 @@ export function FloorPolygonMesh({
 
     if (!fillRects || fillRects.length === 0) return shapeGeo
 
-    const fillGeos = fillRects.map(r => {
-      const g = new PlaneGeometry(r.w, r.d)
+    const clippedCells = getFillRectsClippedToValidFloor(
+      fillRects,
+      outerPts,
+      holePolys,
+      FLOOR_FILL_CLIP_CELL_M,
+    )
+    const fillGeos = clippedCells.map((c) => {
+      const g = new PlaneGeometry(c.w, c.d)
       g.rotateX(-Math.PI / 2)
-      g.translate(r.cx, yOffset, r.cz)
+      g.translate(c.cx, yOffset, c.cz)
       return g
     })
     return mergeGeometries([shapeGeo, ...fillGeos]) ?? shapeGeo
   }, [yOffset, fillRects])
 
-  return <mesh geometry={geometry} material={material} frustumCulled={false} onDoubleClick={onDoubleClick} onClick={onClick} />
+  return (
+    <mesh
+      geometry={geometry}
+      material={material}
+      frustumCulled={false}
+      onDoubleClick={onDoubleClick}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+    />
+  )
 }
 
 export function PillarCylinderInstances({
@@ -154,6 +169,7 @@ export function PillarCylinderInstances({
   material,
   onDoubleClick,
   onClick,
+  onPointerDown,
 }: {
   rects: WallRect[]
   height: number
@@ -161,6 +177,7 @@ export function PillarCylinderInstances({
   material: MeshStandardMaterial
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
   const matrix = useMemo(() => new Matrix4(), [])
@@ -187,6 +204,7 @@ export function PillarCylinderInstances({
       frustumCulled={false}
       onDoubleClick={onDoubleClick}
       onClick={onClick}
+      onPointerDown={onPointerDown}
     >
       <primitive object={material} attach="material" />
     </instancedMesh>
@@ -198,11 +216,13 @@ export function RotatedFixtureInstances({
   material,
   onDoubleClick,
   onClick,
+  onPointerDown,
 }: {
   instances: FixtureRenderInstance[]
   material: MeshStandardMaterial
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
   const matrix = useMemo(() => new Matrix4(), [])
@@ -229,6 +249,7 @@ export function RotatedFixtureInstances({
       frustumCulled={false}
       onDoubleClick={onDoubleClick}
       onClick={onClick}
+      onPointerDown={onPointerDown}
     >
       <boxGeometry args={[1, 1, 1]} />
       <primitive object={material} attach="material" />

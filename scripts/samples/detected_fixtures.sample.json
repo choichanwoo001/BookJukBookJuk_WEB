@@ -1,0 +1,35 @@
+{
+  "source_image": {
+    "width": 1308,
+    "height": 707
+  },
+  "objects": [
+    {
+      "class": "bookshelf",
+      "score": 0.95,
+      "rotated_rect": {
+        "center": [392.5, 211.0],
+        "size": [112.0, 48.0],
+        "angle": 18.0
+      }
+    },
+    {
+      "class": "shelf/counter",
+      "score": 0.91,
+      "rotated_rect": {
+        "center": [740.0, 303.0],
+        "size": [166.0, 68.0],
+        "angle": -9.5
+      }
+    },
+    {
+      "class": "table/display",
+      "score": 0.88,
+      "rotated_rect": {
+        "center": [990.0, 520.0],
+        "size": [88.0, 84.0],
+        "angle": 42.0
+      }
+    }
+  ]
+}

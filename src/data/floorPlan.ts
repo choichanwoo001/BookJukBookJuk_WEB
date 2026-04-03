@@ -4,11 +4,10 @@ import {
   wallPolylines as rawWallPolylines,
   wallHolePolylines as rawWallHolePolylines,
   floorRects as rawFloorRects,
-  mapWidth,
-  mapDepth,
-  MAP_RESOLUTION,
+  mapWidth, mapDepth, MAP_RESOLUTION,
 } from './mapData'
 import type { WallRect, BookshelfInstance } from './mapData'
+import { detectedFixtures } from './detectedFixtures'
 import { axisAlignedBoundsForRotatedBookshelf } from '../utils/bookshelfCollision'
 import { pointInAnyRect } from '../utils/rectUtils'
 
@@ -29,6 +28,8 @@ export type ManualFixtureInstance = {
   yaw: number
   h: number
 }
+
+export type RuntimeFixtureInstance = ManualFixtureInstance
 
 const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
   // Floor fill near center (x=-2.938, z=8.543).
@@ -63,8 +64,6 @@ function normalizeWallThickness(rects: WallRect[], thickness: number): WallRect[
 export const wallRects = normalizeWallThickness(rawWallRects, WALL_THICKNESS_M)
 export const floorFillRects = MANUAL_FLOOR_FILL_RECTS
 export const floorRects = [...rawFloorRects, ...MANUAL_FLOOR_FILL_RECTS]
-export const bookshelfRects: WallRect[] = []
-export const bookshelfInstances: BookshelfInstance[] = []
 export const pillarRects = rawPillarRects
 export const wallPolylines = [
   ...rawWallPolylines.filter(loop => loop.length >= 3),
@@ -72,39 +71,76 @@ export const wallPolylines = [
 ]
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
 
-// Photo / measured placements (persist here; map pipeline `bookshelfInstances` stays empty).
+// Photo / measured placements (persist here; merged with detected fixtures).
 // yaw radians; w,d meters; h shelf height.
 const MANUAL_BOOKSHELF_H = FLOOR_HEIGHT_M * 0.78
+const COUNTER_H = 1.1
+const DISPLAY_LOW_H = 0.9
 
-export const manualFixtureInstances: ManualFixtureInstance[] = [
-  {
-    kind: 'bookshelf',
-    cx: -7.169,
-    cz: 14.413,
-    w: 1.758,
-    d: 0.745,
-    yaw: -0.4103,
-    h: MANUAL_BOOKSHELF_H,
-  },
-  {
-    kind: 'bookshelf',
-    cx: -13.369,
-    cz: 13.338,
-    w: 1.74,
-    d: 0.697,
-    yaw: 1.1605,
-    h: MANUAL_BOOKSHELF_H,
-  },
-]
+const DEFAULT_HEIGHT_BY_KIND: Record<FixtureKind, number> = {
+  bookshelf: MANUAL_BOOKSHELF_H,
+  counter: COUNTER_H,
+  displayLow: DISPLAY_LOW_H,
+}
 
-export const counterInstances = manualFixtureInstances.filter(v => v.kind === 'counter')
-export const displayLowInstances = manualFixtureInstances.filter(v => v.kind === 'displayLow')
+export const manualFixtureInstances: ManualFixtureInstance[] = []
+
 export const manualBookshelfInstances = manualFixtureInstances.filter(v => v.kind === 'bookshelf')
 
-/** Map-derived rects + oriented AABB from manual shelves (player collision). */
+function areSimilarFixtures(a: RuntimeFixtureInstance, b: RuntimeFixtureInstance) {
+  if (a.kind !== b.kind) return false
+  const centerDistance = Math.hypot(a.cx - b.cx, a.cz - b.cz)
+  if (centerDistance > 0.75) return false
+  const areaA = a.w * a.d
+  const areaB = b.w * b.d
+  const areaRatio = areaA > areaB ? areaA / areaB : areaB / areaA
+  return areaRatio <= 1.5
+}
+
+function mergeFixtures(preferred: RuntimeFixtureInstance[], overrides: RuntimeFixtureInstance[]) {
+  const merged = [...preferred]
+  for (const candidate of overrides) {
+    const dupIdx = merged.findIndex(current => areSimilarFixtures(current, candidate))
+    if (dupIdx >= 0) merged[dupIdx] = candidate
+    else merged.push(candidate)
+  }
+  return merged
+}
+
+const detectedFixtureInstances: RuntimeFixtureInstance[] = detectedFixtures.map((fixture) => {
+  const kind = fixture.kind
+  return {
+    kind,
+    cx: fixture.cx,
+    cz: fixture.cz,
+    w: fixture.w,
+    d: fixture.d,
+    yaw: fixture.yaw,
+    h: fixture.h ?? DEFAULT_HEIGHT_BY_KIND[kind],
+  }
+})
+
+export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(detectedFixtureInstances, manualFixtureInstances)
+export const bookshelfInstanceModels = fixtureInstances.filter(v => v.kind === 'bookshelf')
+export const counterInstances = fixtureInstances.filter(v => v.kind === 'counter')
+export const displayLowInstances = fixtureInstances.filter(v => v.kind === 'displayLow')
+export const bookshelfInstances: BookshelfInstance[] = bookshelfInstanceModels.map((s) => ({
+  cx: s.cx,
+  cz: s.cz,
+  w: s.w,
+  d: s.d,
+  yaw: s.yaw,
+}))
+export const bookshelfRects: WallRect[] = bookshelfInstances.map((s) => ({
+  cx: s.cx,
+  cz: s.cz,
+  w: s.w,
+  d: s.d,
+}))
+
+/** Oriented AABB from merged bookshelf fixtures (player collision). */
 export const allBookshelfCollisionRects: WallRect[] = [
-  ...bookshelfRects,
-  ...manualBookshelfInstances.map(m =>
+  ...bookshelfInstances.map(m =>
     axisAlignedBoundsForRotatedBookshelf(m.cx, m.cz, m.w, m.d, m.yaw),
   ),
 ]

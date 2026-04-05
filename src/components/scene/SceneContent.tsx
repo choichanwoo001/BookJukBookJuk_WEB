@@ -44,12 +44,11 @@ import {
 } from './CameraControllers'
 import { StickmanPlayer } from './StickmanPlayer'
 const EDIT_YAW_DRAG_SENSITIVITY = 0.008
-const EDIT_YAW_WHEEL_SENSITIVITY = 0.0025
+const EDIT_YAW_WHEEL_SENSITIVITY = 0.001
 function EditDragController({
   selectedIndex,
   instances,
   onUpdate,
-  onDeselect,
   suspend,
   onDragStart,
   onDragEnd,
@@ -57,7 +56,6 @@ function EditDragController({
   selectedIndex: number | null
   instances: FixtureRenderInstance[]
   onUpdate: (index: number, patch: Partial<FixtureRenderInstance>) => void
-  onDeselect: () => void
   suspend: boolean
   onDragStart?: () => void
   onDragEnd?: () => void
@@ -118,7 +116,6 @@ function EditDragController({
       const dist = Math.sqrt((ground.x - inst.cx) ** 2 + (ground.z - inst.cz) ** 2)
       const maxGrab = Math.max(inst.w, inst.d) * 0.8
       if (dist > maxGrab) {
-        onDeselect()
         return
       }
 
@@ -185,7 +182,7 @@ function EditDragController({
       el.removeEventListener('wheel', onWheel)
       el.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [gl, screenToGround, onUpdate, onDeselect, suspend, onDragStart, onDragEnd])
+  }, [gl, screenToGround, onUpdate, suspend, onDragStart, onDragEnd])
 
   return null
 }
@@ -325,15 +322,6 @@ export function SceneContent({
     onSelectBookshelf(instanceId)
   }, [isBookshelfEdit, onSelectBookshelf])
 
-  const clearBookshelfSelection = useCallback(() => {
-    onSelectBookshelf?.(null)
-  }, [onSelectBookshelf])
-
-  const handleDeselect = useCallback((event: ThreeEvent<MouseEvent>) => {
-    if (event.altKey) return
-    onSelectBookshelf?.(null)
-  }, [onSelectBookshelf])
-
   const handleDragStart = useCallback(() => {
     isBookshelfDraggingRef.current = true
   }, [])
@@ -403,7 +391,6 @@ export function SceneContent({
           selectedIndex={selectedBookshelfIndex ?? null}
           instances={bookshelfRenderInstances}
           onUpdate={onUpdateBookshelf}
-          onDeselect={clearBookshelfSelection}
           suspend={isSpacePressed}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
@@ -415,7 +402,6 @@ export function SceneContent({
           yOffset={0}
           material={floorMaterial}
           fillRects={floorFillRects}
-          onClick={isBookshelfEdit ? handleDeselect : undefined}
           onPointerDown={isAreaSelection ? createPickHandler('floor') : undefined}
         />
         <MapDiffOverlayMesh visible={showMapDiffLayer ?? false} />
@@ -423,10 +409,10 @@ export function SceneContent({
           <RotatedFixtureInstances
             instances={bookshelfOverlayLayerInstances}
             material={bookshelfOverlayLayerMaterial}
+            disableRaycast
           />
         </group>
         <WallRibbonMesh
-          onClick={isBookshelfEdit ? handleDeselect : undefined}
           onPointerDown={isAreaSelection ? createPickHandler('wall') : undefined}
         />
         <RotatedFixtureInstances
@@ -443,13 +429,11 @@ export function SceneContent({
         <RotatedFixtureInstances
           instances={counterRenderInstances}
           material={counterMaterial}
-          onClick={isBookshelfEdit ? handleDeselect : undefined}
           onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
         />
         <RotatedFixtureInstances
           instances={displayRenderInstances}
           material={displayLowMaterial}
-          onClick={isBookshelfEdit ? handleDeselect : undefined}
           onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
         />
         {isBookshelfEdit && selectedInst && (
@@ -460,7 +444,6 @@ export function SceneContent({
           height={FLOOR_HEIGHT_M}
           yOffset={0}
           material={pillarMaterial}
-          onClick={isBookshelfEdit ? handleDeselect : undefined}
           onPointerDown={isAreaSelection ? createPickHandler('pillar') : undefined}
         />
         <BookstoreLights floorRenderRects={floorRects} />

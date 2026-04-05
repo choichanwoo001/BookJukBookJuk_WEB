@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   BufferGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
+  InstancedMesh,
   Matrix4,
+  Mesh as ThreeMesh,
   MeshStandardMaterial,
   PlaneGeometry,
   Shape,
@@ -214,12 +216,14 @@ export function PillarCylinderInstances({
 export function RotatedFixtureInstances({
   instances,
   material,
+  disableRaycast,
   onDoubleClick,
   onClick,
   onPointerDown,
 }: {
   instances: FixtureRenderInstance[]
   material: MeshStandardMaterial
+  disableRaycast?: boolean
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
@@ -239,6 +243,16 @@ export function RotatedFixtureInstances({
     }
     meshRef.current.instanceMatrix.needsUpdate = true
   }, [instances, matrix])
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    if (disableRaycast) {
+      mesh.raycast = () => {}
+    } else {
+      mesh.raycast = InstancedMesh.prototype.raycast.bind(mesh)
+    }
+  }, [disableRaycast, instances.length])
 
   if (instances.length === 0) return null
 
@@ -275,13 +289,22 @@ const selectedWireMaterial = new MeshStandardMaterial({
 
 export function SelectedBookshelfOverlay({ instance }: { instance: FixtureRenderInstance }) {
   const { cx, cz, w, h, d, yaw } = instance
+  const fillRef = useRef<ThreeMesh>(null)
+  const wireRef = useRef<ThreeMesh>(null)
+
+  useLayoutEffect(() => {
+    for (const m of [fillRef.current, wireRef.current]) {
+      if (m) m.raycast = () => {}
+    }
+  }, [])
+
   return (
     <group position={[cx, h * 0.5, cz]} rotation={[0, yaw, 0]}>
-      <mesh scale={[w + 0.08, h + 0.08, d + 0.08]}>
+      <mesh ref={fillRef} scale={[w + 0.08, h + 0.08, d + 0.08]}>
         <boxGeometry args={[1, 1, 1]} />
         <primitive object={selectedOverlayMaterial} attach="material" />
       </mesh>
-      <mesh scale={[w + 0.1, h + 0.1, d + 0.1]}>
+      <mesh ref={wireRef} scale={[w + 0.1, h + 0.1, d + 0.1]}>
         <boxGeometry args={[1, 1, 1]} />
         <primitive object={selectedWireMaterial} attach="material" />
       </mesh>

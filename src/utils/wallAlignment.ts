@@ -295,3 +295,46 @@ export function alignBookshelfPairsFacingAcrossAisle<
 
   return instances.map((r) => out.get(r)!)
 }
+
+/**
+ * 같은 yaw인 책장 4개(2×2)에서, 뒷면(local −Z)이 벽에 나란한 **두 직선** 위에 오도록
+ * 중심을 법선 (sin(yaw), cos(yaw)) 방향으로만 아주 조금 이동한다.
+ * `n·center - d/2`를 행별 평균에 맞춤 — 깊이 d가 다르면 같은 행 안에서 뒷면이 한 줄로 맞춰짐.
+ */
+export function microAlignShelfClusterBackEdgesFour<
+  T extends { cx: number; cz: number; d: number; yaw: number },
+>(shelves: T[]): T[] {
+  if (shelves.length !== 4) return shelves.map((r) => ({ ...r }))
+  const yaw = shelves[0].yaw
+  const nx = Math.sin(yaw)
+  const nz = Math.cos(yaw)
+
+  type Item = { r: T; idx: number; nDot: number; backN: number }
+  const items: Item[] = shelves.map((r, idx) => {
+    const nDot = r.cx * nx + r.cz * nz
+    return { r, idx, nDot, backN: nDot - r.d * 0.5 }
+  })
+  const sorted = [...items].sort((a, b) => a.nDot - b.nDot)
+  const rowLo = sorted.slice(0, 2)
+  const rowHi = sorted.slice(2, 4)
+
+  const adjustRow = (row: Item[]): Map<number, T> => {
+    const target = row.reduce((s, x) => s + x.backN, 0) / row.length
+    const m = new Map<number, T>()
+    for (const { r, idx } of row) {
+      const cur = r.cx * nx + r.cz * nz - r.d * 0.5
+      const delta = target - cur
+      m.set(idx, {
+        ...r,
+        cx: r.cx + delta * nx,
+        cz: r.cz + delta * nz,
+      })
+    }
+    return m
+  }
+
+  const out = new Map<number, T>()
+  for (const [k, v] of adjustRow(rowLo)) out.set(k, v)
+  for (const [k, v] of adjustRow(rowHi)) out.set(k, v)
+  return shelves.map((_, i) => out.get(i)!)
+}

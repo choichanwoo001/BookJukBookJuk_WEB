@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { PlaneGeometry, Texture, TextureLoader, SRGBColorSpace } from 'three'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Mesh as ThreeMesh, PlaneGeometry, Texture, TextureLoader, SRGBColorSpace } from 'three'
 import {
   MAP_IMAGE_HEIGHT_PX,
   MAP_IMAGE_ORIGIN_X,
@@ -19,6 +19,7 @@ const Y_OFFSET = 0.018
  */
 export function MapDiffOverlayMesh({ visible }: { visible: boolean }) {
   const [texture, setTexture] = useState<Texture | null>(null)
+  const meshRef = useRef<ThreeMesh>(null)
 
   useEffect(() => {
     const loader = new TextureLoader()
@@ -68,10 +69,16 @@ export function MapDiffOverlayMesh({ visible }: { visible: boolean }) {
     }
   }, [geometry])
 
+  useLayoutEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.raycast = () => {}
+    }
+  }, [texture])
+
   if (!texture) return null
 
   return (
-    <mesh visible={visible} position={position} geometry={geometry} frustumCulled={false} renderOrder={2}>
+    <mesh ref={meshRef} visible={visible} position={position} geometry={geometry} frustumCulled={false} renderOrder={2}>
       <meshBasicMaterial
         map={texture}
         transparent

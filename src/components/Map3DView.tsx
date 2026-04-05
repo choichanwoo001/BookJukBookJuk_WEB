@@ -151,6 +151,19 @@ function Map3DView() {
   }, [])
 
   useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (mode !== 'edit' || editTool !== 'bookshelfEdit') return
+      if (e.code !== 'KeyE') return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      if (isEditableDomTarget(e.target)) return
+      e.preventDefault()
+      setSelectedIndex(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mode, editTool])
+
+  useEffect(() => {
     if (selections.length === 0) return
     const text = selections.map(selectionToText).join('\n')
     navigator.clipboard.writeText(text).catch(() => {})
@@ -418,12 +431,12 @@ function Map3DView() {
                 <button type="button" onClick={handleSnapYawToWallParallel}>벽 평행(yaw)</button>
                 <button type="button" onClick={handleSnapYawToWallPerpendicular}>벽 직각(yaw)</button>
               </div>
-              <div className="editPanelHint">Alt+클릭: 선택 | 드래그: 이동 | Shift+드래그: 회전 | 휠: 미세 회전 | Ctrl+C / Ctrl+V: 복사·붙여넣기</div>
+              <div className="editPanelHint">Alt+클릭: 선택 | E: 선택 해제 | 드래그: 이동 | Shift+드래그: 회전 | 휠: 미세 회전 | Ctrl+C / Ctrl+V: 복사·붙여넣기</div>
             </div>
           ) : (
             <div className="editPanelBody">
               <div className="editPanelHint">
-                {editTool === 'bookshelfEdit' ? 'Alt+클릭으로 책장을 선택하세요' : '영역선택 모드에서 Alt+클릭으로 포인트를 기록하면 구역 안 책장이 선택됩니다'}
+                {editTool === 'bookshelfEdit' ? 'Alt+클릭으로 책장을 선택하세요 · E로 선택 해제' : '영역선택 모드에서 Alt+클릭으로 포인트를 기록하면 구역 안 책장이 선택됩니다'}
               </div>
             </div>
           )}

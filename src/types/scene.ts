@@ -1,4 +1,4 @@
-export type ViewMode = 'thirdPerson' | 'overview' | 'edit'
+export type ViewMode = 'firstPerson' | 'thirdPerson' | 'overview' | 'edit'
 export type SurfaceKind = 'floor' | 'wall' | 'bookshelf' | 'pillar'
 
 export type PickPoint = {

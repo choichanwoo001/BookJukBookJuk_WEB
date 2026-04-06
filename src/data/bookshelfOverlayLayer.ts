@@ -10,8 +10,8 @@ type ShelfRow = Omit<FixtureRenderInstance, 'kind'>
 
 /**
  * 맵 차이 레이어용 후보 책장. 기본은 JSON의 cx, cz, yaw, w, d, h를 그대로 쓴다.
- * 복도 양쪽 마주보기 4개 구역만 `alignBookshelfPairsFacingAcrossAisle`로 접선 방향 미세 조정
- * (JSON이 같은 yaw만 주는 경우 한쪽 행에 yaw+π를 두어 두 그룹으로 나눔).
+ * RAW_AISLES 첫 두 행은 항상 `snapBookshelfCenterFlushToWall` 후 (같은 yaw면) `microAlignShelfClusterBackEdgesFour` 또는 복도 4점은
+ * 스냅 뒤 `alignBookshelfPairsFacingAcrossAisle`로 통로 쪽으로 열리게 맞춘다.
  * 일부 구역은 벽 폴리라인과의 거리가 가까울 때만 `snapBookshelfCenterFlushToWall`로 뒷면을 벽에 맞춘다.
  * 별도 구역은 입력 좌표와 무관하게 항상 벽 스냅(뒷면 접선)을 적용한다.
  * 2×2로 모인 네 책장 묶음은 `microAlignShelfClusterBackEdgesFour`로 뒷면이 같은 직선(행마다) 위에 오게 법선 방향만 미세 조정.
@@ -33,6 +33,10 @@ function snapShelfCenterFlushAlways(r: ShelfRow): ShelfRow {
   const s = snapBookshelfCenterFlushToWall(r.cx, r.cz, r.yaw, r.d)
   return { ...r, cx: s.cx, cz: s.cz, yaw: s.yaw }
 }
+
+/** 스냅 후 같은 벽 직선이면 `microAlignShelfClusterBackEdgesFour` 적용 가능 */
+const YAW_SAME_EPS = 0.02
+
 const RAW_AISLES: Omit<FixtureRenderInstance, 'kind'>[][] = [
   [
     { cx: -14.637, cz: 9.157, w: 1.8, d: 0.5, yaw: -1.2084, h: 2.34 },
@@ -51,7 +55,24 @@ const RAW_AISLES: Omit<FixtureRenderInstance, 'kind'>[][] = [
   ],
 ]
 
-/** 복도 양쪽 4개: cz 낮은 쪽 행 / 높은 쪽 행 — 마주보기 정렬용으로 반대쪽 행만 yaw+π */
+const RAW_AISLES_SNAP_ROW0 = RAW_AISLES[0].map(snapShelfCenterFlushAlways)
+const RAW_AISLES_ROW0_ALIGNED =
+  RAW_AISLES_SNAP_ROW0.length === 4
+  && RAW_AISLES_SNAP_ROW0.every(
+    (r) => Math.abs(r.yaw - RAW_AISLES_SNAP_ROW0[0].yaw) < YAW_SAME_EPS,
+  )
+    ? microAlignShelfClusterBackEdgesFour(RAW_AISLES_SNAP_ROW0.map((r) => ({ ...r })))
+    : RAW_AISLES_SNAP_ROW0
+
+const RAW_AISLES_ROW1_SNAPPED = RAW_AISLES[1].map(snapShelfCenterFlushAlways)
+
+const RAW_AISLES_PROCESSED: Omit<FixtureRenderInstance, 'kind'>[][] = [
+  RAW_AISLES_ROW0_ALIGNED,
+  RAW_AISLES_ROW1_SNAPPED,
+  RAW_AISLES[2],
+]
+
+/** 복도 양쪽 4개: 초기 yaw는 쌍 그룹용 힌트 — 최종은 벽 스냅 후 `alignBookshelfPairsFacingAcrossAisle` */
 const Y_FACING = 0.3432
 const AISLE_FACING_FOUR: Omit<FixtureRenderInstance, 'kind'>[] = [
   { cx: -7.886, cz: 12.782, w: 1.5, d: 0.5, yaw: Y_FACING, h: 2.34 },
@@ -60,8 +81,9 @@ const AISLE_FACING_FOUR: Omit<FixtureRenderInstance, 'kind'>[] = [
   { cx: -5.166, cz: 13.497, w: 1.5, d: 0.5, yaw: Y_FACING + Math.PI, h: 2.34 },
 ]
 
+const AISLE_FACING_SNAPPED = AISLE_FACING_FOUR.map(snapShelfCenterFlushAlways)
 const AISLE_FACING_ALIGNED = alignBookshelfPairsFacingAcrossAisle(
-  AISLE_FACING_FOUR.map((r) => ({ ...r })),
+  AISLE_FACING_SNAPPED.map((r) => ({ ...r })),
 )
 
 const AISLE_THIN: Omit<FixtureRenderInstance, 'kind'> = {
@@ -124,7 +146,7 @@ const AISLE_WALL_FLUSH_RAW: ShelfRow[] = [
 const AISLE_WALL_FLUSH = AISLE_WALL_FLUSH_RAW.map(snapShelfCenterFlushAlways)
 
 export const bookshelfOverlayLayerInstances: FixtureRenderInstance[] = [
-  ...RAW_AISLES.flat().map((r) => ({ kind: 'bookshelf' as const, ...r })),
+  ...RAW_AISLES_PROCESSED.flat().map((r) => ({ kind: 'bookshelf' as const, ...r })),
   ...AISLE_FACING_ALIGNED.map((r) => ({ kind: 'bookshelf' as const, ...r })),
   { kind: 'bookshelf', ...AISLE_THIN },
   ...AISLE_NEAR_WALL.map((r) => ({ kind: 'bookshelf' as const, ...r })),

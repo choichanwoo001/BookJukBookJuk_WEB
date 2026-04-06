@@ -4,12 +4,12 @@ import {
   CylinderGeometry,
   Float32BufferAttribute,
   InstancedMesh,
-  Matrix4,
   Mesh as ThreeMesh,
   MeshStandardMaterial,
+  Object3D,
+  Path,
   PlaneGeometry,
   Shape,
-  Path,
   ShapeGeometry,
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
@@ -25,11 +25,13 @@ import { getFloorOuterAndHolePolygons, getFillRectsClippedToValidFloor } from '.
 import {
   wallMaterial,
   SURFACE_WALL_OVERLAP_M,
+  FLOOR_FILL_CLIP_CELL_M,
+  selectedOverlayMaterial,
+  selectedWireMaterial,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
 
-/** Grid step for clipping manual floor fill rects to outer − void (meters). */
-const FLOOR_FILL_CLIP_CELL_M = 0.14
+const _dummy = new Object3D()
 
 export function WallRibbonMesh({
   onDoubleClick,
@@ -182,7 +184,6 @@ export function PillarCylinderInstances({
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
-  const matrix = useMemo(() => new Matrix4(), [])
   const geometry = useMemo(() => new CylinderGeometry(0.5, 0.5, 1, 16), [])
 
   useEffect(() => {
@@ -190,12 +191,14 @@ export function PillarCylinderInstances({
     for (let i = 0; i < rects.length; i++) {
       const r = rects[i]
       const radius = Math.min(r.w, r.d)
-      matrix.makeScale(radius, height, radius)
-      matrix.setPosition(r.cx, yOffset + height * 0.5, r.cz)
-      meshRef.current.setMatrixAt(i, matrix)
+      _dummy.position.set(r.cx, yOffset + height * 0.5, r.cz)
+      _dummy.scale.set(radius, height, radius)
+      _dummy.rotation.set(0, 0, 0)
+      _dummy.updateMatrix()
+      meshRef.current.setMatrixAt(i, _dummy.matrix)
     }
     meshRef.current.instanceMatrix.needsUpdate = true
-  }, [height, matrix, rects, yOffset])
+  }, [height, rects, yOffset])
 
   if (rects.length === 0) return null
 
@@ -229,20 +232,19 @@ export function RotatedFixtureInstances({
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
-  const matrix = useMemo(() => new Matrix4(), [])
 
   useEffect(() => {
     if (!meshRef.current) return
     for (let i = 0; i < instances.length; i++) {
       const s = instances[i]
-      matrix.makeRotationY(s.yaw)
-      const scale = new Matrix4().makeScale(s.w, s.h, s.d)
-      matrix.multiply(scale)
-      matrix.setPosition(s.cx, s.h * 0.5, s.cz)
-      meshRef.current.setMatrixAt(i, matrix)
+      _dummy.position.set(s.cx, s.h * 0.5, s.cz)
+      _dummy.rotation.set(0, s.yaw, 0)
+      _dummy.scale.set(s.w, s.h, s.d)
+      _dummy.updateMatrix()
+      meshRef.current.setMatrixAt(i, _dummy.matrix)
     }
     meshRef.current.instanceMatrix.needsUpdate = true
-  }, [instances, matrix])
+  }, [instances])
 
   useLayoutEffect(() => {
     const mesh = meshRef.current
@@ -270,22 +272,6 @@ export function RotatedFixtureInstances({
     </instancedMesh>
   )
 }
-
-const selectedOverlayMaterial = new MeshStandardMaterial({
-  color: '#4FC3F7',
-  transparent: true,
-  opacity: 0.35,
-  depthWrite: false,
-  side: 2,
-})
-
-const selectedWireMaterial = new MeshStandardMaterial({
-  color: '#4FC3F7',
-  wireframe: true,
-  transparent: true,
-  opacity: 0.7,
-  side: 2,
-})
 
 export function SelectedBookshelfOverlay({ instance }: { instance: FixtureRenderInstance }) {
   const { cx, cz, w, h, d, yaw } = instance

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { PerspectiveCamera } from '@react-three/drei'
-import { Group, Plane, Raycaster, Vector2, Vector3 } from 'three'
+import { Group, Vector3 } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
-import { useThree } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
+import { useEditDragController } from '../../hooks/useEditDragController'
 import {
   wallRects as baseWallRects,
   pillarRects,
@@ -14,10 +16,18 @@ import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfColli
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
 import { bookshelfOverlayLayerInstances } from '../../data/bookshelfOverlayLayer'
 import {
+  FIRST_PERSON_DEFAULT_PITCH,
+  FIRST_PERSON_EYE_HEIGHT_M,
+  FIRST_PERSON_PITCH_MIN,
+  FIRST_PERSON_PITCH_MAX,
   THIRD_PERSON_LOCKED_PITCH,
+  MOUSE_LOOK_PITCH_MIN,
+  MOUSE_LOOK_PITCH_MAX,
   floorMaterial,
+  ceilingMaterial,
   bookshelfMaterial,
   bookshelfOverlayLayerMaterial,
+  bookshelfOverlayInteriorWoodMaterial,
   counterMaterial,
   displayLowMaterial,
   pillarMaterial,
@@ -35,24 +45,42 @@ import {
   BookstoreLights,
 } from './Meshes'
 import { MapDiffOverlayMesh } from './MapDiffOverlayMesh'
+import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
 import {
   CameraZoomController,
   OverviewZoomController,
   MouseLookController,
+  FirstPersonCameraRig,
   ThirdPersonCameraRig,
   OverviewPanController,
 } from './CameraControllers'
 import { StickmanPlayer } from './StickmanPlayer'
-const EDIT_YAW_DRAG_SENSITIVITY = 0.008
-const EDIT_YAW_WHEEL_SENSITIVITY = 0.001
-function EditDragController({
-  selectedIndex,
-  instances,
-  onUpdate,
-  suspend,
-  onDragStart,
-  onDragEnd,
+
+function ForwardArrowUpdater({
+  yawRef,
+  domRef,
 }: {
+  yawRef: RefObject<number>
+  domRef: RefObject<HTMLDivElement | null>
+}) {
+  const { camera } = useThree()
+  const camFwdVec = useRef(new Vector3())
+
+  useFrame(() => {
+    if (!domRef.current) return
+    camera.getWorldDirection(camFwdVec.current)
+    const fwd = camFwdVec.current
+    const cameraYaw = Math.atan2(-fwd.x, -fwd.z)
+    let delta = yawRef.current - cameraYaw
+    while (delta > Math.PI) delta -= Math.PI * 2
+    while (delta < -Math.PI) delta += Math.PI * 2
+    domRef.current.style.transform = `rotate(${delta}rad)`
+  })
+
+  return null
+}
+
+function EditDragController(props: {
   selectedIndex: number | null
   instances: FixtureRenderInstance[]
   onUpdate: (index: number, patch: Partial<FixtureRenderInstance>) => void
@@ -60,130 +88,7 @@ function EditDragController({
   onDragStart?: () => void
   onDragEnd?: () => void
 }) {
-  const { camera, gl } = useThree()
-  const isDragging = useRef(false)
-  const isShiftDrag = useRef(false)
-  const lastMousePos = useRef({ x: 0, y: 0 })
-  const groundPlane = useRef(new Plane(new Vector3(0, 1, 0), 0))
-  const raycaster = useRef(new Raycaster())
-  const ndc = useRef(new Vector2())
-  const dragOffset = useRef(new Vector3())
-  const selectedRef = useRef(selectedIndex)
-  const instancesRef = useRef(instances)
-  useEffect(() => {
-    selectedRef.current = selectedIndex
-    instancesRef.current = instances
-  }, [selectedIndex, instances])
-
-  const screenToGround = useCallback((clientX: number, clientY: number): Vector3 | null => {
-    const rect = gl.domElement.getBoundingClientRect()
-    ndc.current.set(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    )
-    raycaster.current.setFromCamera(ndc.current, camera)
-    const target = new Vector3()
-    const hit = raycaster.current.ray.intersectPlane(groundPlane.current, target)
-    return hit
-  }, [camera, gl])
-
-  useEffect(() => {
-    const el = gl.domElement
-
-    const onPointerDown = (e: PointerEvent) => {
-      if (suspend) return
-      if (e.button !== 0) return
-      if (e.altKey) return
-      const idx = selectedRef.current
-      if (idx === null) return
-
-      const inst = instancesRef.current[idx]
-      if (!inst) return
-
-      const ground = screenToGround(e.clientX, e.clientY)
-      if (!ground) return
-
-      if (e.shiftKey) {
-        isShiftDrag.current = true
-        isDragging.current = true
-        onDragStart?.()
-        lastMousePos.current = { x: e.clientX, y: e.clientY }
-        el.setPointerCapture(e.pointerId)
-        e.preventDefault()
-        return
-      }
-
-      const dist = Math.sqrt((ground.x - inst.cx) ** 2 + (ground.z - inst.cz) ** 2)
-      const maxGrab = Math.max(inst.w, inst.d) * 0.8
-      if (dist > maxGrab) {
-        return
-      }
-
-      dragOffset.current.set(inst.cx - ground.x, 0, inst.cz - ground.z)
-      isDragging.current = true
-      isShiftDrag.current = false
-      onDragStart?.()
-      el.setPointerCapture(e.pointerId)
-      e.preventDefault()
-    }
-
-    const onPointerMove = (e: PointerEvent) => {
-      if (!isDragging.current) return
-      const idx = selectedRef.current
-      if (idx === null) return
-
-      if (isShiftDrag.current) {
-        const dx = e.clientX - lastMousePos.current.x
-        lastMousePos.current = { x: e.clientX, y: e.clientY }
-        onUpdate(idx, { yaw: instancesRef.current[idx].yaw + dx * EDIT_YAW_DRAG_SENSITIVITY })
-        return
-      }
-
-      const ground = screenToGround(e.clientX, e.clientY)
-      if (!ground) return
-      onUpdate(idx, {
-        cx: ground.x + dragOffset.current.x,
-        cz: ground.z + dragOffset.current.z,
-      })
-    }
-
-    const onPointerUp = (e: PointerEvent) => {
-      if (isDragging.current) {
-        isDragging.current = false
-        isShiftDrag.current = false
-        onDragEnd?.()
-        el.releasePointerCapture(e.pointerId)
-      }
-    }
-
-    const onWheel = (e: WheelEvent) => {
-      const idx = selectedRef.current
-      if (idx === null) return
-      e.preventDefault()
-      const dominantDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
-      if (dominantDelta === 0) return
-      onUpdate(idx, {
-        yaw: instancesRef.current[idx].yaw + dominantDelta * EDIT_YAW_WHEEL_SENSITIVITY,
-      })
-    }
-
-    const onContextMenu = (e: Event) => e.preventDefault()
-
-    el.addEventListener('pointerdown', onPointerDown)
-    el.addEventListener('pointermove', onPointerMove)
-    el.addEventListener('pointerup', onPointerUp)
-    el.addEventListener('wheel', onWheel, { passive: false })
-    el.addEventListener('contextmenu', onContextMenu)
-
-    return () => {
-      el.removeEventListener('pointerdown', onPointerDown)
-      el.removeEventListener('pointermove', onPointerMove)
-      el.removeEventListener('pointerup', onPointerUp)
-      el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('contextmenu', onContextMenu)
-    }
-  }, [gl, screenToGround, onUpdate, suspend, onDragStart, onDragEnd])
-
+  useEditDragController(props)
   return null
 }
 
@@ -199,6 +104,7 @@ export function SceneContent({
   onUpdateBookshelf,
   showMapDiffLayer,
   showBookshelfOverlayLayer,
+  forwardArrowRef,
 }: {
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
@@ -211,14 +117,20 @@ export function SceneContent({
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
   showMapDiffLayer?: boolean
   showBookshelfOverlayLayer?: boolean
+  forwardArrowRef?: RefObject<HTMLDivElement | null>
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
   const yawRef = useRef(0)
-  const pitchRef = useRef(THIRD_PERSON_LOCKED_PITCH)
+  const pitchRef = useRef(FIRST_PERSON_DEFAULT_PITCH)
   const characterYawRef = useRef(0)
   const isFreeLookRef = useRef(false)
+  const mouseLookDraggingRef = useRef(false)
+  const walkMovingRef = useRef(false)
+  const prevWalkModeRef = useRef<'firstPerson' | 'thirdPerson' | null>(null)
+  const isFirstPerson = mode === 'firstPerson'
   const isThirdPerson = mode === 'thirdPerson'
+  const isWalkMode = isFirstPerson || isThirdPerson
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
@@ -240,18 +152,21 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
-  useWorldMovement(worldRef, yawRef, isThirdPerson && controlsEnabled, {
+  useWorldMovement(worldRef, yawRef, isWalkMode && controlsEnabled, {
     floorRects,
     wallRects: baseWallRects,
     bookshelfRects: bookshelfCollisionRects,
-  }, characterYawRef)
+  }, characterYawRef, walkMovingRef)
 
   useEffect(() => {
     if (!worldRef.current) return
 
-    if (!isThirdPerson) {
+    const isWalk = mode === 'firstPerson' || mode === 'thirdPerson'
+
+    if (!isWalk) {
       storedWorldPositionRef.current = [worldRef.current.position.x, worldRef.current.position.z]
       worldRef.current.position.set(0, 0, 0)
+      prevWalkModeRef.current = null
       return
     }
 
@@ -260,9 +175,17 @@ export function SceneContent({
       0,
       storedWorldPositionRef.current[1],
     )
-    yawRef.current = 0
-    pitchRef.current = THIRD_PERSON_LOCKED_PITCH
-  }, [isThirdPerson])
+
+    const prev = prevWalkModeRef.current
+    if (prev === null) {
+      yawRef.current = 0
+      pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
+    } else if (prev !== mode) {
+      pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
+    }
+
+    prevWalkModeRef.current = mode === 'firstPerson' || mode === 'thirdPerson' ? mode : null
+  }, [mode])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -271,7 +194,8 @@ export function SceneContent({
       setIsSpacePressed(true)
       isFreeLookRef.current = false
       yawRef.current = characterYawRef.current
-      pitchRef.current = THIRD_PERSON_LOCKED_PITCH
+      if (mode === 'firstPerson') pitchRef.current = FIRST_PERSON_DEFAULT_PITCH
+      else if (mode === 'thirdPerson') pitchRef.current = THIRD_PERSON_LOCKED_PITCH
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return
@@ -294,21 +218,21 @@ export function SceneContent({
       window.removeEventListener('blur', handleWindowBlur)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [])
+  }, [mode])
 
-  const createPickHandler = (surface: SurfaceKind) => (event: ThreeEvent<PointerEvent>) => {
+  const pickHandler = useCallback((surface: SurfaceKind) => (event: ThreeEvent<PointerEvent>) => {
     if (!event.altKey) return
     if (!worldRef.current) return
     event.stopPropagation()
     event.nativeEvent.preventDefault()
     const localPoint = worldRef.current.worldToLocal(event.point.clone())
-    onAddSelection({
-      x: localPoint.x,
-      y: localPoint.y,
-      z: localPoint.z,
-      surface,
-    })
-  }
+    onAddSelection({ x: localPoint.x, y: localPoint.y, z: localPoint.z, surface })
+  }, [onAddSelection])
+
+  const floorPickHandler = useMemo(() => isAreaSelection ? pickHandler('floor') : undefined, [isAreaSelection, pickHandler])
+  const wallPickHandler = useMemo(() => isAreaSelection ? pickHandler('wall') : undefined, [isAreaSelection, pickHandler])
+  const bookshelfPickHandler = useMemo(() => isAreaSelection ? pickHandler('bookshelf') : undefined, [isAreaSelection, pickHandler])
+  const pillarPickHandler = useMemo(() => isAreaSelection ? pickHandler('pillar') : undefined, [isAreaSelection, pickHandler])
 
   const handleBookshelfPointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
     if (!isBookshelfEdit || !onSelectBookshelf) return
@@ -341,7 +265,34 @@ export function SceneContent({
       <directionalLight position={[20, 30, 10]} color="#FFECD2" intensity={0.8} />
       <directionalLight position={[-20, 25, -15]} color="#FFECD2" intensity={0.3} />
 
-      {isThirdPerson ? (
+      {isFirstPerson ? (
+        <>
+          <PerspectiveCamera
+            key="first-person-camera"
+            makeDefault
+            position={[0, FIRST_PERSON_EYE_HEIGHT_M, 0]}
+            rotation={[0, 0, 0]}
+            fov={64}
+          />
+          <FirstPersonCameraRig
+            yawRef={yawRef}
+            pitchRef={pitchRef}
+            enabled={controlsEnabled}
+          />
+          <CameraZoomController enabled={controlsEnabled} />
+          <MouseLookController
+            yawRef={yawRef}
+            pitchRef={pitchRef}
+            enabled={controlsEnabled}
+            isFreeLookRef={isFreeLookRef}
+            mouseLookDraggingRef={mouseLookDraggingRef}
+            pitchMin={FIRST_PERSON_PITCH_MIN}
+            pitchMax={FIRST_PERSON_PITCH_MAX}
+          />
+          <StickmanPlayer characterYawRef={characterYawRef} worldRef={worldRef} visible={false} />
+          {forwardArrowRef && <ForwardArrowUpdater yawRef={yawRef} domRef={forwardArrowRef} />}
+        </>
+      ) : isThirdPerson ? (
         <>
           <PerspectiveCamera
             key="third-person-camera"
@@ -354,8 +305,7 @@ export function SceneContent({
             yawRef={yawRef}
             pitchRef={pitchRef}
             enabled={controlsEnabled}
-            characterYawRef={characterYawRef}
-            isFreeLookRef={isFreeLookRef}
+            worldRef={worldRef}
           />
           <CameraZoomController enabled={controlsEnabled} />
           <MouseLookController
@@ -363,8 +313,12 @@ export function SceneContent({
             pitchRef={pitchRef}
             enabled={controlsEnabled}
             isFreeLookRef={isFreeLookRef}
+            mouseLookDraggingRef={mouseLookDraggingRef}
+            pitchMin={MOUSE_LOOK_PITCH_MIN}
+            pitchMax={MOUSE_LOOK_PITCH_MAX}
           />
-          <StickmanPlayer characterYawRef={characterYawRef} worldRef={worldRef} />
+          <StickmanPlayer characterYawRef={characterYawRef} worldRef={worldRef} visible />
+          {forwardArrowRef && <ForwardArrowUpdater yawRef={yawRef} domRef={forwardArrowRef} />}
         </>
       ) : (
         <>
@@ -398,22 +352,35 @@ export function SceneContent({
       )}
 
       <group ref={worldRef}>
-        <FloorPolygonMesh
-          yOffset={0}
-          material={floorMaterial}
-          fillRects={floorFillRects}
-          onPointerDown={isAreaSelection ? createPickHandler('floor') : undefined}
-        />
-        <MapDiffOverlayMesh visible={showMapDiffLayer ?? false} />
-        <group visible={showBookshelfOverlayLayer ?? false}>
-          <RotatedFixtureInstances
+        <group userData={{ excludeCameraCollision: true }}>
+          <FloorPolygonMesh
+            yOffset={0}
+            material={floorMaterial}
+            fillRects={floorFillRects}
+            onPointerDown={floorPickHandler}
+          />
+        </group>
+        {isWalkMode && (
+          <group userData={{ excludeCameraCollision: true }}>
+            <FloorPolygonMesh
+              yOffset={FLOOR_HEIGHT_M}
+              material={ceilingMaterial}
+              fillRects={floorFillRects}
+            />
+          </group>
+        )}
+        <group userData={{ excludeCameraCollision: true }}>
+          <MapDiffOverlayMesh visible={showMapDiffLayer ?? false} />
+        </group>
+        <group visible={showBookshelfOverlayLayer ?? false} userData={{ excludeCameraCollision: true }}>
+          <BookshelfOverlayInterior
             instances={bookshelfOverlayLayerInstances}
-            material={bookshelfOverlayLayerMaterial}
-            disableRaycast
+            shellMaterial={bookshelfOverlayLayerMaterial}
+            woodMaterial={bookshelfOverlayInteriorWoodMaterial}
           />
         </group>
         <WallRibbonMesh
-          onPointerDown={isAreaSelection ? createPickHandler('wall') : undefined}
+          onPointerDown={wallPickHandler}
         />
         <RotatedFixtureInstances
           instances={bookshelfRenderInstances}
@@ -421,34 +388,34 @@ export function SceneContent({
           onPointerDown={
             isBookshelfEdit
               ? handleBookshelfPointerDown
-              : isAreaSelection
-                ? createPickHandler('bookshelf')
-                : undefined
+              : bookshelfPickHandler
           }
         />
         <RotatedFixtureInstances
           instances={counterRenderInstances}
           material={counterMaterial}
-          onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
+          onPointerDown={bookshelfPickHandler}
         />
         <RotatedFixtureInstances
           instances={displayRenderInstances}
           material={displayLowMaterial}
-          onPointerDown={isAreaSelection ? createPickHandler('bookshelf') : undefined}
+          onPointerDown={bookshelfPickHandler}
         />
         {isBookshelfEdit && selectedInst && (
-          <SelectedBookshelfOverlay instance={selectedInst} />
+          <group userData={{ excludeCameraCollision: true }}>
+            <SelectedBookshelfOverlay instance={selectedInst} />
+          </group>
         )}
         <PillarCylinderInstances
           rects={pillarRects}
           height={FLOOR_HEIGHT_M}
           yOffset={0}
           material={pillarMaterial}
-          onPointerDown={isAreaSelection ? createPickHandler('pillar') : undefined}
+          onPointerDown={pillarPickHandler}
         />
         <BookstoreLights floorRenderRects={floorRects} />
         {selections.map((selection) => (
-          <group key={selection.id}>
+          <group key={selection.id} userData={{ excludeCameraCollision: true }}>
             <mesh position={[selection.center.x, selection.center.y + 0.1, selection.center.z]}>
               <sphereGeometry args={[0.12, 14, 14]} />
               <primitive object={markerMaterial} attach="material" />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Vector3 } from 'three'
+import { Group, Object3D, Raycaster, Vector3 } from 'three'
 import type { RefObject } from 'react'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import { useMouseDrag } from '../../hooks/useMouseDrag'
@@ -10,6 +10,9 @@ import {
   THIRD_PERSON_LOOK_AHEAD_M,
   THIRD_PERSON_MIN_CAMERA_Y_M,
   THIRD_PERSON_MAX_CAMERA_Y_M,
+  THIRD_PERSON_CAMERA_SKIN_M,
+  THIRD_PERSON_MIN_CAMERA_DISTANCE_M,
+  FIRST_PERSON_EYE_HEIGHT_M,
   MOUSE_LOOK_SENSITIVITY,
   MOUSE_LOOK_PITCH_MIN,
   MOUSE_LOOK_PITCH_MAX,
@@ -19,7 +22,17 @@ import {
   OVERVIEW_ZOOM_SENSITIVITY,
   OVERVIEW_Y_MIN,
   OVERVIEW_Y_MAX,
+  OVERVIEW_PAN_SPEED,
 } from '../../config/constants'
+
+function isExcludedFromCameraCollision(object: Object3D): boolean {
+  let o: Object3D | null = object
+  while (o) {
+    if (o.userData?.excludeCameraCollision === true) return true
+    o = o.parent
+  }
+  return false
+}
 
 export function CameraZoomController({ enabled }: { enabled: boolean }) {
   const { camera, gl } = useThree()
@@ -71,28 +84,39 @@ export function MouseLookController({
   pitchRef,
   enabled,
   isFreeLookRef,
+  mouseLookDraggingRef,
+  pitchMin = MOUSE_LOOK_PITCH_MIN,
+  pitchMax = MOUSE_LOOK_PITCH_MAX,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   enabled: boolean
   isFreeLookRef: RefObject<boolean>
+  mouseLookDraggingRef?: RefObject<boolean>
+  pitchMin?: number
+  pitchMax?: number
 }) {
   const { camera, gl } = useThree()
 
   const onStart = useCallback(() => {
     isFreeLookRef.current = true
-  }, [isFreeLookRef])
+    if (mouseLookDraggingRef) mouseLookDraggingRef.current = true
+  }, [isFreeLookRef, mouseLookDraggingRef])
+
+  const onEnd = useCallback(() => {
+    if (mouseLookDraggingRef) mouseLookDraggingRef.current = false
+  }, [mouseLookDraggingRef])
 
   const onMove = useCallback((dx: number, dy: number) => {
     yawRef.current -= dx * MOUSE_LOOK_SENSITIVITY
-    pitchRef.current = Math.max(MOUSE_LOOK_PITCH_MIN, Math.min(MOUSE_LOOK_PITCH_MAX, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY))
+    pitchRef.current = Math.max(pitchMin, Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY))
     if ('isPerspectiveCamera' in camera && camera.isPerspectiveCamera) {
       const perspectiveCamera = camera as ThreePerspectiveCamera
       perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
     }
-  }, [camera, pitchRef, yawRef])
+  }, [camera, pitchMax, pitchMin, pitchRef, yawRef])
 
-  const options = useMemo(() => ({ onStart }), [onStart])
+  const options = useMemo(() => ({ onStart, onEnd }), [onStart, onEnd])
 
   useMouseDrag(enabled ? gl.domElement : null, onMove, options)
 
@@ -106,33 +130,49 @@ export function MouseLookController({
   return null
 }
 
-export function ThirdPersonCameraRig({
+export function FirstPersonCameraRig({
   yawRef,
   pitchRef,
   enabled,
-  characterYawRef,
-  isFreeLookRef,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   enabled: boolean
-  characterYawRef: RefObject<number>
-  isFreeLookRef: RefObject<boolean>
+}) {
+  const { camera } = useThree()
+
+  useFrame(() => {
+    if (!enabled) return
+    if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
+    camera.position.set(0, FIRST_PERSON_EYE_HEIGHT_M, 0)
+    camera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
+  })
+
+  return null
+}
+
+export function ThirdPersonCameraRig({
+  yawRef,
+  pitchRef,
+  enabled,
+  worldRef,
+}: {
+  yawRef: RefObject<number>
+  pitchRef: RefObject<number>
+  enabled: boolean
+  worldRef: RefObject<Group | null>
 }) {
   const { camera } = useThree()
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const anchorRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const raycasterRef = useRef(new Raycaster())
+  const directionRef = useRef(new Vector3())
+  const collisionTargetRef = useRef(new Vector3())
 
   useFrame((_, delta) => {
     if (!enabled) return
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
-
-    if (!isFreeLookRef.current) {
-      let diff = characterYawRef.current - yawRef.current
-      while (diff > Math.PI) diff -= Math.PI * 2
-      while (diff < -Math.PI) diff += Math.PI * 2
-      yawRef.current += diff * (1 - Math.exp(-delta * 8))
-    }
 
     const desiredPosition = desiredPositionRef.current
     const yaw = yawRef.current
@@ -140,7 +180,7 @@ export function ThirdPersonCameraRig({
     const cosPitch = Math.cos(pitch)
 
     desiredPosition.set(
-      -Math.sin(yaw) * cosPitch,
+      Math.sin(yaw) * cosPitch,
       -Math.sin(pitch),
       Math.cos(yaw) * cosPitch,
     ).multiplyScalar(THIRD_PERSON_DISTANCE_M)
@@ -148,13 +188,49 @@ export function ThirdPersonCameraRig({
     desiredPosition.y = Math.min(THIRD_PERSON_MAX_CAMERA_Y_M, Math.max(THIRD_PERSON_MIN_CAMERA_Y_M, desiredPosition.y))
 
     lookTargetRef.current.set(
-      Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
+      -Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
       THIRD_PERSON_TARGET_HEIGHT_M,
       -Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
     )
 
+    const anchor = anchorRef.current
+    anchor.set(0, THIRD_PERSON_TARGET_HEIGHT_M, 0)
+
+    const direction = directionRef.current
+    direction.subVectors(desiredPosition, anchor)
+    const rawDistance = direction.length()
+    if (rawDistance < 1e-5) {
+      direction.set(0, 0, 1)
+    } else {
+      direction.multiplyScalar(1 / rawDistance)
+    }
+
+    const targetPosition = collisionTargetRef.current.copy(desiredPosition)
+    const world = worldRef.current
+    if (world && rawDistance > 1e-5) {
+      const raycaster = raycasterRef.current
+      raycaster.set(anchor, direction)
+      raycaster.far = rawDistance
+      raycaster.near = 0
+      const hits = raycaster.intersectObject(world, true)
+      let closest: number | null = null
+      for (const hit of hits) {
+        if (isExcludedFromCameraCollision(hit.object)) continue
+        const d = hit.distance
+        if (closest === null || d < closest) closest = d
+      }
+      if (closest !== null) {
+        const safe = closest - THIRD_PERSON_CAMERA_SKIN_M
+        let along = Math.min(rawDistance, Math.max(0.04, safe))
+        if (along >= THIRD_PERSON_MIN_CAMERA_DISTANCE_M) {
+          along = Math.max(THIRD_PERSON_MIN_CAMERA_DISTANCE_M, along)
+        }
+        targetPosition.copy(anchor).addScaledVector(direction, along)
+      }
+    }
+
     const lerpAlpha = 1 - Math.exp(-delta * 10)
-    camera.position.lerp(desiredPosition, lerpAlpha)
+    camera.position.lerp(targetPosition, lerpAlpha)
     camera.lookAt(lookTargetRef.current)
   })
 
@@ -190,7 +266,7 @@ export function OverviewPanController({
   const onMove = useCallback((dx: number, dy: number) => {
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
     const perspectiveCamera = camera as ThreePerspectiveCamera
-    const panSpeed = perspectiveCamera.position.y * 0.002
+    const panSpeed = perspectiveCamera.position.y * OVERVIEW_PAN_SPEED
     /* eslint-disable react-hooks/immutability -- Three.js PerspectiveCamera position mutation */
     perspectiveCamera.position.x -= dx * panSpeed
     perspectiveCamera.position.z -= dy * panSpeed

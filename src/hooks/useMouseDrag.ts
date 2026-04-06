@@ -5,6 +5,7 @@ export function useMouseDrag(
   onMove: (dx: number, dy: number) => void,
   options?: {
     onStart?: (event: MouseEvent) => void | boolean
+    onEnd?: () => void
     button?: number
   },
 ) {
@@ -34,7 +35,11 @@ export function useMouseDrag(
       onMove(dx, dy)
     }
 
-    const stopDragging = () => { isDragging = false }
+    const stopDragging = () => {
+      if (!isDragging) return
+      isDragging = false
+      options?.onEnd?.()
+    }
 
     element.addEventListener('mousedown', onMouseDown)
     window.addEventListener('mousemove', onMouseMove)

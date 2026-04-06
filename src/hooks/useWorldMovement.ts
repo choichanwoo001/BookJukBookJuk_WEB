@@ -10,6 +10,12 @@ import {
   PLAYER_RADIUS_M,
   SPAWN_POINT_WORLD,
 } from '../data/floorPlan'
+import {
+  THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC,
+  WALK_SPEED_MPS,
+  SPAWN_SEARCH_MAX_RADIUS,
+  SPAWN_SEARCH_STEP,
+} from '../config/constants'
 import { pointInAnyRect } from '../utils/rectUtils'
 
 type KeyState = {
@@ -18,8 +24,6 @@ type KeyState = {
   keyS: boolean
   keyD: boolean
 }
-
-const WALK_SPEED_MPS = 2.8
 
 function normalizeVector(x: number, y: number) {
   const vector = new Vector2(x, y)
@@ -38,9 +42,7 @@ function canOccupy(point: [number, number]) {
 function findSpawnPosition() {
   if (canOccupy(SPAWN_POINT_WORLD)) return [...SPAWN_POINT_WORLD] as [number, number]
 
-  const maxRadius = 5
-  const step = 0.3
-  for (let radius = step; radius <= maxRadius; radius += step) {
+  for (let radius = SPAWN_SEARCH_STEP; radius <= SPAWN_SEARCH_MAX_RADIUS; radius += SPAWN_SEARCH_STEP) {
     for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 12) {
       const candidate: [number, number] = [
         SPAWN_POINT_WORLD[0] + Math.cos(angle) * radius,
@@ -67,6 +69,7 @@ export function useWorldMovement(
   enabled = true,
   overrides?: DynamicCollisionOverrides,
   characterYawRef?: RefObject<number>,
+  movingRef?: RefObject<boolean>,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -111,9 +114,12 @@ export function useWorldMovement(
     }
 
     const key = keyStateRef.current
-    const moveX = (key.keyD ? 1 : 0) + (key.keyA ? -1 : 0)
+    if (yawRef) {
+      const turn = (key.keyD ? 1 : 0) + (key.keyA ? -1 : 0)
+      yawRef.current -= turn * THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC * delta
+    }
     const moveZ = (key.keyS ? 1 : 0) + (key.keyW ? -1 : 0)
-    const localDirection = normalizeVector(moveX, moveZ)
+    const localDirection = normalizeVector(0, moveZ)
     const yaw = yawRef?.current ?? 0
     const cosYaw = Math.cos(yaw)
     const sinYaw = Math.sin(yaw)
@@ -133,8 +139,11 @@ export function useWorldMovement(
     worldRef.current.position.x = -current[0]
     worldRef.current.position.z = -current[1]
 
-    if (characterYawRef && (direction.x !== 0 || direction.y !== 0)) {
-      characterYawRef.current = Math.atan2(-direction.x, -direction.y)
+    const isMoving = direction.x !== 0 || direction.y !== 0
+    if (movingRef) movingRef.current = isMoving
+
+    if (characterYawRef && yawRef) {
+      characterYawRef.current = yawRef.current
     }
   })
 }

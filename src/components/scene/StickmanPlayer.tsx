@@ -4,6 +4,7 @@ import { Group, Vector3 } from 'three'
 import type { RefObject } from 'react'
 import {
   playerMaterial,
+  playerFaceFeatureMaterial,
   PLAYER_SCALE,
   GAIT_BASE_SPEED,
   GAIT_SPEED_MULTIPLIER,
@@ -16,9 +17,11 @@ import {
 export function StickmanPlayer({
   characterYawRef,
   worldRef,
+  visible = true,
 }: {
   characterYawRef: RefObject<number>
   worldRef: RefObject<Group | null>
+  visible?: boolean
 }) {
   const avatarRef = useRef<Group>(null)
   const bodyRef = useRef<Group>(null)
@@ -38,7 +41,12 @@ export function StickmanPlayer({
     let diff = targetYaw - displayYawRef.current
     while (diff > Math.PI) diff -= Math.PI * 2
     while (diff < -Math.PI) diff += Math.PI * 2
-    displayYawRef.current += diff * (1 - Math.exp(-delta * 14))
+    const yawSnapRad = 0.02
+    if (Math.abs(diff) < yawSnapRad) {
+      displayYawRef.current = targetYaw
+    } else {
+      displayYawRef.current += diff * (1 - Math.exp(-delta * 26))
+    }
     avatarRef.current.rotation.y = displayYawRef.current
 
     if (!worldRef.current) return
@@ -77,12 +85,31 @@ export function StickmanPlayer({
   })
 
   return (
-    <group ref={avatarRef} position={[0, 0, 0]} scale={[PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE]}>
+    <group ref={avatarRef} position={[0, 0, 0]} scale={[PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE]} visible={visible}>
       <group ref={bodyRef}>
         <mesh position={[0, 1.52, 0]}>
           <sphereGeometry args={[0.16, 16, 16]} />
           <primitive object={playerMaterial} attach="material" />
         </mesh>
+        {/* 로컬 -Z = 카메라 정면(Three.js 기본 시선); 눈·코·입으로 방향 구분 */}
+        <group position={[0, 1.52, 0]}>
+          <mesh position={[-0.042, 0.018, -0.13]}>
+            <sphereGeometry args={[0.022, 8, 8]} />
+            <primitive object={playerFaceFeatureMaterial} attach="material" />
+          </mesh>
+          <mesh position={[0.042, 0.018, -0.13]}>
+            <sphereGeometry args={[0.022, 8, 8]} />
+            <primitive object={playerFaceFeatureMaterial} attach="material" />
+          </mesh>
+          <mesh position={[0, -0.008, -0.138]}>
+            <sphereGeometry args={[0.016, 8, 8]} />
+            <primitive object={playerFaceFeatureMaterial} attach="material" />
+          </mesh>
+          <mesh position={[0, -0.048, -0.12]} rotation={[-0.25, 0, 0]}>
+            <boxGeometry args={[0.055, 0.01, 0.008]} />
+            <primitive object={playerFaceFeatureMaterial} attach="material" />
+          </mesh>
+        </group>
         <mesh position={[0, 1.06, 0]}>
           <cylinderGeometry args={[0.055, 0.065, 0.58, 12]} />
           <primitive object={playerMaterial} attach="material" />

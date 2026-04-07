@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Group, Raycaster, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import type { RefObject } from 'react'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import { useMouseDrag } from '../../hooks/useMouseDrag'
@@ -10,8 +10,6 @@ import {
   THIRD_PERSON_LOOK_AHEAD_M,
   THIRD_PERSON_MIN_CAMERA_Y_M,
   THIRD_PERSON_MAX_CAMERA_Y_M,
-  THIRD_PERSON_CAMERA_SKIN_M,
-  THIRD_PERSON_MIN_CAMERA_DISTANCE_M,
   FIRST_PERSON_EYE_HEIGHT_M,
   MOUSE_LOOK_SENSITIVITY,
   MOUSE_LOOK_PITCH_MIN,
@@ -25,7 +23,6 @@ import {
   OVERVIEW_PAN_SPEED,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
-import { isExcludedFromCameraCollision } from '../../utils/cameraCollision'
 
 export function CameraZoomController({
   enabled,
@@ -156,20 +153,14 @@ export function ThirdPersonCameraRig({
   yawRef,
   pitchRef,
   enabled,
-  worldRef,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   enabled: boolean
-  worldRef: RefObject<Group | null>
 }) {
   const { camera } = useThree()
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
-  const anchorRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
-  const raycasterRef = useRef(new Raycaster())
-  const directionRef = useRef(new Vector3())
-  const collisionTargetRef = useRef(new Vector3())
 
   useFrame((_, delta) => {
     if (!enabled) return
@@ -194,44 +185,8 @@ export function ThirdPersonCameraRig({
       -Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
     )
 
-    const anchor = anchorRef.current
-    anchor.set(0, THIRD_PERSON_TARGET_HEIGHT_M, 0)
-
-    const direction = directionRef.current
-    direction.subVectors(desiredPosition, anchor)
-    const rawDistance = direction.length()
-    if (rawDistance < 1e-5) {
-      direction.set(0, 0, 1)
-    } else {
-      direction.multiplyScalar(1 / rawDistance)
-    }
-
-    const targetPosition = collisionTargetRef.current.copy(desiredPosition)
-    const world = worldRef.current
-    if (world && rawDistance > 1e-5) {
-      const raycaster = raycasterRef.current
-      raycaster.set(anchor, direction)
-      raycaster.far = rawDistance
-      raycaster.near = 0
-      const hits = raycaster.intersectObject(world, true)
-      let closest: number | null = null
-      for (const hit of hits) {
-        if (isExcludedFromCameraCollision(hit.object)) continue
-        const d = hit.distance
-        if (closest === null || d < closest) closest = d
-      }
-      if (closest !== null) {
-        const safe = closest - THIRD_PERSON_CAMERA_SKIN_M
-        let along = Math.min(rawDistance, Math.max(0.04, safe))
-        if (along >= THIRD_PERSON_MIN_CAMERA_DISTANCE_M) {
-          along = Math.max(THIRD_PERSON_MIN_CAMERA_DISTANCE_M, along)
-        }
-        targetPosition.copy(anchor).addScaledVector(direction, along)
-      }
-    }
-
     const lerpAlpha = 1 - Math.exp(-delta * 10)
-    camera.position.lerp(targetPosition, lerpAlpha)
+    camera.position.lerp(desiredPosition, lerpAlpha)
     camera.lookAt(lookTargetRef.current)
   })
 

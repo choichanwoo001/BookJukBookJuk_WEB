@@ -12,10 +12,6 @@ export const THIRD_PERSON_LOCKED_PITCH = -0.72
 export const THIRD_PERSON_FOLLOW_YAW_LAMBDA = 14
 /** 3인칭 WASD 중 A/D 시점 회전 속도 (라디안/초). */
 export const THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC = 1.35
-/** 3인칭 스프링암: 벽 히트 시 카메라를 앵커 쪽으로 당길 때 표면 안쪽 여유 (m). */
-export const THIRD_PERSON_CAMERA_SKIN_M = 0.28
-/** 3인칭: 앵커(어깨 높이)에서 카메라까지 최소 거리 (너무 붙지 않게, m). */
-export const THIRD_PERSON_MIN_CAMERA_DISTANCE_M = 0.75
 
 /** 1인칭 카메라 높이 (바닥 기준, m). */
 export const FIRST_PERSON_EYE_HEIGHT_M = 1.52
@@ -35,13 +31,19 @@ export const ZOOM_FOV_SENSITIVITY = 0.02
 export const WALK_DEFAULT_FOV = 64
 /** 3인칭 하단 버튼으로 FOV를 바꿀 때 한 번에 바뀌는 각도(도). */
 export const WALK_FOV_BUTTON_STEP = 2
-/** 3인칭 가림 반투명: 최종 불투명도 (70% 불투명 ≈ 30% 투명). */
-export const THIRD_PERSON_OCCLUDER_OPACITY = 0.7
+/** 3인칭 가림 반투명: 최종 불투명도 (낮을수록 더 투명). */
+export const THIRD_PERSON_OCCLUDER_OPACITY = 0.5
+/** 3인칭 가림 레이: 카메라 주변 오프셋(m). 얇은 벽·단일 레이 미스 보완. */
+export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.22
+/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지. */
+export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.42
+/** 연속 이 프레임만 레이 미스일 때 페이드 해제 (히스테리시스). */
+export const THIRD_PERSON_OCCLUSION_RELEASE_DELAY_FRAMES = 5
 export const OVERVIEW_ZOOM_SENSITIVITY = 0.05
 export const OVERVIEW_Y_MIN = 10
 export const OVERVIEW_Y_MAX = 120
-/** 3D 뷰 yaw 기준을 미니맵 PNG·`worldXzToMinimapUv`와 맞출 때 Y축 오프셋(라디안). 필요 시 부호만 반대로. */
-export const MAP_VIEW_YAW_OFFSET_RAD = Math.PI
+/** 오버뷰/미니맵 방향 정합용 Y축 오프셋(라디안). 오버뷰 카메라는 부모 회전 없이 위에서 내려다봄. */
+export const MAP_VIEW_YAW_OFFSET_RAD = 0
 
 // --- Player ---
 export const PLAYER_SCALE = 0.7
@@ -69,6 +71,8 @@ export const BOOKSHELF_DUPLICATE_RATIO = 0.75
 
 // --- Selection ---
 export const SURFACE_WALL_OVERLAP_M = 0.04
+/** 벽 리본 InstancedMesh 세그먼트 두께 (레이캐스트용, 시각적으로 거의 0에 가깝게). */
+export const WALL_SEGMENT_THICKNESS_M = 0.06
 export const FIXED_SELECTION_RADIUS_M = 0.35
 
 // --- Gait Animation ---

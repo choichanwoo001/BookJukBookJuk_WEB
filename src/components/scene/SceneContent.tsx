@@ -60,6 +60,28 @@ import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
 import { StickmanPlayer } from './StickmanPlayer'
 import { MinimapViewportReporter } from './MinimapViewportReporter'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
+import { worldXzToMinimapUv } from '../../utils/minimapBounds'
+
+export type MinimapPlayerPos = { u: number; v: number; yaw: number }
+
+function PlayerPositionReporter({
+  worldRef,
+  characterYawRef,
+  onPlayerPosition,
+}: {
+  worldRef: RefObject<Group | null>
+  characterYawRef: RefObject<number>
+  onPlayerPosition: (pos: MinimapPlayerPos | null) => void
+}) {
+  useFrame(() => {
+    if (!worldRef.current) { onPlayerPosition(null); return }
+    const wx = -worldRef.current.position.x
+    const wz = -worldRef.current.position.z
+    const { u, v } = worldXzToMinimapUv(wx, wz)
+    onPlayerPosition({ u, v, yaw: characterYawRef.current })
+  })
+  return null
+}
 
 function ForwardArrowUpdater({
   yawRef,
@@ -112,9 +134,8 @@ export function SceneContent({
   forwardArrowRef,
   walkFov = WALK_DEFAULT_FOV,
   onWalkFovChange,
-  thirdPersonOcclusionFade = false,
-  thirdPersonFovAdjustEnabled = false,
   onMinimapViewportUv,
+  onPlayerPosition,
 }: {
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
@@ -130,9 +151,8 @@ export function SceneContent({
   forwardArrowRef?: RefObject<HTMLDivElement | null>
   walkFov?: number
   onWalkFovChange?: (fov: number) => void
-  thirdPersonOcclusionFade?: boolean
-  thirdPersonFovAdjustEnabled?: boolean
   onMinimapViewportUv?: (quad: MinimapUvPoint[] | null) => void
+  onPlayerPosition?: (pos: MinimapPlayerPos | null) => void
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
@@ -149,6 +169,8 @@ export function SceneContent({
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
+  /** 저전시대(displayLow)는 바닥 밖에 떠 보이기 쉬워 1인칭에서만 표시. */
+  const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = true
@@ -273,8 +295,6 @@ export function SceneContent({
     ? bookshelfRenderInstances[selectedBookshelfIndex]
     : null
 
-  const thirdPersonCameraFov = thirdPersonFovAdjustEnabled ? walkFov : WALK_DEFAULT_FOV
-
   return (
     <>
       <color attach="background" args={['#1a1410']} />
@@ -316,17 +336,12 @@ export function SceneContent({
             makeDefault
             position={[0, 2.6, 5.6]}
             rotation={[-0.86, 0, 0]}
-            fov={thirdPersonCameraFov}
+            fov={WALK_DEFAULT_FOV}
           />
           <ThirdPersonCameraRig
             yawRef={yawRef}
             pitchRef={pitchRef}
             enabled={controlsEnabled}
-            worldRef={worldRef}
-          />
-          <CameraZoomController
-            enabled={controlsEnabled && thirdPersonFovAdjustEnabled}
-            onFovChange={onWalkFovChange}
           />
           <MouseLookController
             yawRef={yawRef}
@@ -342,15 +357,13 @@ export function SceneContent({
         </>
       ) : (
         <>
-          <group rotation={[0, MAP_VIEW_YAW_OFFSET_RAD, 0]}>
-            <PerspectiveCamera
-              key="overview-camera"
-              makeDefault
-              position={[0, 50, 0]}
-              rotation={[-Math.PI / 2, 0, 0]}
-              fov={64}
-            />
-          </group>
+          <PerspectiveCamera
+            key="overview-camera"
+            makeDefault
+            position={[0, 50, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            fov={64}
+          />
           <OverviewZoomController />
           {!isEdit && controlsEnabled && <OverviewPanController />}
           {isEdit && (
@@ -363,6 +376,14 @@ export function SceneContent({
             <MinimapViewportReporter mode={mode} onMinimapViewportUv={onMinimapViewportUv} />
           )}
         </>
+      )}
+
+      {onPlayerPosition && (
+        <PlayerPositionReporter
+          worldRef={worldRef}
+          characterYawRef={characterYawRef}
+          onPlayerPosition={onPlayerPosition}
+        />
       )}
 
       {isBookshelfEdit && onUpdateBookshelf && (
@@ -421,11 +442,13 @@ export function SceneContent({
           material={counterMaterial}
           onPointerDown={bookshelfPickHandler}
         />
-        <RotatedFixtureInstances
-          instances={displayRenderInstances}
-          material={displayLowMaterial}
-          onPointerDown={bookshelfPickHandler}
-        />
+        {showDisplayLowFixtures && (
+          <RotatedFixtureInstances
+            instances={displayRenderInstances}
+            material={displayLowMaterial}
+            onPointerDown={bookshelfPickHandler}
+          />
+        )}
         {isBookshelfEdit && selectedInst && (
           <group userData={{ excludeCameraCollision: true }}>
             <SelectedBookshelfOverlay instance={selectedInst} />
@@ -453,7 +476,7 @@ export function SceneContent({
         ))}
       </group>
       {isThirdPerson && (
-        <ThirdPersonOcclusionFader enabled={thirdPersonOcclusionFade} worldRef={worldRef} />
+        <ThirdPersonOcclusionFader enabled worldRef={worldRef} />
       )}
     </>
   )

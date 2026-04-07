@@ -3,8 +3,8 @@ import { Canvas } from '@react-three/fiber'
 import { counterInstances, displayLowInstances } from '../data/floorPlan'
 import {
   FIXED_SELECTION_RADIUS_M,
+  MAP_VIEW_YAW_OFFSET_RAD,
   WALK_DEFAULT_FOV,
-  WALK_FOV_BUTTON_STEP,
   ZOOM_FOV_MAX,
   ZOOM_FOV_MIN,
 } from '../config/constants'
@@ -12,6 +12,7 @@ import { useBookshelfInstances } from '../hooks/useBookshelfInstances'
 import { useBookshelfClipboard } from '../hooks/useBookshelfClipboard'
 import type { ViewMode, CircleSelection, PickPoint, FixtureRenderInstance } from '../types/scene'
 import type { MinimapUvPoint } from './scene/MinimapViewportReporter'
+import type { MinimapPlayerPos } from './scene/SceneContent'
 import { getMinimapWorldBounds } from '../utils/minimapBounds'
 import { SceneContent } from './scene/SceneContent'
 import { BookshelfEditPanel } from './BookshelfEditPanel'
@@ -55,6 +56,59 @@ function isEditableDomTarget(target: EventTarget | null): boolean {
   return target.isContentEditable
 }
 
+function MinimapSvgOverlay({
+  viewportUv,
+  playerPos,
+  markerScale = 1,
+}: {
+  viewportUv: MinimapUvPoint[] | null
+  playerPos: MinimapPlayerPos | null
+  markerScale?: number
+}) {
+  const hasViewport = viewportUv && viewportUv.length === 4
+  if (!hasViewport && !playerPos) return null
+
+  const arrowAngleDeg = playerPos
+    ? (MAP_VIEW_YAW_OFFSET_RAD - playerPos.yaw) * (180 / Math.PI)
+    : 0
+
+  return (
+    <svg
+      className="mapMinimapOverlay"
+      viewBox="0 0 1 1"
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      {hasViewport && (
+        <polygon
+          fill="none"
+          stroke="rgba(160, 200, 255, 0.95)"
+          strokeWidth="0.0065"
+          strokeLinejoin="round"
+          points={viewportUv.map((p) => `${p.u},${p.v}`).join(' ')}
+        />
+      )}
+      {playerPos && (
+        <g transform={`translate(${playerPos.u},${playerPos.v})`}>
+          <circle
+            r={0.012 * markerScale}
+            fill="rgba(255,220,50,0.9)"
+            stroke="rgba(0,0,0,0.6)"
+            strokeWidth={0.004 * markerScale}
+          />
+          <polygon
+            points={`0,${-0.022 * markerScale} ${0.009 * markerScale},${0.008 * markerScale} ${-0.009 * markerScale},${0.008 * markerScale}`}
+            fill="rgba(255,220,50,0.95)"
+            stroke="rgba(0,0,0,0.6)"
+            strokeWidth={0.003 * markerScale}
+            transform={`rotate(${arrowAngleDeg})`}
+          />
+        </g>
+      )}
+    </svg>
+  )
+}
+
 function Map3DView() {
   const [mode, setMode] = useState<ViewMode>('overview')
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
@@ -62,9 +116,9 @@ function Map3DView() {
   const [showMapDiffLayer, setShowMapDiffLayer] = useState(false)
   const [showBookshelfOverlayLayer, setShowBookshelfOverlayLayer] = useState(false)
   const [walkFov, setWalkFov] = useState(WALK_DEFAULT_FOV)
-  const [thirdPersonOcclusionFade, setThirdPersonOcclusionFade] = useState(false)
-  const [thirdPersonFovAdjustEnabled, setThirdPersonFovAdjustEnabled] = useState(false)
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
+  const [minimapPlayerPos, setMinimapPlayerPos] = useState<{ u: number; v: number; yaw: number } | null>(null)
+  const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const { spanX: minimapSpanX, spanZ: minimapSpanZ } = useMemo(() => getMinimapWorldBounds(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
@@ -154,9 +208,8 @@ function Map3DView() {
           forwardArrowRef={forwardArrowRef}
           walkFov={walkFov}
           onWalkFovChange={handleWalkFovChange}
-          thirdPersonOcclusionFade={thirdPersonOcclusionFade}
-          thirdPersonFovAdjustEnabled={thirdPersonFovAdjustEnabled}
           onMinimapViewportUv={handleMinimapViewportUv}
+          onPlayerPosition={setMinimapPlayerPos}
         />
       </Canvas>
 
@@ -174,66 +227,6 @@ function Map3DView() {
               <polygon points="14,2 22,18 14,14 6,18" fill="rgba(255,255,255,0.92)" stroke="rgba(0,0,0,0.45)" strokeWidth="1.2" strokeLinejoin="round" />
             </svg>
           </div>
-        </div>
-      )}
-
-      {mode === 'thirdPerson' && (
-        <div
-          className="map3DThirdPersonHud"
-          style={{
-            position: 'absolute',
-            bottom: '8px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: '8px',
-            pointerEvents: 'auto',
-            userSelect: 'none',
-            zIndex: 11,
-          }}
-        >
-          <button
-            type="button"
-            className="map3DThirdPersonHudButton"
-            data-active={thirdPersonOcclusionFade}
-            aria-pressed={thirdPersonOcclusionFade}
-            aria-label="가림 반투명"
-            onClick={() => setThirdPersonOcclusionFade((v) => !v)}
-          >
-            반투명
-          </button>
-          <button
-            type="button"
-            className="map3DThirdPersonHudButton"
-            data-active={thirdPersonFovAdjustEnabled}
-            aria-pressed={thirdPersonFovAdjustEnabled}
-            aria-label="시야 줌(FOV 조절)"
-            onClick={() => setThirdPersonFovAdjustEnabled((v) => !v)}
-          >
-            시야 줌
-          </button>
-          {thirdPersonFovAdjustEnabled && (
-            <>
-              <button
-                type="button"
-                className="map3DThirdPersonHudButton"
-                aria-label="시야 넓히기"
-                onClick={() => setWalkFov((f) => clampWalkFov(f + WALK_FOV_BUTTON_STEP))}
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="map3DThirdPersonHudButton"
-                aria-label="시야 좁히기"
-                onClick={() => setWalkFov((f) => clampWalkFov(f - WALK_FOV_BUTTON_STEP))}
-              >
-                +
-              </button>
-            </>
-          )}
         </div>
       )}
 
@@ -263,6 +256,9 @@ function Map3DView() {
         <button type="button" data-active={isEdit} onClick={() => { setMode('edit'); setSelectedIndex(null) }}>
           편집 모드
         </button>
+        <button type="button" data-active={mode === 'overview'} onClick={() => { setMode('overview'); setSelectedIndex(null) }}>
+          전체 보기
+        </button>
       </div>
 
       <div className="mapMinimapWrap">
@@ -270,29 +266,28 @@ function Map3DView() {
           type="button"
           className="mapMinimapButton"
           data-active={mode === 'overview'}
-          aria-label="전체 보기"
-          onClick={() => { setMode('overview'); setSelectedIndex(null) }}
+          aria-label="전체 보기 토글"
+          onClick={() => {
+            if (mode === 'firstPerson' || mode === 'thirdPerson') {
+              setPrevWalkMode(mode)
+              setMode('overview')
+              setSelectedIndex(null)
+            } else if (mode === 'overview') {
+              setMode(prevWalkMode)
+              setSelectedIndex(null)
+            }
+          }}
         >
           <span
             className="mapMinimapStack"
             style={{ aspectRatio: `${minimapSpanX} / ${minimapSpanZ}` }}
           >
             <img className="mapMinimapImage" src="/map-floor-2d.png" alt="" draggable={false} />
-            {minimapViewportUv && minimapViewportUv.length === 4 && (
-              <svg
-                className="mapMinimapOverlay"
-                viewBox="0 0 1 1"
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                <polygon
-                  fill="rgba(127, 166, 255, 0.2)"
-                  stroke="rgba(200, 214, 255, 0.95)"
-                  strokeWidth="0.005"
-                  points={minimapViewportUv.map((p) => `${p.u},${p.v}`).join(' ')}
-                />
-              </svg>
-            )}
+            <MinimapSvgOverlay
+              viewportUv={minimapViewportUv}
+              playerPos={minimapPlayerPos}
+              markerScale={1}
+            />
           </span>
         </button>
       </div>

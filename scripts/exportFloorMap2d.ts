@@ -2,7 +2,7 @@
  * 3D FloorPolygonMesh와 동일한 바닥(외곽 폴리곤 + 수동 클립) + 본편 책장 + 책장 후보 오버레이 레이어를 위에서 본 2D PNG로 내보냅니다.
  * 실행: npx tsx scripts/exportFloorMap2d.ts [--out path] [--width 2048] [--no-overlay]
  *
- * 색: Scene 배경·바닥·본편 책장·후보 오버레이(bookshelfOverlayLayerMaterial)와 맞춤.
+ * 색: `src/data/map2dPngPalette.ts` — 3D 재질 알베도와 동일 계열, 전체 보기 조명 체감에 맞게 어둡게 보정.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -12,18 +12,15 @@ import { getMinimapWorldBounds } from '../src/utils/minimapBounds'
 import { createFloorPointInclusionTest } from '../src/utils/floorPolygon'
 import { bookshelfOverlayLayerInstances } from '../src/data/bookshelfOverlayLayer'
 import { bookshelfInstances, floorFillRects, wallPolylines } from '../src/data/floorPlan'
+import { MAP2D_PNG, hexToRgba } from '../src/data/map2dPngPalette'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
 
-/** #1a1410 — SceneContent background */
-const BG = { r: 26, g: 20, b: 16, alpha: 255 }
-/** #B5885A — floorMaterial */
-const FLOOR = { r: 181, g: 136, b: 90, alpha: 255 }
-/** #8E5C42 — bookshelfMaterial (본편 책장) */
-const BOOKSHELF = { r: 142, g: 92, b: 66, alpha: 255 }
-/** #B8956A — bookshelfOverlayLayerMaterial (책장 후보 버튼 레이어) */
-const BOOKSHELF_OVERLAY = { r: 184, g: 149, b: 106, alpha: 255 }
+const BG = hexToRgba(MAP2D_PNG.bg)
+const FLOOR = hexToRgba(MAP2D_PNG.floor)
+const BOOKSHELF = hexToRgba(MAP2D_PNG.bookshelf)
+const BOOKSHELF_OVERLAY = hexToRgba(MAP2D_PNG.bookshelfOverlay)
 
 function parseArgs() {
   const argv = process.argv.slice(2)
@@ -70,7 +67,7 @@ function rotatedBookshelfCorners(cx: number, cz: number, w: number, d: number, y
     [hw, hd],
     [-hw, hd],
   ]
-  return corners.map(([lx, lz]) => [cx + lx * c - lz * s, cz + lx * s + lz * c])
+  return corners.map(([lx, lz]) => [cx + lx * c + lz * s, cz - lx * s + lz * c])
 }
 
 function fixtureListToQuads(

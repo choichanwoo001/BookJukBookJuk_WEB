@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Group, Object3D, Raycaster, Vector3 } from 'three'
+import { Group, Raycaster, Vector3 } from 'three'
 import type { RefObject } from 'react'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import { useMouseDrag } from '../../hooks/useMouseDrag'
@@ -23,18 +23,17 @@ import {
   OVERVIEW_Y_MIN,
   OVERVIEW_Y_MAX,
   OVERVIEW_PAN_SPEED,
+  MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
+import { isExcludedFromCameraCollision } from '../../utils/cameraCollision'
 
-function isExcludedFromCameraCollision(object: Object3D): boolean {
-  let o: Object3D | null = object
-  while (o) {
-    if (o.userData?.excludeCameraCollision === true) return true
-    o = o.parent
-  }
-  return false
-}
-
-export function CameraZoomController({ enabled }: { enabled: boolean }) {
+export function CameraZoomController({
+  enabled,
+  onFovChange,
+}: {
+  enabled: boolean
+  onFovChange?: (fov: number) => void
+}) {
   const { camera, gl } = useThree()
 
   useEffect(() => {
@@ -46,13 +45,15 @@ export function CameraZoomController({ enabled }: { enabled: boolean }) {
       if (!enabled) return
       event.preventDefault()
       const delta = event.deltaY * ZOOM_FOV_SENSITIVITY
-      perspectiveCamera.fov = Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, perspectiveCamera.fov + delta))
+      const next = Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, perspectiveCamera.fov + delta))
+      perspectiveCamera.fov = next
       perspectiveCamera.updateProjectionMatrix()
+      onFovChange?.(next)
     }
 
     element.addEventListener('wheel', onWheel, { passive: false })
     return () => element.removeEventListener('wheel', onWheel)
-  }, [camera, enabled, gl])
+  }, [camera, enabled, gl, onFovChange])
 
   return null
 }
@@ -267,9 +268,11 @@ export function OverviewPanController({
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
     const perspectiveCamera = camera as ThreePerspectiveCamera
     const panSpeed = perspectiveCamera.position.y * OVERVIEW_PAN_SPEED
+    /** overview 카메라 부모 `group`의 Y 회전(MAP_VIEW_YAW_OFFSET_RAD)과 팬 방향 정합 */
+    const panSign = Math.cos(MAP_VIEW_YAW_OFFSET_RAD)
     /* eslint-disable react-hooks/immutability -- Three.js PerspectiveCamera position mutation */
-    perspectiveCamera.position.x -= dx * panSpeed
-    perspectiveCamera.position.z -= dy * panSpeed
+    perspectiveCamera.position.x -= dx * panSpeed * panSign
+    perspectiveCamera.position.z -= dy * panSpeed * panSign
     /* eslint-enable react-hooks/immutability */
   }, [camera])
 

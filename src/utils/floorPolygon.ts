@@ -1,3 +1,8 @@
+import polyclip from 'polygon-clipping'
+import type { MultiPolygon, Polygon, Ring } from 'polygon-clipping'
+
+const intersection = polyclip.intersection
+import { BufferGeometry, Path, Shape, ShapeGeometry } from 'three'
 import type { WallRect } from '../data/floorPlan'
 
 export function signedArea2D(pts: [number, number][]) {
@@ -70,36 +75,116 @@ export function isPointInRingedPolygon(
   return true
 }
 
-/** Axis-aligned fill rects split into cells; only cells whose center lies on valid floor (outer − holes). */
-export function getFillRectsClippedToValidFloor(
+function ensureClosedRing(pts: [number, number][]): [number, number][] {
+  if (pts.length < 2) return pts
+  const a = pts[0]
+  const b = pts[pts.length - 1]
+  if (Math.abs(a[0] - b[0]) < 1e-9 && Math.abs(a[1] - b[1]) < 1e-9) return pts
+  return [...pts, [a[0], a[1]]]
+}
+
+function buildFloorMultiPolygon(outer: [number, number][], holes: [number, number][][]): MultiPolygon {
+  const outerRing = ensureClosedRing(outer) as Ring
+  if (holes.length === 0) return [[outerRing]]
+  const holeRings = holes.map((h) => ensureClosedRing(h) as Ring)
+  return [[outerRing, ...holeRings]]
+}
+
+function wallRectToRing(r: WallRect): Ring {
+  const { cx, cz, w, d } = r
+  const hw = w / 2
+  const hd = d / 2
+  return [
+    [cx - hw, cz - hd],
+    [cx + hw, cz - hd],
+    [cx + hw, cz + hd],
+    [cx - hw, cz + hd],
+    [cx - hw, cz - hd],
+  ]
+}
+
+function multipolygonToShapeGeometriesXZ(mp: MultiPolygon, yOffset: number): BufferGeometry[] {
+  const geos: BufferGeometry[] = []
+  for (const polygon of mp) {
+    if (!polygon.length) continue
+    const [outer, ...holeRings] = polygon
+    if (outer.length < 3) continue
+    const shape = new Shape()
+    shape.moveTo(outer[0][0], outer[0][1])
+    for (let i = 1; i < outer.length; i++) shape.lineTo(outer[i][0], outer[i][1])
+    shape.closePath()
+    for (const hole of holeRings) {
+      if (hole.length < 3) continue
+      const p = new Path()
+      p.moveTo(hole[0][0], hole[0][1])
+      for (let i = 1; i < hole.length; i++) p.lineTo(hole[i][0], hole[i][1])
+      p.closePath()
+      shape.holes.push(p)
+    }
+    const sg = new ShapeGeometry(shape)
+    const pos = sg.attributes.position
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i)
+      const z = pos.getY(i)
+      pos.setXYZ(i, x, yOffset, z)
+    }
+    pos.needsUpdate = true
+    sg.computeVertexNormals()
+    geos.push(sg)
+  }
+  return geos
+}
+
+/**
+ * Intersects each manual fill rect with valid floor (outer − holes) and builds merged-quality
+ * floor patches (same ShapeGeometry path as the main floor), avoiding grid-cell stair-steps.
+ */
+export function buildFillGeometriesClippedToValidFloor(
   fillRects: WallRect[],
   outer: [number, number][],
   holes: [number, number][][],
-  targetCellM: number,
-): { cx: number; cz: number; w: number; d: number }[] {
-  const out: { cx: number; cz: number; w: number; d: number }[] = []
+  yOffset: number,
+): BufferGeometry[] {
+  if (fillRects.length === 0 || outer.length < 3) return []
+  const floorMP = buildFloorMultiPolygon(outer, holes)
+  const out: BufferGeometry[] = []
   for (const r of fillRects) {
-    const halfW = r.w / 2
-    const halfD = r.d / 2
-    const x0 = r.cx - halfW
-    const x1 = r.cx + halfW
-    const z0 = r.cz - halfD
-    const z1 = r.cz + halfD
-    const width = x1 - x0
-    const depth = z1 - z0
-    const ncx = Math.max(1, Math.ceil(width / targetCellM))
-    const ncz = Math.max(1, Math.ceil(depth / targetCellM))
-    const cellW = width / ncx
-    const cellD = depth / ncz
-    for (let ix = 0; ix < ncx; ix++) {
-      for (let iz = 0; iz < ncz; iz++) {
-        const cx = x0 + (ix + 0.5) * cellW
-        const cz = z0 + (iz + 0.5) * cellD
-        if (isPointInRingedPolygon(cx, cz, outer, holes)) {
-          out.push({ cx, cz, w: cellW, d: cellD })
-        }
-      }
-    }
+    const rectMP: MultiPolygon = [[wallRectToRing(r)]]
+    const clipped = intersection(floorMP, rectMP)
+    out.push(...multipolygonToShapeGeometriesXZ(clipped, yOffset))
   }
   return out
+}
+
+function pointInPolygonWithHoles(x: number, z: number, poly: Polygon): boolean {
+  if (!poly.length) return false
+  const outer = poly[0] as [number, number][]
+  const holePolys = poly.slice(1) as [number, number][][]
+  return isPointInRingedPolygon(x, z, outer, holePolys)
+}
+
+function pointInMultiPolygon(x: number, z: number, mp: MultiPolygon): boolean {
+  for (const poly of mp) {
+    if (pointInPolygonWithHoles(x, z, poly)) return true
+  }
+  return false
+}
+
+/**
+ * 3D FloorPolygonMesh와 동일한 바닥 영역(외곽−홀 + 수동 rect 클립)에 (x,z)가 포함되는지.
+ * 픽셀 루프 등에서 수동으로 intersection을 반복하지 않도록 테스트 함수를 반환합니다.
+ */
+export function createFloorPointInclusionTest(
+  loops: [number, number][][],
+  fillRects: WallRect[],
+): (x: number, z: number) => boolean {
+  if (loops.length === 0) return () => false
+  const { outer, holes } = getFloorOuterAndHolePolygons(loops)
+  if (outer.length < 3) return () => false
+  const floorMP = buildFloorMultiPolygon(outer, holes)
+  const manualClips = fillRects.map((r) => intersection(floorMP, [[wallRectToRing(r)]]))
+  return (x: number, z: number) => {
+    if (isPointInRingedPolygon(x, z, outer, holes)) return true
+    return manualClips.some((mp) => pointInMultiPolygon(x, z, mp))
+  }
 }

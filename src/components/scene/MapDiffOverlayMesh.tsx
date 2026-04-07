@@ -10,11 +10,14 @@ import {
   mapImageOffsetZ,
 } from '../../data/mapData'
 import { MAP_DIFF_PUBLIC_PATH } from '../../data/mapDiffOverlayMeta'
+import { getMinimapWorldBounds } from '../../utils/minimapBounds'
 
 const Y_OFFSET = 0.018
 
 /**
  * Full-map RGBA texture: same placement as processMap (pxToWorld − mapImageOffset).
+ * UV는 `worldXzToMinimapUv` / exportFloorMap2d와 동일하게 월드 XZ로 샘플한다.
+ * (`rotateX`만 쓰면 기본 UV가 회전된 정점과 맞지 않을 수 있음.)
  * Toggle visibility off to hide the layer without changing map data.
  */
 export function MapDiffOverlayMesh({ visible }: { visible: boolean }) {
@@ -57,6 +60,15 @@ export function MapDiffOverlayMesh({ visible }: { visible: boolean }) {
     g.rotateX(-Math.PI / 2)
     const cx = MAP_IMAGE_ORIGIN_X + sx * 0.5 - mapImageOffsetX
     const cz = MAP_IMAGE_ORIGIN_Z + sz * 0.5 - mapImageOffsetZ
+    const { minX, minZ, spanX, spanZ } = getMinimapWorldBounds()
+    const pos = g.attributes.position
+    const uv = g.attributes.uv
+    for (let i = 0; i < pos.count; i++) {
+      const wx = pos.getX(i) + cx
+      const wz = pos.getZ(i) + cz
+      uv.setXY(i, (wx - minX) / spanX, (wz - minZ) / spanZ)
+    }
+    uv.needsUpdate = true
     return {
       geometry: g,
       position: [cx, Y_OFFSET, cz] as const,

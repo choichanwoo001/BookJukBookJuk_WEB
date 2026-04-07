@@ -31,9 +31,17 @@ export const MOUSE_LOOK_PITCH_MAX = -0.56
 export const ZOOM_FOV_MIN = 42
 export const ZOOM_FOV_MAX = 62
 export const ZOOM_FOV_SENSITIVITY = 0.02
+/** 1인칭/3인칭 기본 FOV (PerspectiveCamera 초기값과 동일). */
+export const WALK_DEFAULT_FOV = 64
+/** 3인칭 하단 버튼으로 FOV를 바꿀 때 한 번에 바뀌는 각도(도). */
+export const WALK_FOV_BUTTON_STEP = 2
+/** 3인칭 가림 반투명: 최종 불투명도 (70% 불투명 ≈ 30% 투명). */
+export const THIRD_PERSON_OCCLUDER_OPACITY = 0.7
 export const OVERVIEW_ZOOM_SENSITIVITY = 0.05
 export const OVERVIEW_Y_MIN = 10
 export const OVERVIEW_Y_MAX = 120
+/** 3D 뷰 yaw 기준을 미니맵 PNG·`worldXzToMinimapUv`와 맞출 때 Y축 오프셋(라디안). 필요 시 부호만 반대로. */
+export const MAP_VIEW_YAW_OFFSET_RAD = Math.PI
 
 // --- Player ---
 export const PLAYER_SCALE = 0.7
@@ -70,9 +78,6 @@ export const GAIT_MAX_SPEED_ADD = 8
 export const GAIT_SWING_AMPLITUDE = 0.52
 export const GAIT_BOB_AMPLITUDE = 0.035
 export const GAIT_MOVE_THRESHOLD = 0.03
-
-// --- Floor Fill ---
-export const FLOOR_FILL_CLIP_CELL_M = 0.14
 
 // --- Materials ---
 export const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 })

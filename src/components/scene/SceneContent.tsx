@@ -34,6 +34,8 @@ import {
   markerMaterial,
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
+  WALK_DEFAULT_FOV,
+  MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
 import type { ViewMode, SurfaceKind, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import {
@@ -54,7 +56,10 @@ import {
   ThirdPersonCameraRig,
   OverviewPanController,
 } from './CameraControllers'
+import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
 import { StickmanPlayer } from './StickmanPlayer'
+import { MinimapViewportReporter } from './MinimapViewportReporter'
+import type { MinimapUvPoint } from './MinimapViewportReporter'
 
 function ForwardArrowUpdater({
   yawRef,
@@ -105,6 +110,11 @@ export function SceneContent({
   showMapDiffLayer,
   showBookshelfOverlayLayer,
   forwardArrowRef,
+  walkFov = WALK_DEFAULT_FOV,
+  onWalkFovChange,
+  thirdPersonOcclusionFade = false,
+  thirdPersonFovAdjustEnabled = false,
+  onMinimapViewportUv,
 }: {
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
@@ -118,6 +128,11 @@ export function SceneContent({
   showMapDiffLayer?: boolean
   showBookshelfOverlayLayer?: boolean
   forwardArrowRef?: RefObject<HTMLDivElement | null>
+  walkFov?: number
+  onWalkFovChange?: (fov: number) => void
+  thirdPersonOcclusionFade?: boolean
+  thirdPersonFovAdjustEnabled?: boolean
+  onMinimapViewportUv?: (quad: MinimapUvPoint[] | null) => void
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
@@ -178,7 +193,7 @@ export function SceneContent({
 
     const prev = prevWalkModeRef.current
     if (prev === null) {
-      yawRef.current = 0
+      yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
       pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
     } else if (prev !== mode) {
       pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
@@ -258,6 +273,8 @@ export function SceneContent({
     ? bookshelfRenderInstances[selectedBookshelfIndex]
     : null
 
+  const thirdPersonCameraFov = thirdPersonFovAdjustEnabled ? walkFov : WALK_DEFAULT_FOV
+
   return (
     <>
       <color attach="background" args={['#1a1410']} />
@@ -272,14 +289,14 @@ export function SceneContent({
             makeDefault
             position={[0, FIRST_PERSON_EYE_HEIGHT_M, 0]}
             rotation={[0, 0, 0]}
-            fov={64}
+            fov={walkFov}
           />
           <FirstPersonCameraRig
             yawRef={yawRef}
             pitchRef={pitchRef}
             enabled={controlsEnabled}
           />
-          <CameraZoomController enabled={controlsEnabled} />
+          <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
           <MouseLookController
             yawRef={yawRef}
             pitchRef={pitchRef}
@@ -299,7 +316,7 @@ export function SceneContent({
             makeDefault
             position={[0, 2.6, 5.6]}
             rotation={[-0.86, 0, 0]}
-            fov={64}
+            fov={thirdPersonCameraFov}
           />
           <ThirdPersonCameraRig
             yawRef={yawRef}
@@ -307,7 +324,10 @@ export function SceneContent({
             enabled={controlsEnabled}
             worldRef={worldRef}
           />
-          <CameraZoomController enabled={controlsEnabled} />
+          <CameraZoomController
+            enabled={controlsEnabled && thirdPersonFovAdjustEnabled}
+            onFovChange={onWalkFovChange}
+          />
           <MouseLookController
             yawRef={yawRef}
             pitchRef={pitchRef}
@@ -322,13 +342,15 @@ export function SceneContent({
         </>
       ) : (
         <>
-          <PerspectiveCamera
-            key="overview-camera"
-            makeDefault
-            position={[0, 50, 0]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fov={64}
-          />
+          <group rotation={[0, MAP_VIEW_YAW_OFFSET_RAD, 0]}>
+            <PerspectiveCamera
+              key="overview-camera"
+              makeDefault
+              position={[0, 50, 0]}
+              rotation={[-Math.PI / 2, 0, 0]}
+              fov={64}
+            />
+          </group>
           <OverviewZoomController />
           {!isEdit && controlsEnabled && <OverviewPanController />}
           {isEdit && (
@@ -336,6 +358,9 @@ export function SceneContent({
               <OverviewPanController button={2} />
               <OverviewPanController button={0} requireSpaceKey />
             </>
+          )}
+          {onMinimapViewportUv && (
+            <MinimapViewportReporter mode={mode} onMinimapViewportUv={onMinimapViewportUv} />
           )}
         </>
       )}
@@ -427,6 +452,9 @@ export function SceneContent({
           </group>
         ))}
       </group>
+      {isThirdPerson && (
+        <ThirdPersonOcclusionFader enabled={thirdPersonOcclusionFade} worldRef={worldRef} />
+      )}
     </>
   )
 }

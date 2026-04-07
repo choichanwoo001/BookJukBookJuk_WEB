@@ -2,13 +2,14 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import {
   BufferGeometry,
   CylinderGeometry,
+  DynamicDrawUsage,
   Float32BufferAttribute,
+  InstancedBufferAttribute,
   InstancedMesh,
   Mesh as ThreeMesh,
   MeshStandardMaterial,
   Object3D,
   Path,
-  PlaneGeometry,
   Shape,
   ShapeGeometry,
 } from 'three'
@@ -21,15 +22,15 @@ import {
   type WallRect,
 } from '../../data/floorPlan'
 import { pointInAnyRect } from '../../utils/rectUtils'
-import { getFloorOuterAndHolePolygons, getFillRectsClippedToValidFloor } from '../../utils/floorPolygon'
+import { buildFillGeometriesClippedToValidFloor, getFloorOuterAndHolePolygons } from '../../utils/floorPolygon'
 import {
   wallMaterial,
   SURFACE_WALL_OVERLAP_M,
-  FLOOR_FILL_CLIP_CELL_M,
   selectedOverlayMaterial,
   selectedWireMaterial,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
+import { createPerInstanceOpacityMaterial } from '../../utils/perInstanceOpacityMaterial'
 
 const _dummy = new Object3D()
 
@@ -139,18 +140,8 @@ export function FloorPolygonMesh({
 
     if (!fillRects || fillRects.length === 0) return shapeGeo
 
-    const clippedCells = getFillRectsClippedToValidFloor(
-      fillRects,
-      outerPts,
-      holePolys,
-      FLOOR_FILL_CLIP_CELL_M,
-    )
-    const fillGeos = clippedCells.map((c) => {
-      const g = new PlaneGeometry(c.w, c.d)
-      g.rotateX(-Math.PI / 2)
-      g.translate(c.cx, yOffset, c.cz)
-      return g
-    })
+    const fillGeos = buildFillGeometriesClippedToValidFloor(fillRects, outerPts, holePolys, yOffset)
+    if (fillGeos.length === 0) return shapeGeo
     return mergeGeometries([shapeGeo, ...fillGeos]) ?? shapeGeo
   }, [yOffset, fillRects])
 
@@ -185,6 +176,7 @@ export function PillarCylinderInstances({
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
   const geometry = useMemo(() => new CylinderGeometry(0.5, 0.5, 1, 16), [])
+  const materialWithOpacity = useMemo(() => createPerInstanceOpacityMaterial(material), [material])
 
   useEffect(() => {
     if (!meshRef.current) return
@@ -200,6 +192,23 @@ export function PillarCylinderInstances({
     meshRef.current.instanceMatrix.needsUpdate = true
   }, [height, rects, yOffset])
 
+  useLayoutEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh || rects.length === 0) return
+    const geo = mesh.geometry
+    const n = rects.length
+    let attr = geo.getAttribute('instanceOpacity') as InstancedBufferAttribute | undefined
+    if (!attr || attr.count !== n) {
+      attr = new InstancedBufferAttribute(new Float32Array(n), 1)
+      attr.setUsage(DynamicDrawUsage)
+      geo.setAttribute('instanceOpacity', attr)
+    }
+    for (let i = 0; i < n; i++) {
+      attr.setX(i, 1)
+    }
+    attr.needsUpdate = true
+  }, [rects.length])
+
   if (rects.length === 0) return null
 
   return (
@@ -211,7 +220,7 @@ export function PillarCylinderInstances({
       onClick={onClick}
       onPointerDown={onPointerDown}
     >
-      <primitive object={material} attach="material" />
+      <primitive object={materialWithOpacity} attach="material" />
     </instancedMesh>
   )
 }
@@ -232,6 +241,7 @@ export function RotatedFixtureInstances({
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
+  const materialWithOpacity = useMemo(() => createPerInstanceOpacityMaterial(material), [material])
 
   useEffect(() => {
     if (!meshRef.current) return
@@ -245,6 +255,23 @@ export function RotatedFixtureInstances({
     }
     meshRef.current.instanceMatrix.needsUpdate = true
   }, [instances])
+
+  useLayoutEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh || instances.length === 0) return
+    const geo = mesh.geometry
+    const n = instances.length
+    let attr = geo.getAttribute('instanceOpacity') as InstancedBufferAttribute | undefined
+    if (!attr || attr.count !== n) {
+      attr = new InstancedBufferAttribute(new Float32Array(n), 1)
+      attr.setUsage(DynamicDrawUsage)
+      geo.setAttribute('instanceOpacity', attr)
+    }
+    for (let i = 0; i < n; i++) {
+      attr.setX(i, 1)
+    }
+    attr.needsUpdate = true
+  }, [instances.length])
 
   useLayoutEffect(() => {
     const mesh = meshRef.current
@@ -268,7 +295,7 @@ export function RotatedFixtureInstances({
       onPointerDown={onPointerDown}
     >
       <boxGeometry args={[1, 1, 1]} />
-      <primitive object={material} attach="material" />
+      <primitive object={materialWithOpacity} attach="material" />
     </instancedMesh>
   )
 }

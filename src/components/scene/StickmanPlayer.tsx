@@ -85,7 +85,13 @@ export function StickmanPlayer({
   })
 
   return (
-    <group ref={avatarRef} position={[0, 0, 0]} scale={[PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE]} visible={visible}>
+    <group
+      ref={avatarRef}
+      position={[0, 0, 0]}
+      scale={[PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE]}
+      visible={visible}
+      userData={{ excludeCameraCollision: true }}
+    >
       <group ref={bodyRef}>
         <mesh position={[0, 1.52, 0]}>
           <sphereGeometry args={[0.16, 16, 16]} />

@@ -31,7 +31,32 @@ export type ManualFixtureInstance = {
 
 export type RuntimeFixtureInstance = ManualFixtureInstance
 
+/** 입구(스폰 기준) 월드 xz (m). */
+export const ENTRANCE_SPAWN: Point2 = [1.46, -1.71]
+
+/**
+ * 벽 표면에 얹는 문 장식(맵 폴리라인·내부 구조 미수정).
+ * circle-area | surface=wall | center=(1.729, 0.017, -1.407) | radius=0.35 기준으로
+ * 중심을 맞추고, 인접 벽 모서리 `[1.256,-2.737]`→`[5.081,7.338]` 접선에 정렬한다.
+ */
+export const ENTRANCE_DOORWAY = {
+  centerX: 1.729,
+  centerZ: -1.407,
+  tangentX: 3.825,
+  tangentZ: 10.075,
+  /** 원 지름(0.7m)에 맞춘 개구 폭. */
+  openingWidthM: 0.72,
+  frameHeightM: 2.38,
+  jambThicknessM: 0.09,
+  frameDepthM: 0.14,
+  lintelHeightM: 0.11,
+  doorPanelWidthM: 0.66,
+  doorOpenRad: 0.4,
+} as const
+
 const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
+  // 입구 주변 바닥 — 스폰 지점이 floor polygon에 포함되도록 보정.
+  { cx: ENTRANCE_SPAWN[0], cz: ENTRANCE_SPAWN[1], w: 0.9, d: 0.9 },
   // Floor fill near center (x=-2.938, z=8.543).
   { cx: -2.938, cz: 8.543, w: 1.327, d: 3.3 },
   // Two point-only reports: small local fill squares.
@@ -74,7 +99,7 @@ export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length
 // Photo / measured placements (persist here; merged with detected fixtures).
 // yaw radians; w,d meters; h shelf height.
 const MANUAL_BOOKSHELF_H = FLOOR_HEIGHT_M * 0.78
-const COUNTER_H = 1.1
+export const COUNTER_H = 1.1
 const DISPLAY_LOW_H = 0.9
 
 const DEFAULT_HEIGHT_BY_KIND: Record<FixtureKind, number> = {
@@ -83,6 +108,7 @@ const DEFAULT_HEIGHT_BY_KIND: Record<FixtureKind, number> = {
   displayLow: DISPLAY_LOW_H,
 }
 
+// 계산대는 기본 맵 레이어가 아니라 bookshelves overlay 레이어에서 관리한다.
 export const manualFixtureInstances: ManualFixtureInstance[] = []
 
 export const manualBookshelfInstances = manualFixtureInstances.filter(v => v.kind === 'bookshelf')
@@ -164,4 +190,4 @@ export function isOnFloor(x: number, z: number): boolean {
   return pointInAnyRect(floorRects, x, z)
 }
 
-export const SPAWN_POINT_WORLD: Point2 = computeFloorCenter()
+export const SPAWN_POINT_WORLD: Point2 = ENTRANCE_SPAWN

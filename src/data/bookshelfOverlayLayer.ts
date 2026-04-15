@@ -1,4 +1,5 @@
 import type { FixtureRenderInstance } from '../types/scene'
+import { COUNTER_H } from './floorPlan'
 import {
   alignBookshelfPairsFacingAcrossAisle,
   microAlignShelfClusterBackEdgesFour,
@@ -50,10 +51,24 @@ const RAW_AISLES: Omit<FixtureRenderInstance, 'kind'>[][] = [
   ],
   [
     { cx: -10.305, cz: 3.345, w: 6.5, d: 1, yaw: 3.4768, h: 2.34 },
-    { cx: -13.831, cz: 1.551, w: 1.3, d: 0.5, yaw: 1.9423, h: 2.34 },
-    { cx: -6.194, cz: 5.065, w: 1.3, d: 0.5, yaw: 1.9423, h: 2.34 },
   ],
 ]
+
+/** 본편 manual counter와 동일 좌표·기하 — 오버레이 ON일 때만 후보 스타일로 표시(메인 counter와 이중 렌더 방지는 SceneContent에서 처리). */
+export const counterOverlayLayerInstances: FixtureRenderInstance[] = [
+  { kind: 'counter', cx: -13.861, cz: 1.305, w: 1.3, d: 0.5, yaw: 1.9423, h: COUNTER_H },
+  { kind: 'counter', cx: -6.194, cz: 4.896, w: 1.3, d: 0.5, yaw: 1.9423, h: COUNTER_H },
+]
+
+const OVERLAY_COUNTER_DEDUPE_EPS_M = 0.05
+
+/** 본편 static counter가 오버레이 슬롯과 겹치면 오버레이에서만 그리기 위해 메인에서 제외할지 판별. */
+export function isCounterOverlaidByBookshelfOverlayLayer(c: FixtureRenderInstance): boolean {
+  if (c.kind !== 'counter') return false
+  return counterOverlayLayerInstances.some(
+    (o) => Math.hypot(o.cx - c.cx, o.cz - c.cz) < OVERLAY_COUNTER_DEDUPE_EPS_M,
+  )
+}
 
 const RAW_AISLES_SNAP_ROW0 = RAW_AISLES[0].map(snapShelfCenterFlushAlways)
 const RAW_AISLES_ROW0_ALIGNED =

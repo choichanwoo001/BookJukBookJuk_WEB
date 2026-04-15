@@ -14,7 +14,11 @@ import {
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
-import { bookshelfOverlayLayerInstances } from '../../data/bookshelfOverlayLayer'
+import {
+  bookshelfOverlayLayerInstances,
+  counterOverlayLayerInstances,
+  isCounterOverlaidByBookshelfOverlayLayer,
+} from '../../data/bookshelfOverlayLayer'
 import {
   FIRST_PERSON_DEFAULT_PITCH,
   FIRST_PERSON_EYE_HEIGHT_M,
@@ -28,21 +32,24 @@ import {
   bookshelfMaterial,
   bookshelfOverlayLayerMaterial,
   bookshelfOverlayInteriorWoodMaterial,
-  counterMaterial,
   displayLowMaterial,
   pillarMaterial,
   markerMaterial,
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
   WALK_DEFAULT_FOV,
+  THIRD_PERSON_PLAYER_SCALE_MULT,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
 import type { ViewMode, SurfaceKind, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
+import type { Point2 } from '../../data/floorPlan'
 import {
   WallRibbonMesh,
+  EntranceDoorwayDecor,
   FloorPolygonMesh,
   PillarCylinderInstances,
   RotatedFixtureInstances,
+  SupermarketCounterInstances,
   SelectedBookshelfOverlay,
   BookstoreLights,
 } from './Meshes'
@@ -61,6 +68,8 @@ import { StickmanPlayer } from './StickmanPlayer'
 import { MinimapViewportReporter } from './MinimapViewportReporter'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
 import { worldXzToMinimapUv } from '../../utils/minimapBounds'
+import { NavigationRouteMesh } from './NavigationRouteMesh'
+import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
 
 export type MinimapPlayerPos = { u: number; v: number; yaw: number }
 
@@ -73,12 +82,53 @@ function PlayerPositionReporter({
   characterYawRef: RefObject<number>
   onPlayerPosition: (pos: MinimapPlayerPos | null) => void
 }) {
-  useFrame(() => {
-    if (!worldRef.current) { onPlayerPosition(null); return }
+  const lastEmitRef = useRef(0)
+  const lastSentRef = useRef<MinimapPlayerPos | null>(null)
+  useFrame((state) => {
+    if (!worldRef.current) {
+      if (lastSentRef.current !== null) {
+        lastSentRef.current = null
+        onPlayerPosition(null)
+      }
+      return
+    }
     const wx = -worldRef.current.position.x
     const wz = -worldRef.current.position.z
     const { u, v } = worldXzToMinimapUv(wx, wz)
-    onPlayerPosition({ u, v, yaw: characterYawRef.current })
+    const yaw = characterYawRef.current
+    const t = state.clock.elapsedTime
+    const next: MinimapPlayerPos = { u, v, yaw }
+    const prev = lastSentRef.current
+    const moved =
+      !prev
+      || Math.abs(prev.u - u) > 0.0008
+      || Math.abs(prev.v - v) > 0.0008
+      || Math.abs(prev.yaw - yaw) > 0.02
+    if (!moved && t - lastEmitRef.current < 0.12) return
+    lastEmitRef.current = t
+    lastSentRef.current = next
+    onPlayerPosition(next)
+  })
+  return null
+}
+
+function PlayerWorldXzReporter({
+  worldRef,
+  storedWorldPositionRef,
+  isWalkMode,
+  playerWorldXzRef,
+}: {
+  worldRef: RefObject<Group | null>
+  storedWorldPositionRef: RefObject<[number, number]>
+  isWalkMode: boolean
+  playerWorldXzRef: RefObject<Point2 | null>
+}) {
+  useFrame(() => {
+    if (isWalkMode && worldRef.current) {
+      playerWorldXzRef.current = [-worldRef.current.position.x, -worldRef.current.position.z]
+    } else {
+      playerWorldXzRef.current = [-storedWorldPositionRef.current[0], -storedWorldPositionRef.current[1]]
+    }
   })
   return null
 }
@@ -136,6 +186,8 @@ export function SceneContent({
   onWalkFovChange,
   onMinimapViewportUv,
   onPlayerPosition,
+  playerWorldXzRef,
+  navigationRoute,
 }: {
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
@@ -153,6 +205,8 @@ export function SceneContent({
   onWalkFovChange?: (fov: number) => void
   onMinimapViewportUv?: (quad: MinimapUvPoint[] | null) => void
   onPlayerPosition?: (pos: MinimapPlayerPos | null) => void
+  playerWorldXzRef?: RefObject<Point2 | null>
+  navigationRoute?: NavigationRouteVisual | null
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
@@ -174,10 +228,11 @@ export function SceneContent({
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = true
-  const counterRenderInstances = useMemo(
-    () => staticFixtureInstances.filter((inst) => inst.kind === 'counter'),
-    [staticFixtureInstances],
-  )
+  const counterRenderInstances = useMemo(() => {
+    const counters = staticFixtureInstances.filter((inst) => inst.kind === 'counter')
+    if (!showBookshelfOverlayLayer) return counters
+    return counters.filter((c) => !isCounterOverlaidByBookshelfOverlayLayer(c))
+  }, [staticFixtureInstances, showBookshelfOverlayLayer])
   const displayRenderInstances = useMemo(
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
@@ -195,33 +250,51 @@ export function SceneContent({
     bookshelfRects: bookshelfCollisionRects,
   }, characterYawRef, walkMovingRef)
 
+  /**
+   * 워크/오버뷰 전환 시 월드·yaw/pitch 동기화.
+   * R3F에서 `worldRef`가 첫 layout보다 늦게 붙을 수 있어, ref가 없으면 rAF로 재시도한다.
+   * (ref 없이 early return만 하면 이후에도 같은 mode로 재실행되지 않아 1·3인칭 전환이 깨질 수 있음)
+   */
   useEffect(() => {
-    if (!worldRef.current) return
+    let raf = 0
+    let attempts = 0
+    const maxAttempts = 12
 
-    const isWalk = mode === 'firstPerson' || mode === 'thirdPerson'
+    const apply = () => {
+      if (!worldRef.current) {
+        attempts += 1
+        if (attempts < maxAttempts) raf = requestAnimationFrame(apply)
+        return
+      }
 
-    if (!isWalk) {
-      storedWorldPositionRef.current = [worldRef.current.position.x, worldRef.current.position.z]
-      worldRef.current.position.set(0, 0, 0)
-      prevWalkModeRef.current = null
-      return
+      const isWalk = mode === 'firstPerson' || mode === 'thirdPerson'
+
+      if (!isWalk) {
+        storedWorldPositionRef.current = [worldRef.current.position.x, worldRef.current.position.z]
+        worldRef.current.position.set(0, 0, 0)
+        prevWalkModeRef.current = null
+        return
+      }
+
+      worldRef.current.position.set(
+        storedWorldPositionRef.current[0],
+        0,
+        storedWorldPositionRef.current[1],
+      )
+
+      const prev = prevWalkModeRef.current
+      if (prev === null) {
+        yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
+        pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
+      } else if (prev !== mode) {
+        pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
+      }
+
+      prevWalkModeRef.current = mode === 'firstPerson' || mode === 'thirdPerson' ? mode : null
     }
 
-    worldRef.current.position.set(
-      storedWorldPositionRef.current[0],
-      0,
-      storedWorldPositionRef.current[1],
-    )
-
-    const prev = prevWalkModeRef.current
-    if (prev === null) {
-      yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
-      pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
-    } else if (prev !== mode) {
-      pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
-    }
-
-    prevWalkModeRef.current = mode === 'firstPerson' || mode === 'thirdPerson' ? mode : null
+    apply()
+    return () => cancelAnimationFrame(raf)
   }, [mode])
 
   useEffect(() => {
@@ -334,15 +407,14 @@ export function SceneContent({
           <PerspectiveCamera
             key="third-person-camera"
             makeDefault
-            position={[0, 2.6, 5.6]}
-            rotation={[-0.86, 0, 0]}
-            fov={WALK_DEFAULT_FOV}
+            fov={walkFov}
           />
           <ThirdPersonCameraRig
             yawRef={yawRef}
             pitchRef={pitchRef}
             enabled={controlsEnabled}
           />
+          <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
           <MouseLookController
             yawRef={yawRef}
             pitchRef={pitchRef}
@@ -351,8 +423,14 @@ export function SceneContent({
             mouseLookDraggingRef={mouseLookDraggingRef}
             pitchMin={MOUSE_LOOK_PITCH_MIN}
             pitchMax={MOUSE_LOOK_PITCH_MAX}
+            applyRotationToCamera={false}
           />
-          <StickmanPlayer characterYawRef={characterYawRef} worldRef={worldRef} visible />
+          <StickmanPlayer
+            characterYawRef={characterYawRef}
+            worldRef={worldRef}
+            visible
+            scaleMultiplier={THIRD_PERSON_PLAYER_SCALE_MULT}
+          />
           {forwardArrowRef && <ForwardArrowUpdater yawRef={yawRef} domRef={forwardArrowRef} />}
         </>
       ) : (
@@ -383,6 +461,14 @@ export function SceneContent({
           worldRef={worldRef}
           characterYawRef={characterYawRef}
           onPlayerPosition={onPlayerPosition}
+        />
+      )}
+      {playerWorldXzRef && (
+        <PlayerWorldXzReporter
+          worldRef={worldRef}
+          storedWorldPositionRef={storedWorldPositionRef}
+          isWalkMode={isWalkMode}
+          playerWorldXzRef={playerWorldXzRef}
         />
       )}
 
@@ -424,10 +510,16 @@ export function SceneContent({
             shellMaterial={bookshelfOverlayLayerMaterial}
             woodMaterial={bookshelfOverlayInteriorWoodMaterial}
           />
+          <SupermarketCounterInstances
+            instances={counterOverlayLayerInstances}
+            overlayCandidate
+            disableRaycast
+          />
         </group>
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
+        <EntranceDoorwayDecor />
         <RotatedFixtureInstances
           instances={bookshelfRenderInstances}
           material={bookshelfMaterial}
@@ -437,9 +529,8 @@ export function SceneContent({
               : bookshelfPickHandler
           }
         />
-        <RotatedFixtureInstances
+        <SupermarketCounterInstances
           instances={counterRenderInstances}
-          material={counterMaterial}
           onPointerDown={bookshelfPickHandler}
         />
         {showDisplayLowFixtures && (
@@ -462,6 +553,7 @@ export function SceneContent({
           onPointerDown={pillarPickHandler}
         />
         <BookstoreLights floorRenderRects={floorRects} />
+        {navigationRoute && <NavigationRouteMesh route={navigationRoute} />}
         {selections.map((selection) => (
           <group key={selection.id} userData={{ excludeCameraCollision: true }}>
             <mesh position={[selection.center.x, selection.center.y + 0.1, selection.center.z]}>

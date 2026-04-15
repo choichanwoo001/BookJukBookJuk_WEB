@@ -18,10 +18,12 @@ export function StickmanPlayer({
   characterYawRef,
   worldRef,
   visible = true,
+  scaleMultiplier = 1,
 }: {
   characterYawRef: RefObject<number>
   worldRef: RefObject<Group | null>
   visible?: boolean
+  scaleMultiplier?: number
 }) {
   const avatarRef = useRef<Group>(null)
   const bodyRef = useRef<Group>(null)
@@ -88,7 +90,11 @@ export function StickmanPlayer({
     <group
       ref={avatarRef}
       position={[0, 0, 0]}
-      scale={[PLAYER_SCALE, PLAYER_SCALE, PLAYER_SCALE]}
+      scale={[
+        PLAYER_SCALE * scaleMultiplier,
+        PLAYER_SCALE * scaleMultiplier,
+        PLAYER_SCALE * scaleMultiplier,
+      ]}
       visible={visible}
       userData={{ excludeCameraCollision: true }}
     >

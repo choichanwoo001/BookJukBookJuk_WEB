@@ -85,6 +85,8 @@ export function MouseLookController({
   mouseLookDraggingRef,
   pitchMin = MOUSE_LOOK_PITCH_MIN,
   pitchMax = MOUSE_LOOK_PITCH_MAX,
+  /** false: yaw/pitch ref만 갱신(3인칭은 ThirdPersonCameraRig가 position+lookAt으로 담당) */
+  applyRotationToCamera = true,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
@@ -93,8 +95,9 @@ export function MouseLookController({
   mouseLookDraggingRef?: RefObject<boolean>
   pitchMin?: number
   pitchMax?: number
+  applyRotationToCamera?: boolean
 }) {
-  const { camera, gl } = useThree()
+  const { get, gl } = useThree()
 
   const onStart = useCallback(() => {
     isFreeLookRef.current = true
@@ -105,25 +108,31 @@ export function MouseLookController({
     if (mouseLookDraggingRef) mouseLookDraggingRef.current = false
   }, [mouseLookDraggingRef])
 
-  const onMove = useCallback((dx: number, dy: number) => {
-    yawRef.current -= dx * MOUSE_LOOK_SENSITIVITY
-    pitchRef.current = Math.max(pitchMin, Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY))
-    if ('isPerspectiveCamera' in camera && camera.isPerspectiveCamera) {
-      const perspectiveCamera = camera as ThreePerspectiveCamera
-      perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
-    }
-  }, [camera, pitchMax, pitchMin, pitchRef, yawRef])
+  const onMove = useCallback(
+    (dx: number, dy: number) => {
+      yawRef.current -= dx * MOUSE_LOOK_SENSITIVITY
+      pitchRef.current = Math.max(pitchMin, Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY))
+      if (!applyRotationToCamera) return
+      const cam = get().camera
+      if ('isPerspectiveCamera' in cam && cam.isPerspectiveCamera) {
+        const perspectiveCamera = cam as ThreePerspectiveCamera
+        perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
+      }
+    },
+    [applyRotationToCamera, get, pitchMax, pitchMin, pitchRef, yawRef],
+  )
 
   const options = useMemo(() => ({ onStart, onEnd }), [onStart, onEnd])
 
   useMouseDrag(enabled ? gl.domElement : null, onMove, options)
 
   useEffect(() => {
-    if (!enabled) return
-    if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
-    const perspectiveCamera = camera as ThreePerspectiveCamera
+    if (!enabled || !applyRotationToCamera) return
+    const cam = get().camera
+    if (!('isPerspectiveCamera' in cam) || !cam.isPerspectiveCamera) return
+    const perspectiveCamera = cam as ThreePerspectiveCamera
     perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
-  }, [camera, enabled, pitchRef, yawRef])
+  }, [applyRotationToCamera, get, enabled, pitchRef, yawRef])
 
   return null
 }
@@ -137,10 +146,9 @@ export function FirstPersonCameraRig({
   pitchRef: RefObject<number>
   enabled: boolean
 }) {
-  const { camera } = useThree()
-
-  useFrame(() => {
+  useFrame((state) => {
     if (!enabled) return
+    const camera = state.camera
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
     camera.position.set(0, FIRST_PERSON_EYE_HEIGHT_M, 0)
     camera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
@@ -158,12 +166,12 @@ export function ThirdPersonCameraRig({
   pitchRef: RefObject<number>
   enabled: boolean
 }) {
-  const { camera } = useThree()
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     if (!enabled) return
+    const camera = state.camera
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
 
     const desiredPosition = desiredPositionRef.current

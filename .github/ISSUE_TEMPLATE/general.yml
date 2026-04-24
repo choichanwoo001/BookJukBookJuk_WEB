@@ -1,0 +1,77 @@
+name: 일반 이슈
+description: 버그 리포트, 기능 제안, 개선 아이디어, 질문 등 모든 종류의 이슈
+body:
+  - type: markdown
+    attributes:
+      value: |
+        아래 항목을 가능한 한 채워 주세요. 해당 없으면 "해당 없음"으로 적어 주셔도 됩니다.
+
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: 이슈 유형
+      options:
+        - 버그
+        - 기능 제안
+        - 개선 / 리팩터
+        - 질문 / 논의
+        - 기타
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 요약
+      description: 한 줄로 무엇에 대한 이슈인지 적어 주세요.
+      placeholder: 예) 로그인 후 특정 페이지에서 새로고침 시 세션이 끊김
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: 배경 / 맥락
+      description: 왜 이 이슈가 필요한지, 어떤 상황에서 발생했는지
+      placeholder: 사용자 시나리오, 관련 링크, 스크린샷이 있다면 설명에 포함해 주세요.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대 동작 (버그인 경우)
+      description: 버그가 아니면 비워 두거나 "해당 없음"
+      placeholder: 예) 새로고침 후에도 로그인 상태가 유지되어야 함
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작 (버그인 경우)
+      description: 버그가 아니면 비워 두거나 "해당 없음"
+      placeholder: 예) 로그인 페이지로 리다이렉트됨
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 방법
+      description: 단계별로 적어 주세요. 재현이 어렵다면 알려진 조건을 적어 주세요.
+      placeholder: |
+        1. …
+        2. …
+        3. …
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 환경
+      description: OS, 브라우저, 브랜치/커밋, Node 버전 등
+      placeholder: 예) Windows 11 / Chrome 120 / main @ abc1234
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 확인 사항
+      options:
+        - label: 관련 이슈/PR을 검색해 보았다
+          required: false
+        - label: 최신 main(또는 기본 브랜치) 기준으로 재현 여부를 확인했다 (해당 시)
+          required: false

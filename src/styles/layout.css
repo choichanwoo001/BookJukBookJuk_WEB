@@ -334,6 +334,125 @@
   cursor: not-allowed;
 }
 
+.chatPanelWrap {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.chatPanelWrap .chatPanel {
+  flex: 1;
+  min-height: 0;
+}
+
+.confirmationCard {
+  position: absolute;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: 4.25rem;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.confirmationCardInner {
+  background: rgba(24, 36, 58, 0.97);
+  border: 1px solid rgba(127, 166, 255, 0.45);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+
+.confirmationCardTitle {
+  margin: 0 0 0.4rem 0;
+  font-size: 0.95rem;
+}
+
+.confirmationCardSummary {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.88rem;
+  color: #c8d4ea;
+  line-height: 1.45;
+}
+
+.confirmationCardActions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.confirmationCardConfirm,
+.confirmationCardCancel {
+  border: none;
+  border-radius: 8px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.confirmationCardConfirm {
+  background: #4f7cd6;
+  color: #fff;
+}
+
+.confirmationCardCancel {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8edf8;
+}
+
+.chatBubbleAttachments {
+  margin: 0.4rem 0 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.84rem;
+  color: #b8c8e6;
+}
+
+.chatBusyRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem 0.5rem;
+  font-size: 0.82rem;
+  color: #9fb0cc;
+}
+
+.chatSpinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(127, 166, 255, 0.35);
+  border-top-color: #7fa6ff;
+  border-radius: 50%;
+  animation: chatSpin 0.7s linear infinite;
+}
+
+@keyframes chatSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.chatLastToolBadge {
+  font-size: 0.78rem;
+  color: #7fa6ff;
+  margin-top: 0.25rem;
+}
+
+.chatRetryRow {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.chatRetryRow button {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8edf8;
+  cursor: pointer;
+}
+
 .editPanel {
   position: absolute;
   bottom: 0.85rem;

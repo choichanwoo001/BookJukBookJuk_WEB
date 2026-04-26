@@ -29,6 +29,8 @@ dist-ssr
 # Python virtual environment
 venv/
 .venv/
+__pycache__/
+*.pyc
 
 # MediaPipe Hand Landmarker (downloaded on first run)
 gesture_buy/hand_landmarker.task

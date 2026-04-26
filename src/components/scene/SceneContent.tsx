@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { PerspectiveCamera } from '@react-three/drei'
-import { Group, Vector3 } from 'three'
+import { Group } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
-import { useFrame, useThree } from '@react-three/fiber'
-import { useEditDragController } from '../../hooks/useEditDragController'
 import {
   wallRects as baseWallRects,
   pillarRects,
@@ -21,12 +18,7 @@ import {
 } from '../../data/bookshelfOverlayLayer'
 import {
   FIRST_PERSON_DEFAULT_PITCH,
-  FIRST_PERSON_EYE_HEIGHT_M,
-  FIRST_PERSON_PITCH_MIN,
-  FIRST_PERSON_PITCH_MAX,
   THIRD_PERSON_LOCKED_PITCH,
-  MOUSE_LOOK_PITCH_MIN,
-  MOUSE_LOOK_PITCH_MAX,
   floorMaterial,
   ceilingMaterial,
   bookshelfMaterial,
@@ -38,136 +30,33 @@ import {
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
   WALK_DEFAULT_FOV,
-  THIRD_PERSON_PLAYER_SCALE_MULT,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
 import type { ViewMode, SurfaceKind, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
+import { WallRibbonMesh, EntranceDoorwayDecor } from './Walls'
+import { FloorPolygonMesh, BookstoreLights } from './Floor'
 import {
-  WallRibbonMesh,
-  EntranceDoorwayDecor,
-  FloorPolygonMesh,
   PillarCylinderInstances,
   RotatedFixtureInstances,
-  SupermarketCounterInstances,
   SelectedBookshelfOverlay,
-  BookstoreLights,
-} from './Meshes'
+} from './Fixtures'
+import { SupermarketCounterInstances } from './SupermarketCounter'
 import { MapDiffOverlayMesh } from './MapDiffOverlayMesh'
 import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
-import {
-  CameraZoomController,
-  OverviewZoomController,
-  MouseLookController,
-  FirstPersonCameraRig,
-  ThirdPersonCameraRig,
-  OverviewPanController,
-} from './CameraControllers'
 import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
-import { StickmanPlayer } from './StickmanPlayer'
-import { MinimapViewportReporter } from './MinimapViewportReporter'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
-import { worldXzToMinimapUv } from '../../utils/minimapBounds'
 import { NavigationRouteMesh } from './NavigationRouteMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
+import {
+  PlayerPositionReporter,
+  PlayerWorldXzReporter,
+  EditDragController,
+} from './reporters/SceneReporters'
+import type { MinimapPlayerPos } from './reporters/SceneReporters'
+import { WalkRig, OverviewRig } from './rigs/CameraRigs'
 
-export type MinimapPlayerPos = { u: number; v: number; yaw: number }
-
-function PlayerPositionReporter({
-  worldRef,
-  characterYawRef,
-  onPlayerPosition,
-}: {
-  worldRef: RefObject<Group | null>
-  characterYawRef: RefObject<number>
-  onPlayerPosition: (pos: MinimapPlayerPos | null) => void
-}) {
-  const lastEmitRef = useRef(0)
-  const lastSentRef = useRef<MinimapPlayerPos | null>(null)
-  useFrame((state) => {
-    if (!worldRef.current) {
-      if (lastSentRef.current !== null) {
-        lastSentRef.current = null
-        onPlayerPosition(null)
-      }
-      return
-    }
-    const wx = -worldRef.current.position.x
-    const wz = -worldRef.current.position.z
-    const { u, v } = worldXzToMinimapUv(wx, wz)
-    const yaw = characterYawRef.current
-    const t = state.clock.elapsedTime
-    const next: MinimapPlayerPos = { u, v, yaw }
-    const prev = lastSentRef.current
-    const moved =
-      !prev
-      || Math.abs(prev.u - u) > 0.0008
-      || Math.abs(prev.v - v) > 0.0008
-      || Math.abs(prev.yaw - yaw) > 0.02
-    if (!moved && t - lastEmitRef.current < 0.12) return
-    lastEmitRef.current = t
-    lastSentRef.current = next
-    onPlayerPosition(next)
-  })
-  return null
-}
-
-function PlayerWorldXzReporter({
-  worldRef,
-  storedWorldPositionRef,
-  isWalkMode,
-  playerWorldXzRef,
-}: {
-  worldRef: RefObject<Group | null>
-  storedWorldPositionRef: RefObject<[number, number]>
-  isWalkMode: boolean
-  playerWorldXzRef: RefObject<Point2 | null>
-}) {
-  useFrame(() => {
-    if (isWalkMode && worldRef.current) {
-      playerWorldXzRef.current = [-worldRef.current.position.x, -worldRef.current.position.z]
-    } else {
-      playerWorldXzRef.current = [-storedWorldPositionRef.current[0], -storedWorldPositionRef.current[1]]
-    }
-  })
-  return null
-}
-
-function ForwardArrowUpdater({
-  yawRef,
-  domRef,
-}: {
-  yawRef: RefObject<number>
-  domRef: RefObject<HTMLDivElement | null>
-}) {
-  const { camera } = useThree()
-  const camFwdVec = useRef(new Vector3())
-
-  useFrame(() => {
-    if (!domRef.current) return
-    camera.getWorldDirection(camFwdVec.current)
-    const fwd = camFwdVec.current
-    const cameraYaw = Math.atan2(-fwd.x, -fwd.z)
-    let delta = yawRef.current - cameraYaw
-    while (delta > Math.PI) delta -= Math.PI * 2
-    while (delta < -Math.PI) delta += Math.PI * 2
-    domRef.current.style.transform = `rotate(${delta}rad)`
-  })
-
-  return null
-}
-
-function EditDragController(props: {
-  selectedIndex: number | null
-  instances: FixtureRenderInstance[]
-  onUpdate: (index: number, patch: Partial<FixtureRenderInstance>) => void
-  suspend: boolean
-  onDragStart?: () => void
-  onDragEnd?: () => void
-}) {
-  useEditDragController(props)
-  return null
-}
+export type { MinimapPlayerPos }
 
 export function SceneContent({
   mode,
@@ -375,85 +264,27 @@ export function SceneContent({
       <directionalLight position={[20, 30, 10]} color="#FFECD2" intensity={0.8} />
       <directionalLight position={[-20, 25, -15]} color="#FFECD2" intensity={0.3} />
 
-      {isFirstPerson ? (
-        <>
-          <PerspectiveCamera
-            key="first-person-camera"
-            makeDefault
-            position={[0, FIRST_PERSON_EYE_HEIGHT_M, 0]}
-            rotation={[0, 0, 0]}
-            fov={walkFov}
-          />
-          <FirstPersonCameraRig
-            yawRef={yawRef}
-            pitchRef={pitchRef}
-            enabled={controlsEnabled}
-          />
-          <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
-          <MouseLookController
-            yawRef={yawRef}
-            pitchRef={pitchRef}
-            enabled={controlsEnabled}
-            isFreeLookRef={isFreeLookRef}
-            mouseLookDraggingRef={mouseLookDraggingRef}
-            pitchMin={FIRST_PERSON_PITCH_MIN}
-            pitchMax={FIRST_PERSON_PITCH_MAX}
-          />
-          <StickmanPlayer characterYawRef={characterYawRef} worldRef={worldRef} visible={false} />
-          {forwardArrowRef && <ForwardArrowUpdater yawRef={yawRef} domRef={forwardArrowRef} />}
-        </>
-      ) : isThirdPerson ? (
-        <>
-          <PerspectiveCamera
-            key="third-person-camera"
-            makeDefault
-            fov={walkFov}
-          />
-          <ThirdPersonCameraRig
-            yawRef={yawRef}
-            pitchRef={pitchRef}
-            enabled={controlsEnabled}
-          />
-          <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
-          <MouseLookController
-            yawRef={yawRef}
-            pitchRef={pitchRef}
-            enabled={controlsEnabled}
-            isFreeLookRef={isFreeLookRef}
-            mouseLookDraggingRef={mouseLookDraggingRef}
-            pitchMin={MOUSE_LOOK_PITCH_MIN}
-            pitchMax={MOUSE_LOOK_PITCH_MAX}
-            applyRotationToCamera={false}
-          />
-          <StickmanPlayer
-            characterYawRef={characterYawRef}
-            worldRef={worldRef}
-            visible
-            scaleMultiplier={THIRD_PERSON_PLAYER_SCALE_MULT}
-          />
-          {forwardArrowRef && <ForwardArrowUpdater yawRef={yawRef} domRef={forwardArrowRef} />}
-        </>
+      {isWalkMode ? (
+        <WalkRig
+          mode={isFirstPerson ? 'firstPerson' : 'thirdPerson'}
+          walkFov={walkFov}
+          controlsEnabled={controlsEnabled}
+          yawRef={yawRef}
+          pitchRef={pitchRef}
+          characterYawRef={characterYawRef}
+          worldRef={worldRef}
+          isFreeLookRef={isFreeLookRef}
+          mouseLookDraggingRef={mouseLookDraggingRef}
+          forwardArrowRef={forwardArrowRef}
+          onWalkFovChange={onWalkFovChange}
+        />
       ) : (
-        <>
-          <PerspectiveCamera
-            key="overview-camera"
-            makeDefault
-            position={[0, 50, 0]}
-            rotation={[-Math.PI / 2, 0, 0]}
-            fov={64}
-          />
-          <OverviewZoomController />
-          {!isEdit && controlsEnabled && <OverviewPanController />}
-          {isEdit && (
-            <>
-              <OverviewPanController button={2} />
-              <OverviewPanController button={0} requireSpaceKey />
-            </>
-          )}
-          {onMinimapViewportUv && (
-            <MinimapViewportReporter mode={mode} onMinimapViewportUv={onMinimapViewportUv} />
-          )}
-        </>
+        <OverviewRig
+          mode={mode}
+          isEdit={isEdit}
+          controlsEnabled={controlsEnabled}
+          onMinimapViewportUv={onMinimapViewportUv}
+        />
       )}
 
       {onPlayerPosition && (

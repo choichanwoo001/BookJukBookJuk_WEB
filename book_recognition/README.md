@@ -35,6 +35,7 @@
 | `book_identifier.py` | ORB 매칭, 알라딘 검색, `identify_book()` |
 | `shopping_list.py` | 인메모리 리스트 add/remove/출력 |
 | `gesture_test.py` | 웹캠 + 제스처 루프, thumbs_up/down 시 식별·리스트 반영 |
+| `api_server.py` | **HTTP `POST /identify`** — 웹 프론트에서 호출(이미지 base64 또는 `hintText`로 `search_aladin`만 사용) |
 | `refs/` | 등록된 표지 이미지 (저장소에는 `.gitkeep`만 두고, 실제 jpg/png는 로컬 생성) |
 
 **환경 변수**
@@ -48,6 +49,16 @@ pip install -r requirements.txt
 python register.py                    # 또는 python -m book_recognition.register
 python gesture_test.py                # 또는 python -m book_recognition.gesture_test
 ```
+
+**HTTP identify (웹 연동)** — 리포지토리 **루트**에서:
+
+```bash
+uvicorn book_recognition.api_server:app --host 127.0.0.1 --port 8787
+```
+
+- `POST http://127.0.0.1:8787/identify`  
+  - JSON: `{ "reason": "add" | "remove", "hintText"?: "...", "imageBase64"?: "..." }`  
+  - `imageBase64`가 있으면 `identify_book(프레임)`; 없고 `hintText`만 있으면 알라딘 제목 검색.
 
 MediaPipe 모델은 최초 실행 시 `book_recognition/.models/` 아래로 내려받습니다 (`.gitignore` 처리).
 

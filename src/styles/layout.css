@@ -937,6 +937,48 @@
   color: #c8d6f4;
 }
 
+.chatActionCard {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(19, 30, 50, 0.86);
+  padding: 0.7rem;
+  margin-bottom: 0.65rem;
+}
+
+.chatActionCardTitle {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #eaf1ff;
+}
+
+.chatActionCardDescription {
+  margin: 0.24rem 0 0;
+  font-size: 0.8rem;
+  color: #bfd1f4;
+}
+
+.chatActionCardOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.chatActionCardButton {
+  border: 1px solid rgba(147, 184, 255, 0.48);
+  background: rgba(66, 98, 166, 0.38);
+  color: #f1f6ff;
+  border-radius: 999px;
+  padding: 0.36rem 0.66rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.chatActionCardButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 @media (max-width: 860px) {
   .startModeButtons {
     grid-template-columns: 1fr;

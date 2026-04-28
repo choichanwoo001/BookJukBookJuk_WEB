@@ -1,0 +1,64 @@
+import { normalizeListHint } from '../../agent/listHintNormalize'
+import type { AgentIntentType, ToolCall } from '../../agent/types'
+
+function isListEditIntent(intentType: AgentIntentType): boolean {
+  return intentType === 'add_book' || intentType === 'remove_book'
+}
+
+function normalizeShoppingListAction(action: unknown): string {
+  if (typeof action !== 'string') return ''
+  const normalized = action.trim().toLowerCase()
+  if (!normalized) return ''
+  if (normalized === 'delete') return 'remove'
+  return normalized
+}
+
+export function mergePlannedToolCall(
+  deterministicToolCall: ToolCall | null,
+  plannedToolCall: ToolCall | null,
+  intentType: AgentIntentType,
+): ToolCall | null {
+  const toolCall = plannedToolCall ?? deterministicToolCall
+  if (!toolCall) return null
+
+  const mergedArgs: Record<string, unknown> = deterministicToolCall
+    ? {
+        ...deterministicToolCall.args,
+        ...toolCall.args,
+      }
+    : { ...toolCall.args }
+
+  if (toolCall.name === 'shoppingListTool') {
+    const plannedAction = normalizeShoppingListAction(toolCall.args.action)
+    if (plannedAction) mergedArgs.action = plannedAction
+  }
+  if (!deterministicToolCall) {
+    return {
+      name: toolCall.name,
+      args: mergedArgs,
+    }
+  }
+  if (toolCall.name !== deterministicToolCall.name) {
+    return {
+      name: toolCall.name,
+      args: mergedArgs,
+    }
+  }
+  if (toolCall.name === 'shoppingListTool' && isListEditIntent(intentType)) {
+    const deterministicAction =
+      normalizeShoppingListAction(deterministicToolCall.args.action)
+    const deterministicHint =
+      typeof deterministicToolCall.args.hint === 'string' ? deterministicToolCall.args.hint : ''
+    const llmHint = typeof toolCall.args.hint === 'string' ? toolCall.args.hint : ''
+    const role = intentType === 'add_book' ? 'add' : 'remove'
+    const llmHasConcreteTitle = llmHint.length > 0 && normalizeListHint(llmHint, role).length > 0
+    // Keep list-edit action deterministic to avoid planner synonyms like "delete".
+    if (deterministicAction) mergedArgs.action = deterministicAction
+    mergedArgs.hint = deterministicHint || (llmHasConcreteTitle ? llmHint : '')
+  }
+
+  return {
+    name: toolCall.name,
+    args: mergedArgs,
+  }
+}

@@ -44,7 +44,7 @@ export default function StartModeGate({ usersId, onSelect }: StartModeGateProps)
       return '대화로 필요한 책을 먼저 정리한 뒤, 동선/탐색을 이어갈 수 있어요.'
     }
     if (hoveredMode === 'browse_no_list') {
-      return '먼저 둘러보면서 추천을 받고, 마음에 드는 책을 나중에 리스트로 모아요.'
+      return '계획 없이 바로 출발해요. 화면 추천과 채팅 추천을 따라 즉흥적으로 둘러볼 수 있어요.'
     }
     if (loading) {
       return '기존 리스트를 확인하는 중…'
@@ -106,7 +106,7 @@ export default function StartModeGate({ usersId, onSelect }: StartModeGateProps)
             className="startModeButton"
           >
             <strong>리스트 없이 둘러보기</strong>
-            <span>위치 기반 추천을 받다가 마음에 들면 관심/이력 리스트에 추가해요.</span>
+            <span>계획 없이 바로 출발하고, 화면/채팅 추천을 보며 마음에 들면 저장해요.</span>
           </button>
         </div>
       </div>

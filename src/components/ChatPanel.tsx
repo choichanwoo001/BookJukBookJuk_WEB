@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useChatAgent } from '../hooks/useChatAgent'
 import { ConfirmationCard } from './ConfirmationCard'
+import { ChatActionCard } from './ChatActionCard'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
 import type { StartMode } from '../types/startMode'
 
@@ -15,6 +16,7 @@ function ChatPanel({
   startMode: StartMode
 }) {
   const [draft, setDraft] = useState('')
+  const messageListRef = useRef<HTMLDivElement | null>(null)
   const {
     messages,
     submitUserText,
@@ -27,6 +29,7 @@ function ChatPanel({
     listLoadStatus,
     listLoadMessage,
     loadExistingListOnDemand,
+    actionCard,
   } = useChatAgent({ startMode })
 
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
@@ -42,6 +45,12 @@ function ChatPanel({
     await submitUserText(draft)
     setDraft('')
   }
+
+  useEffect(() => {
+    const listEl = messageListRef.current
+    if (!listEl) return
+    listEl.scrollTop = listEl.scrollHeight
+  }, [messages, startMode])
 
   return (
     <div
@@ -117,7 +126,9 @@ function ChatPanel({
           </div>
         )}
 
-        <div className="chatMessages">
+        {actionCard && <ChatActionCard card={actionCard} disabled={busy} onSelect={(inputText) => void submitUserText(inputText)} />}
+
+        <div ref={messageListRef} className="chatMessages">
           {messages.map((message) => (
             <article
               key={message.id}

@@ -1,8 +1,13 @@
 import { getBookRecognitionClient, type BookRecognitionResult } from '../bridges/bookRecognitionBridge'
+import {
+  matchShoppingListByTitleHint,
+  normalizeListHint,
+  shoppingListSkipRecognition,
+} from '../listHintNormalize'
 import type { ShoppingListToolData, ToolExecutionContext, ToolResult } from '../types'
 import type { ToolDefinition } from './types'
 import { validateShoppingListArgs } from './toolValidators'
-import { findBookByIsbnOrTitle, type BookPreview } from '../../lib/supabase/books'
+import { findBookByIsbnOrTitle, findBookCandidatesByTitle, type BookPreview } from '../../lib/supabase/books'
 import { getBookCacheHint } from '../../lib/supabase/cache'
 import {
   addBookToShelf,
@@ -16,11 +21,18 @@ import { getDefaultUserId } from '../../lib/supabase/env'
 import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
 
 const TOOL_NAME = 'shoppingListTool'
+const FUZZY_AUTO_ACCEPT_SCORE = 0.78
+const FUZZY_AMBIGUOUS_GAP = 0.08
 
 function toShoppingListData(
-  entries: { booksId: string; title: string }[],
+  entries: { booksId: string; title: string; authors?: string; coverImageUrl?: string }[],
 ): ShoppingListToolData['shoppingList'] {
-  return entries.map((b) => ({ booksId: b.booksId, title: b.title }))
+  return entries.map((b) => ({
+    booksId: b.booksId,
+    title: b.title,
+    authors: b.authors,
+    coverImageUrl: b.coverImageUrl,
+  }))
 }
 
 type ResolvedBook = {
@@ -35,9 +47,7 @@ type ResolveBookOutcome =
   | { ok: false; toolResult: ToolResult }
 
 /**
- * Shared add/remove preprocessing:
- * book recognition → catalog match → user/shelf resolution.
- * Failures are converted to a ready-to-return `ToolResult`.
+ * Book recognition → catalog match (legacy path when catalog/hint path misses).
  */
 async function resolveBookFromHint(
   args: Record<string, unknown>,
@@ -109,10 +119,14 @@ async function buildCacheSummary(isbn13?: string): Promise<string> {
   return ` 요약: ${d.slice(0, 60)}${d.length > 60 ? '...' : ''}`
 }
 
-async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const outcome = await resolveBookFromHint(args, 'add', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook, userId, shelfType } = outcome.resolved
+async function finishAddWithBook(
+  matchedBook: BookPreview,
+  displayTitle: string,
+  ctx: ToolExecutionContext,
+  cacheIsbn?: string,
+): Promise<ToolResult> {
+  const userId = getDefaultUserId()
+  const shelfType = mapListTypeToShelfType(ctx.getContext().listType)
 
   const addRes = await addBookToShelf({ usersId: userId, booksId: matchedBook.id, shelfType })
   if (!addRes.ok) {
@@ -142,27 +156,38 @@ async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContex
     }
   }
 
-  const cacheSummary = await buildCacheSummary(recognized.isbn13)
+  const cacheSummary = await buildCacheSummary(cacheIsbn)
 
   const list = ctx.getContext().shoppingList
   const exists = list.some((b) => b.booksId === matchedBook.id)
   const nextList = exists
     ? list
-    : [...list, { booksId: matchedBook.id, title: matchedBook.title || (recognized.title ?? '') }]
+    : [
+        ...list,
+        {
+          booksId: matchedBook.id,
+          title: matchedBook.title || displayTitle,
+          authors: matchedBook.authors,
+          coverImageUrl: matchedBook.coverImageUrl,
+        },
+      ]
   ctx.setContext({ shoppingList: nextList })
 
   return {
     ok: true,
     toolName: TOOL_NAME,
-    message: `리스트에 "${recognized.title}"을(를) 추가했어요.${cacheSummary}`,
+    message: `리스트에 "${displayTitle}"을(를) 추가했어요.${cacheSummary}`,
     data: { shoppingList: toShoppingListData(nextList) },
   }
 }
 
-async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const outcome = await resolveBookFromHint(args, 'remove', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook, userId, shelfType } = outcome.resolved
+async function finishRemoveWithBook(
+  matchedBook: BookPreview,
+  displayTitle: string,
+  ctx: ToolExecutionContext,
+): Promise<ToolResult> {
+  const userId = getDefaultUserId()
+  const shelfType = mapListTypeToShelfType(ctx.getContext().listType)
 
   const rmRes = await removeBookFromShelf({ usersId: userId, booksId: matchedBook.id, shelfType })
   if (!rmRes.ok && rmRes.errorCode !== SUPABASE_NOT_CONFIGURED) {
@@ -181,9 +206,172 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
   return {
     ok: true,
     toolName: TOOL_NAME,
-    message: `리스트에서 "${recognized.title}"을(를) 제거했어요.`,
+    message: `리스트에서 "${displayTitle}"을(를) 제거했어요.`,
     data: { shoppingList: toShoppingListData(nextList) },
   }
+}
+
+function previewFromShelfEntry(entry: {
+  booksId: string
+  title: string
+  authors?: string
+  coverImageUrl?: string
+}): BookPreview {
+  return {
+    id: entry.booksId,
+    title: entry.title,
+    authors: entry.authors ?? '',
+    coverImageUrl: entry.coverImageUrl ?? '',
+    kdcClassName: '',
+    sector: 0,
+  }
+}
+
+function candidateTitlesLine(titles: string[]): string {
+  return titles.slice(0, 3).map((t, i) => `${i + 1}. ${t}`).join(' / ')
+}
+
+async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
+  const rawHint = typeof args.hint === 'string' ? args.hint : ''
+  const hint = normalizeListHint(rawHint, 'add')
+  if (!hint) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '추가할 책 제목을 함께 적어 주세요. 예: "책 추가 미움받을 용기"',
+      errorCode: 'HINT_EMPTY',
+    }
+  }
+
+  const catRes = await findBookByIsbnOrTitle({ title: hint })
+  if (!catRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: catRes.message ?? 'DB 조회에 실패했어요.',
+      errorCode: catRes.errorCode,
+    }
+  }
+  if (catRes.data?.id) {
+    return finishAddWithBook(catRes.data, catRes.data.title || hint, ctx)
+  }
+
+  const fuzzyRes = await findBookCandidatesByTitle(hint, 3)
+  if (!fuzzyRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: fuzzyRes.message ?? '유사 제목 검색에 실패했어요.',
+      errorCode: fuzzyRes.errorCode,
+    }
+  }
+  const [top, second] = fuzzyRes.data
+  if (top?.book?.id) {
+    const gap = second ? top.score - second.score : 1
+    if (top.score >= FUZZY_AUTO_ACCEPT_SCORE && gap >= FUZZY_AMBIGUOUS_GAP) {
+      return finishAddWithBook(top.book, top.book.title || hint, ctx)
+    }
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: `제목이 모호해요. 혹시 이 중 하나인가요? ${candidateTitlesLine(fuzzyRes.data.map((c) => c.book.title))}`,
+      errorCode: 'BOOK_MATCH_AMBIGUOUS',
+    }
+  }
+
+  if (shoppingListSkipRecognition()) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message:
+        'DB에서 책을 찾지 못했어요. 제목을 더 구체적으로 적어 주거나, 책 인식 API(FastAPI)를 실행해 주세요.',
+      errorCode: 'BOOK_NOT_IN_CATALOG',
+    }
+  }
+
+  const outcome = await resolveBookFromHint(args, 'add', ctx)
+  if (!outcome.ok) return outcome.toolResult
+  const { recognized, matchedBook } = outcome.resolved
+  return finishAddWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx, recognized.isbn13)
+}
+
+async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
+  const rawHint = typeof args.hint === 'string' ? args.hint : ''
+  const hint = normalizeListHint(rawHint, 'remove')
+  if (!hint) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '제거할 책 제목을 함께 적어 주세요. 예: "책 제거 미움받을 용기"',
+      errorCode: 'HINT_EMPTY',
+    }
+  }
+
+  const list = ctx.getContext().shoppingList
+  const visMatches = matchShoppingListByTitleHint(list, hint)
+  if (visMatches.length > 1) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '목록에서 여러 권이 맞아요. 더 구체적인 제목을 적어 주세요.',
+      errorCode: 'AMBIGUOUS_REMOVE',
+    }
+  }
+  if (visMatches.length === 1) {
+    const matched = previewFromShelfEntry(visMatches[0])
+    return finishRemoveWithBook(matched, visMatches[0].title, ctx)
+  }
+
+  const catRes = await findBookByIsbnOrTitle({ title: hint })
+  if (!catRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: catRes.message ?? 'DB 조회에 실패했어요.',
+      errorCode: catRes.errorCode,
+    }
+  }
+  if (catRes.data?.id) {
+    return finishRemoveWithBook(catRes.data, catRes.data.title || hint, ctx)
+  }
+
+  const fuzzyRes = await findBookCandidatesByTitle(hint, 3)
+  if (!fuzzyRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: fuzzyRes.message ?? '유사 제목 검색에 실패했어요.',
+      errorCode: fuzzyRes.errorCode,
+    }
+  }
+  const [top, second] = fuzzyRes.data
+  if (top?.book?.id) {
+    const gap = second ? top.score - second.score : 1
+    if (top.score >= FUZZY_AUTO_ACCEPT_SCORE && gap >= FUZZY_AMBIGUOUS_GAP) {
+      return finishRemoveWithBook(top.book, top.book.title || hint, ctx)
+    }
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: `제목이 모호해요. 혹시 이 중 하나인가요? ${candidateTitlesLine(fuzzyRes.data.map((c) => c.book.title))}`,
+      errorCode: 'BOOK_MATCH_AMBIGUOUS',
+    }
+  }
+
+  if (shoppingListSkipRecognition()) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message:
+        '목록·DB에서 책을 찾지 못했어요. 화면에 보이는 제목 일부를 적거나, 책 인식 API를 실행해 주세요.',
+      errorCode: 'BOOK_NOT_IN_CATALOG',
+    }
+  }
+
+  const outcome = await resolveBookFromHint(args, 'remove', ctx)
+  if (!outcome.ok) return outcome.toolResult
+  const { recognized, matchedBook } = outcome.resolved
+  return finishRemoveWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx)
 }
 
 async function handleChangeType(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
@@ -199,7 +387,12 @@ async function handleChangeType(args: Record<string, unknown>, ctx: ToolExecutio
       errorCode: loaded.errorCode,
     }
   }
-  const shoppingList = loaded.data.map((b) => ({ booksId: b.booksId, title: b.title }))
+  const shoppingList = loaded.data.map((b) => ({
+    booksId: b.booksId,
+    title: b.title,
+    authors: b.authors,
+    coverImageUrl: b.coverImageUrl,
+  }))
   ctx.setContext({ listType, shoppingList })
   return {
     ok: true,

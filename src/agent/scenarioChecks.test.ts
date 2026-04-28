@@ -28,12 +28,19 @@ describe('scenario state transitions', () => {
     const state = runScenario(['추천해줘'])
     expect(state === 'RECO_DISCOVERY' || state === 'MODE_SELECT').toBe(true)
   })
+
+  it('keeps MODE_SELECT for browse-mode entry', () => {
+    const state = runScenario(['계획 없어'])
+    expect(state).toBe('MODE_SELECT')
+  })
 })
 
 describe('intent → tool mapping', () => {
   it('maps "추천해줘" to recommendationTool', () => {
     const intent = parseIntent('추천해줘', 'chat')
-    expect(mapIntentToTool(intent)?.name).toBe('recommendationTool')
+    const mapped = mapIntentToTool(intent)
+    expect(mapped?.name).toBe('recommendationTool')
+    expect(mapped?.args.mode).toBe('taste')
   })
 
   it('maps "최단경로 재계산" to routePlannerTool', () => {
@@ -41,10 +48,31 @@ describe('intent → tool mapping', () => {
     expect(mapIntentToTool(intent)?.name).toBe('routePlannerTool')
   })
 
+  it('maps "검색 모비딕" to bookSearchTool', () => {
+    const intent = parseIntent('책 검색 모비딕', 'chat')
+    const mapped = mapIntentToTool(intent)
+    expect(intent.type).toBe('search_books')
+    expect(mapped?.name).toBe('bookSearchTool')
+    expect(mapped?.args.query).toBe('모비딕')
+  })
+
+  it('keeps recommendation intent over generic search phrase', () => {
+    const intent = parseIntent('추천해줘', 'chat')
+    expect(intent.type).toBe('request_recommendation')
+  })
+
   it('extracts quantity payload for list_update_quantity', () => {
     const intent = parseIntent('수량 3권으로 바꿔', 'chat')
     expect(intent.type).toBe('list_update_quantity')
     expect(intent.payload?.quantity).toBe(3)
+  })
+
+  it('keeps remove intent for suffix-form sentence', () => {
+    const intent = parseIntent('시원스쿨 기초영어법 삭제해줘', 'chat')
+    const mapped = mapIntentToTool(intent)
+    expect(intent.type).toBe('remove_book')
+    expect(mapped?.name).toBe('shoppingListTool')
+    expect(mapped?.args.action).toBe('remove')
   })
 })
 

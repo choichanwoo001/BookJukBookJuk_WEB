@@ -5,6 +5,10 @@ type MetricKey =
   | 'sessionCompleted'
   | 'reconfirmRequested'
   | 'fallbackUsed'
+  | 'llmPlannerUsed'
+  | 'llmPlannerFallback'
+  | 'llmRewriterUsed'
+  | 'llmRewriterFallback'
 
 const metrics: Record<MetricKey, number> = {
   toolSuccess: 0,
@@ -13,6 +17,10 @@ const metrics: Record<MetricKey, number> = {
   sessionCompleted: 0,
   reconfirmRequested: 0,
   fallbackUsed: 0,
+  llmPlannerUsed: 0,
+  llmPlannerFallback: 0,
+  llmRewriterUsed: 0,
+  llmRewriterFallback: 0,
 }
 
 const intentStats: Record<string, { success: number; failure: number }> = {}

@@ -20,6 +20,7 @@ const rules: Rule[] = [
   { type: 'remove_book', regex: /책\s*(제거|삭제|빼)/, priority: 88, confidence: 0.9 },
   { type: 'remove_book', keywords: ['책 제거', '삭제해', '빼줘'], priority: 87, confidence: 0.88 },
   { type: 'route_replan_shortest', keywords: ['최단경로', '경로 바꿔', '재계산'], priority: 86, confidence: 0.84 },
+  { type: 'search_books', keywords: ['책 검색', '제목 검색', '검색해줘', '찾아봐'], priority: 73, confidence: 0.82 },
   { type: 'list_update_quantity', keywords: ['수량', '몇 권', '개수'], priority: 72, confidence: 0.8 },
   {
     type: 'list_change_type',
@@ -49,6 +50,18 @@ function quantityFromText(text: string): number | undefined {
   return undefined
 }
 
+function searchQueryFromText(text: string): string | undefined {
+  const normalized = text
+    .replace(/(책|도서)\s*검색/gi, ' ')
+    .replace(/제목\s*검색/gi, ' ')
+    .replace(/검색해줘|찾아봐|찾아줘|추천해줘/gi, ' ')
+    .replace(/해줘|해 봐|해봐/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (normalized.length >= 2) return normalized
+  return undefined
+}
+
 function ruleMatches(rule: Rule, normalized: string): boolean {
   if (rule.regex?.test(normalized)) return true
   if (rule.keywords?.some((k) => normalized.includes(k.toLowerCase()))) return true
@@ -71,6 +84,8 @@ export function parseIntent(text: string, source: AgentIntentSource = 'chat'): A
   if (qty !== undefined) payload.quantity = qty
   const lt = listTypeFromText(trimmed)
   if (lt) payload.listType = lt
+  const query = searchQueryFromText(trimmed)
+  if (query) payload.query = query
 
   if (best) {
     return {

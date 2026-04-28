@@ -14,17 +14,24 @@ import {
   recordToolLatency,
 } from '../agent/telemetry'
 import { subscribeMapSnapshot, type AgentMapSnapshot } from '../agent/runtime/agentEventBus'
+import { planWithLlm } from '../agent/runtime/llmPlanner'
+import { rewriteAssistantMessage } from '../agent/runtime/llmRewriter'
 import { executeTool } from '../agent/tools/registry'
+import { normalizeListHint } from '../agent/listHintNormalize'
 import { getDefaultUserId } from '../lib/supabase/env'
+import { getCurrentWebSessionUsersId } from '../lib/supabase/qrLogin'
 import {
   appendConversationMessage,
   getOrCreateConversation,
   loadConversationMessages,
 } from '../lib/supabase/conversation'
+import { shelfListLoadUserMessage } from '../lib/supabase/listLoadUi'
 import { loadShelfBooks, mapListTypeToShelfType } from '../lib/supabase/shelves'
+import type { StartMode } from '../types/startMode'
 import type {
   AgentContext,
   AgentIntent,
+  AgentIntentType,
   AgentIntentSource,
   AgentMessage,
   ToolCall,
@@ -35,7 +42,8 @@ import type {
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
   mobilityPaused: false,
-  listType: '일반',
+  listType: '쇼핑리스트',
+  activeUsersId: undefined,
   shoppingList: [],
   pendingConfirmation: null,
   lastToolResult: null,
@@ -44,8 +52,47 @@ const initialContextValue = (): AgentContext => ({
 const initialMessages: AgentMessage[] = [
   { id: 'a1', role: 'assistant', text: '강의실 3D 맵에 오신 것을 환영합니다.', createdAt: Date.now() },
   { id: 'a2', role: 'assistant', text: 'WASD로 이동하고, 시점은 정면 고정입니다.', createdAt: Date.now() + 1 },
-  { id: 'a3', role: 'assistant', text: '리스트를 선택하거나 추천을 요청해 주세요.', createdAt: Date.now() + 2 },
+  {
+    id: 'a3',
+    role: 'assistant',
+    text: '리스트가 없어도 괜찮아요. 채팅으로 추천/검색 후 바로 쇼핑리스트를 만들 수 있어요.',
+    createdAt: Date.now() + 2,
+  },
 ]
+
+function toContextShoppingList(items: { booksId: string; title: string; authors: string; coverImageUrl: string }[]) {
+  return items.map((b) => ({
+    booksId: b.booksId,
+    title: b.title,
+    authors: b.authors,
+    coverImageUrl: b.coverImageUrl,
+  }))
+}
+
+function extractRecommendationTitles(result: ToolResult | null): string[] {
+  if (!result?.ok || result.toolName !== 'recommendationTool') return []
+  const lines = (result.data as { recommendations?: unknown } | undefined)?.recommendations
+  if (!Array.isArray(lines)) return []
+  return lines
+    .map((line) => {
+      if (typeof line !== 'string') return ''
+      const body = line.replace(/^[^0-9]*\d+\.\s*/, '')
+      const [title] = body.split(/\s-\s/)
+      return title.trim()
+    })
+    .filter((title) => title.length > 0)
+}
+
+function parseRecommendationPickIndex(text: string): number | null {
+  const numeric = text.match(/(\d+)\s*번/)
+  if (numeric) return Number.parseInt(numeric[1], 10) - 1
+  if (text.includes('첫')) return 0
+  if (text.includes('둘') || text.includes('두')) return 1
+  if (text.includes('셋') || text.includes('세')) return 2
+  if (text.includes('넷') || text.includes('네')) return 3
+  if (text.includes('다섯')) return 4
+  return null
+}
 
 function createAssistant(text: string, attachments?: string[]): AgentMessage {
   return {
@@ -57,8 +104,31 @@ function createAssistant(text: string, attachments?: string[]): AgentMessage {
   }
 }
 
-export function useChatAgent() {
+const VALID_INTENT_TYPES: AgentIntentType[] = [
+  'select_list_mode',
+  'select_recommend_mode',
+  'select_browse_mode',
+  'search_books',
+  'pause_mobility',
+  'resume_mobility',
+  'add_book',
+  'remove_book',
+  'list_update_quantity',
+  'list_change_type',
+  'route_replan_shortest',
+  'request_recommendation',
+  'confirm',
+  'cancel',
+  'unknown',
+]
+
+function asIntentType(input: string): AgentIntentType {
+  return (VALID_INTENT_TYPES as string[]).includes(input) ? (input as AgentIntentType) : 'unknown'
+}
+
+export function useChatAgent(options: { startMode: StartMode }) {
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages)
+  const messagesRef = useRef<AgentMessage[]>(messages)
   const [context, setContextState] = useState<AgentContext>(initialContextValue)
   const contextRef = useRef<AgentContext>(context)
   const [latestMapSnapshot, setLatestMapSnapshot] = useState<AgentMapSnapshot | null>(null)
@@ -66,10 +136,19 @@ export function useChatAgent() {
   const [lastFailedUserText, setLastFailedUserText] = useState<string | null>(null)
   const intentBufferRef = useRef<AgentIntent | null>(null)
   const conversationIdRef = useRef<string | null>(null)
+  const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
+  const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
+  const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
+  const [hasAppliedStartMode, setHasAppliedStartMode] = useState(false)
+  const shouldAutoLoadShelf = options.startMode === 'existing_list'
 
   useLayoutEffect(() => {
     contextRef.current = context
   }, [context])
+
+  useLayoutEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   /**
    * Same-tick `contextRef` sync is required because `submitUserText` reads
@@ -87,9 +166,29 @@ export function useChatAgent() {
 
   useEffect(() => {
     let disposed = false
+    const bootstrapSessionUser = async () => {
+      const sessionResult = await getCurrentWebSessionUsersId()
+      if (disposed) return
+      if (sessionResult.ok && sessionResult.data) {
+        setActiveUsersId(sessionResult.data)
+        setContext({ activeUsersId: sessionResult.data })
+        return
+      }
+      const fallbackUserId = getDefaultUserId()
+      setActiveUsersId(fallbackUserId)
+      setContext({ activeUsersId: fallbackUserId })
+    }
+    void bootstrapSessionUser()
+    return () => {
+      disposed = true
+    }
+  }, [setContext])
+
+  useEffect(() => {
+    if (!activeUsersId) return
+    let disposed = false
     const initializeConversation = async () => {
-      const usersId = getDefaultUserId()
-      const conversationId = await getOrCreateConversation(usersId)
+      const conversationId = await getOrCreateConversation(activeUsersId)
       if (!conversationId || disposed) return
       conversationIdRef.current = conversationId
       const history = await loadConversationMessages(conversationId)
@@ -107,24 +206,37 @@ export function useChatAgent() {
     return () => {
       disposed = true
     }
-  }, [])
+  }, [activeUsersId])
 
   useEffect(() => {
+    if (!activeUsersId || shouldAutoLoadShelf) return
+    setListLoadStatus('ok')
+    setListLoadMessage(null)
+  }, [activeUsersId, shouldAutoLoadShelf])
+
+  useEffect(() => {
+    if (!activeUsersId || !shouldAutoLoadShelf) return
     let disposed = false
+    setListLoadStatus('loading')
+    setListLoadMessage(null)
     const loadList = async () => {
-      const usersId = getDefaultUserId()
       const shelfType = mapListTypeToShelfType(context.listType)
-      const res = await loadShelfBooks(usersId, shelfType)
-      if (disposed || !res.ok) return
-      setContext({
-        shoppingList: res.data.map((b) => ({ booksId: b.booksId, title: b.title })),
-      })
+      const res = await loadShelfBooks(activeUsersId, shelfType)
+      if (disposed) return
+      if (!res.ok) {
+        setListLoadStatus('error')
+        setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
+        return
+      }
+      setContext({ shoppingList: toContextShoppingList(res.data) })
+      setListLoadStatus('ok')
+      setListLoadMessage(null)
     }
     void loadList()
     return () => {
       disposed = true
     }
-  }, [context.listType, setContext])
+  }, [activeUsersId, context.listType, setContext, shouldAutoLoadShelf])
 
   const toolExecutionContext = useMemo<ToolExecutionContext>(
     () => ({
@@ -148,6 +260,49 @@ export function useChatAgent() {
       })
     }
   }, [appendAssistant])
+
+  const loadExistingListOnDemand = useCallback(async () => {
+    if (!activeUsersId) return false
+    setListLoadStatus('loading')
+    setListLoadMessage(null)
+    const shelfType = mapListTypeToShelfType(contextRef.current.listType)
+    const res = await loadShelfBooks(activeUsersId, shelfType)
+    if (!res.ok) {
+      setListLoadStatus('error')
+      setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
+      return false
+    }
+    setContext({ shoppingList: toContextShoppingList(res.data) })
+    setListLoadStatus('ok')
+    setListLoadMessage(null)
+    return true
+  }, [activeUsersId, setContext])
+
+  useEffect(() => {
+    if (!activeUsersId || hasAppliedStartMode) return
+    const run = async () => {
+      if (options.startMode === 'existing_list') {
+        await appendAssistantAndStore(
+          '기존 쇼핑리스트를 기준으로 바로 안내를 시작할게요. "추천해줘" 또는 "길 안내 시작"처럼 말씀해 주세요.',
+        )
+        setHasAppliedStartMode(true)
+        return
+      }
+      if (options.startMode === 'build_list_chat') {
+        await appendAssistantAndStore(
+          '좋아요. 채팅으로 쇼핑리스트를 함께 만들어요. 원하는 주제나 책을 말하면 바로 추가를 도와드릴게요.',
+        )
+        setHasAppliedStartMode(true)
+        return
+      }
+      setContext({ listType: '쇼핑리스트' })
+      await appendAssistantAndStore(
+        '리스트 없이 탐색 모드로 시작할게요. 이동 중 추천을 드리고, 마음에 들면 관심/이력 리스트에 즉시 저장할 수 있어요.',
+      )
+      setHasAppliedStartMode(true)
+    }
+    void run()
+  }, [activeUsersId, appendAssistantAndStore, hasAppliedStartMode, options.startMode, setContext])
 
   /**
    * Shared post-execute pipeline used by both the `confirm` flow and the
@@ -175,7 +330,10 @@ export function useChatAgent() {
       })
 
       const recAttach = recommendationAttachmentsFromResult(result)
-      await appendAssistantAndStore(result.message, recAttach)
+      const rewritten = await rewriteAssistantMessage(result, recAttach)
+      if (rewritten) incrementMetric('llmRewriterUsed')
+      else incrementMetric('llmRewriterFallback')
+      await appendAssistantAndStore(rewritten ?? result.message, recAttach)
 
       if (!result.ok) {
         incrementMetric('fallbackUsed')
@@ -220,13 +378,31 @@ export function useChatAgent() {
 
   const submitUserText = useCallback(
     async (text: string, source: AgentIntentSource = 'chat') => {
-      const trimmed = text.trim()
-      if (!trimmed) return
+      const normalized = text.replace(/\r\n/g, '\n')
+      const intentText = normalized.trim()
+      if (!intentText) return
 
       setBusy(true)
       setLastFailedUserText(null)
       try {
-        const nextIntent = parseUserIntent(trimmed, source)
+        const llmPlan = await planWithLlm({
+          text: intentText,
+          source,
+          context: contextRef.current,
+          history: messagesRef.current,
+        })
+        const nextIntent = llmPlan
+          ? ({
+              type: asIntentType(llmPlan.intentType),
+              source,
+              rawText: text,
+              confidence: llmPlan.confidence,
+              payload: undefined,
+              timestamp: Date.now(),
+            } satisfies AgentIntent)
+          : parseUserIntent(intentText, source)
+        if (llmPlan) incrementMetric('llmPlannerUsed')
+        else incrementMetric('llmPlannerFallback')
         const mergedIntent = intentBufferRef.current
           ? chooseHigherPriorityIntent(intentBufferRef.current, nextIntent)
           : nextIntent
@@ -234,13 +410,13 @@ export function useChatAgent() {
 
         setMessages((prev) => [
           ...prev,
-          { id: crypto.randomUUID(), role: 'user', text: trimmed, createdAt: Date.now() },
+          { id: crypto.randomUUID(), role: 'user', text: normalized, createdAt: Date.now() },
         ])
         if (conversationIdRef.current) {
           await appendConversationMessage({
             conversationId: conversationIdRef.current,
             role: 'user',
-            content: trimmed,
+            content: normalized,
             intent: mergedIntent.type,
           })
         }
@@ -259,10 +435,43 @@ export function useChatAgent() {
           return
         }
 
-        const toolCall = toolCallForIntent(mergedIntent)
+        if (mergedIntent.type === 'select_browse_mode') {
+          setContext({ listType: '쇼핑리스트' })
+          await appendAssistantAndStore(
+            '출발 전 리스트 만들기로 시작할게요. "추천해줘", "책 검색 <제목>", "책 추가 <제목>"처럼 말해 주세요.',
+          )
+          recordIntentOutcome('select_browse_mode', true)
+          return
+        }
+
+        const deterministicToolCall = toolCallForIntent(mergedIntent)
+        let toolCall = llmPlan?.toolCall ?? deterministicToolCall
+        if (toolCall && deterministicToolCall && toolCall.name === deterministicToolCall.name) {
+          // Keep planner flexibility but backfill required deterministic args.
+          toolCall = {
+            name: toolCall.name,
+            args: {
+              ...deterministicToolCall.args,
+              ...toolCall.args,
+            },
+          }
+        }
+        if (mergedIntent.type === 'add_book' && toolCall?.name === 'shoppingListTool') {
+          const index = parseRecommendationPickIndex(intentText)
+          if (index != null) {
+            const titles = extractRecommendationTitles(contextRef.current.lastToolResult)
+            const title = titles[index]
+            if (title) {
+              toolCall = {
+                ...toolCall,
+                args: { ...toolCall.args, hint: `책 추가 ${title}` },
+              }
+            }
+          }
+        }
         if (!toolCall) {
           if (mergedIntent.type === 'unknown') {
-            await appendAssistantAndStore('요청을 이해하지 못했어요. 예: "멈춰", "책 추가", "최단경로 재계산".')
+            await appendAssistantAndStore('요청을 이해하지 못했어요. 예: "추천해줘", "책 검색 데미안", "책 추가 데미안".')
             recordIntentOutcome('unknown', false)
             return
           }
@@ -273,14 +482,22 @@ export function useChatAgent() {
 
         if (requiresConfirmation(mergedIntent)) {
           incrementMetric('reconfirmRequested')
+          let summary = `${mergedIntent.rawText} 요청을 실행할까요? 확인 버튼을 누르거나 "오케이"라고 입력하면 진행합니다.`
+          if (mergedIntent.type === 'remove_book' && toolCall.name === 'shoppingListTool') {
+            const rawHint = typeof toolCall.args.hint === 'string' ? toolCall.args.hint : mergedIntent.rawText
+            const interpretedTitle = normalizeListHint(rawHint, 'remove')
+            if (interpretedTitle) {
+              summary = `"${interpretedTitle}" 삭제 요청을 실행할까요? 확인 버튼을 누르거나 "오케이"라고 입력하면 진행합니다.`
+            }
+          }
           setContext({
             pendingConfirmation: {
               toolName: toolCall.name,
               args: toolCall.args,
-              summary: `${mergedIntent.rawText} 요청을 실행할까요? 확인 버튼을 누르거나 "오케이"라고 입력하면 진행합니다.`,
+              summary,
             },
           })
-          await appendAssistantAndStore(`${mergedIntent.rawText} 요청을 실행할까요? 카드에서 확인하거나 오케이라고 입력해 주세요.`)
+          await appendAssistantAndStore(summary.replace('확인 버튼을 누르거나 "오케이"라고 입력하면 진행합니다.', '카드에서 확인하거나 오케이라고 입력해 주세요.'))
           return
         }
 
@@ -288,10 +505,19 @@ export function useChatAgent() {
           incrementMetric('interruptHandled')
         }
 
-        const result = await runToolWithFallback(toolCall, mergedIntent.type)
+        let result = await runToolWithFallback(toolCall, mergedIntent.type)
+        if (
+          !result.ok &&
+          result.errorCode === 'VALIDATION_ERROR' &&
+          deterministicToolCall &&
+          (deterministicToolCall.name !== toolCall.name ||
+            JSON.stringify(deterministicToolCall.args) !== JSON.stringify(toolCall.args))
+        ) {
+          result = await runToolWithFallback(deterministicToolCall, mergedIntent.type)
+        }
 
         if (!result.ok) {
-          setLastFailedUserText(trimmed)
+          setLastFailedUserText(normalized)
         }
 
         /**
@@ -349,5 +575,8 @@ export function useChatAgent() {
     acceptConfirmation,
     cancelConfirmation,
     retryLastFailed,
+    listLoadStatus,
+    listLoadMessage,
+    loadExistingListOnDemand,
   }
 }

@@ -12,6 +12,7 @@ export type AgentIntentType =
   | 'select_list_mode'
   | 'select_recommend_mode'
   | 'select_browse_mode'
+  | 'search_books'
   | 'pause_mobility'
   | 'resume_mobility'
   | 'add_book'
@@ -42,11 +43,25 @@ export type ToolCall = {
 
 /** Discriminated tool payloads (W15). */
 export type ShoppingListToolData = {
-  shoppingList: { booksId: string; title: string }[]
+  shoppingList: { booksId: string; title: string; authors?: string; coverImageUrl?: string }[]
 }
 
 export type RecommendationToolData = {
   recommendations: string[]
+  source: string
+  tasteMeta?: {
+    richness: number
+    computedAt: string
+    topGenres: string[]
+    topAuthors: string[]
+    reasons: string[]
+    profileStatus: 'strong' | 'mixed' | 'weak' | 'stale' | 'none'
+  }
+}
+
+export type BookSearchToolData = {
+  books: { title: string; authors: string }[]
+  query: string
   source: string
 }
 
@@ -61,6 +76,7 @@ export type GoalCheckToolData = {
 export type ToolResultData =
   | ShoppingListToolData
   | RecommendationToolData
+  | BookSearchToolData
   | RoutePlannerToolData
   | GoalCheckToolData
   | Record<string, unknown>
@@ -83,12 +99,15 @@ export type PendingConfirmation = {
 export type ShoppingListEntry = {
   booksId: string
   title: string
+  authors?: string
+  coverImageUrl?: string
 }
 
 export type AgentContext = {
   state: AgentState
   mobilityPaused: boolean
   listType: string
+  activeUsersId?: string
   shoppingList: ShoppingListEntry[]
   pendingConfirmation: PendingConfirmation | null
   lastToolResult: ToolResult | null

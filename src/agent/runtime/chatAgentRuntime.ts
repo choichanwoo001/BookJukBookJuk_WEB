@@ -1,5 +1,5 @@
 import { parseIntent } from '../intentParser'
-import type { AgentIntent, AgentIntentSource, RecommendationToolData, ToolCall, ToolResult } from '../types'
+import type { AgentIntent, AgentIntentSource, BookSearchToolData, RecommendationToolData, ToolCall, ToolResult } from '../types'
 import { mapIntentToTool } from './mapIntentToTool'
 
 /**
@@ -18,10 +18,19 @@ export function toolCallForIntent(intent: AgentIntent): ToolCall | null {
 
 /** Extract follow-up lines for chat UI from tool result (W7). */
 export function recommendationAttachmentsFromResult(result: ToolResult): string[] | undefined {
-  if (!result.ok || result.toolName !== 'recommendationTool') return undefined
+  if (!result.ok) return undefined
   const d = result.data
-  if (d && typeof d === 'object' && 'recommendations' in d && Array.isArray((d as RecommendationToolData).recommendations)) {
+  if (
+    result.toolName === 'recommendationTool' &&
+    d &&
+    typeof d === 'object' &&
+    'recommendations' in d &&
+    Array.isArray((d as RecommendationToolData).recommendations)
+  ) {
     return (d as RecommendationToolData).recommendations
+  }
+  if (result.toolName === 'bookSearchTool' && d && typeof d === 'object' && 'books' in d && Array.isArray((d as BookSearchToolData).books)) {
+    return (d as BookSearchToolData).books.map((book, index) => `${index + 1}. ${book.title} - ${book.authors || '저자 미상'}`)
   }
   return undefined
 }

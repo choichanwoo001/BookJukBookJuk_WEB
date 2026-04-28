@@ -123,10 +123,11 @@ class HttpBookRecognitionClient implements IBookRecognitionClient {
             (typeof raw?.message === 'string' ? String(raw.message) : null) ||
             fastApiDetail ||
             res.statusText
+          const statusErrorCode = res.status === 502 ? 'HTTP_BAD_GATEWAY' : `HTTP_${res.status}`
           return {
             ok: false,
             message: `HTTP ${res.status}: ${message}`,
-            errorCode: (raw?.errorCode as string | undefined) ?? 'HTTP_ERROR',
+            errorCode: (raw?.errorCode as string | undefined) ?? statusErrorCode,
           }
         }
         return normalizeResult(raw)

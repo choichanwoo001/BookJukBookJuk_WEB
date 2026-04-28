@@ -31,6 +31,11 @@ const recommendationArgs = z.object({
   mode: z.string().optional(),
 })
 
+const bookSearchArgs = z.object({
+  query: z.string().min(1),
+  limit: z.number().optional(),
+})
+
 const goalCheckArgs = z.object({
   mode: z.string().min(1),
 })
@@ -53,6 +58,10 @@ export function validateRouteArgs(args: Record<string, unknown>): string | null 
 
 export function validateRecommendationArgs(args: Record<string, unknown>): string | null {
   return zodMessage(recommendationArgs.safeParse(args))
+}
+
+export function validateBookSearchArgs(args: Record<string, unknown>): string | null {
+  return zodMessage(bookSearchArgs.safeParse(args))
 }
 
 export function validateGoalCheckArgs(args: Record<string, unknown>): string | null {

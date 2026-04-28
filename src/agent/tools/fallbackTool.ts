@@ -43,6 +43,27 @@ export const fallbackTool: ToolDefinition = {
         message: '인식 서버 응답이 느려요. 잠시 후 다시 시도하거나, 책 제목을 채팅으로 직접 입력해 주세요.',
       }
     }
+    if (reason === 'HTTP_BAD_GATEWAY' || reason === 'HTTP_502') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '인식 API가 일시적으로 502 오류를 반환했어요. 잠시 후 다시 시도하거나 제목으로만 요청해 주세요.',
+      }
+    }
+    if (reason === 'BOOK_MATCH_AMBIGUOUS') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '입력한 제목이 여러 책과 비슷해요. 제목을 조금 더 길게 입력하거나 번호로 선택해 주세요.',
+      }
+    }
+    if (reason === 'HINT_EMPTY') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '책 제목을 함께 입력해 주세요. 예: "책 추가 데미안", "데미안 삭제해줘"',
+      }
+    }
     if (reason === 'BOOK_NOT_IN_CATALOG') {
       return {
         ok: true,

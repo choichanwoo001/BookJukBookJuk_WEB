@@ -75,7 +75,13 @@ function isEditableDomTarget(target: EventTarget | null): boolean {
   return target.isContentEditable
 }
 
-function Map3DView() {
+function Map3DView({
+  activePane,
+  onActivateMap,
+}: {
+  activePane: 'map' | 'chat'
+  onActivateMap: () => void
+}) {
   const [mode, setMode] = useState<ViewMode>('overview')
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
@@ -209,6 +215,7 @@ function Map3DView() {
   useEffect(() => {
     if (mode !== 'edit' || editTool !== 'bookshelfEdit') return
     const onKeyDown = (e: KeyboardEvent) => {
+      if (activePane !== 'map') return
       if (e.code !== 'KeyE') return
       if (e.ctrlKey || e.metaKey || e.altKey) return
       if (isEditableDomTarget(e.target)) return
@@ -217,7 +224,7 @@ function Map3DView() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [mode, editTool, setSelectedIndex])
+  }, [activePane, mode, editTool, setSelectedIndex])
 
   useEffect(() => {
     return subscribeMapCommand((command: AgentMapCommand) => {
@@ -246,10 +253,15 @@ function Map3DView() {
   const selected = selectedIndex !== null ? instances[selectedIndex] : null
 
   return (
-    <div className="map3DContainer">
+    <div
+      className="map3DContainer"
+      data-active-pane={activePane === 'map'}
+      onPointerDown={onActivateMap}
+    >
       <Canvas dpr={[1, 2]} style={{ zIndex: 0 }}>
         <SceneContent
           mode={mode}
+          activePane={activePane}
           editTool={editTool}
           bookshelfRenderInstances={instances}
           staticFixtureInstances={staticInstances}

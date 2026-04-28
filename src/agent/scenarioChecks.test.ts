@@ -1,8 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { parseIntent } from './intentParser'
 import { mapIntentToTool } from './runtime/mapIntentToTool'
 import { transitionStateFromIntent, transitionStateFromTool } from './stateMachine'
+import { validateShoppingListArgs } from './tools/toolValidators'
 import type { AgentState, ToolResult } from './types'
+import { handleBuildFlowInput, initialBuildFlowSession } from '../hooks/chatAgent/buildFlow'
 
 function runScenario(inputs: string[]): AgentState {
   let state: AgentState = 'INIT'
@@ -36,6 +38,11 @@ describe('scenario state transitions', () => {
 })
 
 describe('intent → tool mapping', () => {
+  it('maps "계획 없음" to browse mode intent', () => {
+    const intent = parseIntent('계획 없음', 'chat')
+    expect(intent.type).toBe('select_browse_mode')
+  })
+
   it('maps "추천해줘" to recommendationTool', () => {
     const intent = parseIntent('추천해줘', 'chat')
     const mapped = mapIntentToTool(intent)
@@ -61,14 +68,16 @@ describe('intent → tool mapping', () => {
     expect(intent.type).toBe('request_recommendation')
   })
 
-  it('extracts quantity payload for list_update_quantity', () => {
-    const intent = parseIntent('수량 3권으로 바꿔', 'chat')
-    expect(intent.type).toBe('list_update_quantity')
-    expect(intent.payload?.quantity).toBe(3)
-  })
-
   it('keeps remove intent for suffix-form sentence', () => {
     const intent = parseIntent('시원스쿨 기초영어법 삭제해줘', 'chat')
+    const mapped = mapIntentToTool(intent)
+    expect(intent.type).toBe('remove_book')
+    expect(mapped?.name).toBe('shoppingListTool')
+    expect(mapped?.args.action).toBe('remove')
+  })
+
+  it('keeps remove intent for topic-particle suffix sentence', () => {
+    const intent = parseIntent('시원스쿨 시초영어법은 삭제해줘', 'chat')
     const mapped = mapIntentToTool(intent)
     expect(intent.type).toBe('remove_book')
     expect(mapped?.name).toBe('shoppingListTool')
@@ -85,5 +94,57 @@ describe('post-tool state transition', () => {
       data: { recommendations: ['a', 'b'], source: 'mock' },
     }
     expect(transitionStateFromTool('RECO_DISCOVERY', result)).toBe('RECO_DISCOVERY')
+  })
+})
+
+describe('shopping list action validation', () => {
+  it('rejects deprecated actions (changeType/updateQuantity)', () => {
+    expect(validateShoppingListArgs({ action: 'changeType' })).toBe('action이 유효하지 않습니다.')
+    expect(validateShoppingListArgs({ action: 'updateQuantity' })).toBe('action이 유효하지 않습니다.')
+  })
+})
+
+describe('build flow boundaries', () => {
+  it('caps theme regeneration after 2 tries', async () => {
+    const appendSpy = vi.fn(async () => undefined)
+    const loadThemesSpy = vi.fn(async () => [])
+    const handled = await handleBuildFlowInput({
+      buildFlow: {
+        ...initialBuildFlowSession(),
+        step: 'step2_theme_select',
+        answers: ['질문1', '질문2'],
+        themes: [],
+        themeRegenerateCount: 2,
+      },
+      intentText: '다시 추천',
+      appendAssistantAndStore: appendSpy,
+      setBuildFlow: vi.fn(),
+      loadThemesForAnswers: loadThemesSpy,
+      loadCandidatesForTheme: vi.fn(async () => []),
+      runToolWithFallback: vi.fn(async () => ({})),
+      shoppingListCount: 0,
+    })
+    expect(handled).toBe(true)
+    expect(loadThemesSpy).not.toHaveBeenCalled()
+    expect(appendSpy).toHaveBeenCalledWith('테마 재추천은 여기까지 가능해요. 현재 제안에서 골라 주세요.')
+  })
+
+  it('keeps confirmed step closed for new picks', async () => {
+    const appendSpy = vi.fn(async () => undefined)
+    const handled = await handleBuildFlowInput({
+      buildFlow: {
+        ...initialBuildFlowSession(),
+        step: 'confirmed',
+      },
+      intentText: '한 권 더 고르기',
+      appendAssistantAndStore: appendSpy,
+      setBuildFlow: vi.fn(),
+      loadThemesForAnswers: vi.fn(async () => []),
+      loadCandidatesForTheme: vi.fn(async () => []),
+      runToolWithFallback: vi.fn(async () => ({})),
+      shoppingListCount: 0,
+    })
+    expect(handled).toBe(true)
+    expect(appendSpy).toHaveBeenCalledWith('리스트는 이미 확정된 상태예요. 새로 고르려면 시작 모드를 다시 선택해 주세요.')
   })
 })

@@ -6,7 +6,7 @@ import {
 } from '../../lib/supabase/books'
 import type { DbResult } from '../../lib/supabase/result'
 import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
-import type { RecommendationToolData, ToolResult } from '../types'
+import type { RecommendationMode, RecommendationToolData, ToolResult } from '../types'
 import { validateRecommendationArgs } from './toolValidators'
 import type { ToolDefinition } from './types'
 import { getDefaultUserId } from '../../lib/supabase/env'
@@ -30,7 +30,7 @@ type RecommendationVariant = {
   fallbackList: string[]
 }
 
-const VARIANTS: Record<string, RecommendationVariant> = {
+const VARIANTS: Record<Exclude<RecommendationMode, 'taste'>, RecommendationVariant> = {
   location: {
     fetch: fetchLocationRecommendations,
     prefix: '위치 추천',
@@ -75,6 +75,7 @@ async function runRecommendationVariant(variant: RecommendationVariant): Promise
     return okResult(variant.successMessage, {
       recommendations: formatRecommendations(variant.prefix, res.data),
       source: 'supabase',
+      candidates: res.data.map((item) => ({ title: item.title, authors: item.authors || '저자 미상' })),
     })
   }
   return okResult(variant.fallbackMessage, {
@@ -126,6 +127,7 @@ async function runTasteRecommendation(ctx: Parameters<ToolDefinition['run']>[1])
   return okResult(successMessage, {
     recommendations,
     source: res.data.source,
+    candidates: res.data.books.map((item) => ({ title: item.title, authors: item.authors || '저자 미상' })),
     tasteMeta: {
       richness: res.data.richness,
       computedAt: res.data.computedAt,
@@ -143,7 +145,7 @@ export const recommendationTool: ToolDefinition = {
     return validateRecommendationArgs(args)
   },
   async run(args, ctx) {
-    const mode = typeof args.mode === 'string' ? args.mode : 'taste'
+    const mode: RecommendationMode = args.mode === 'location' || args.mode === 'rating' ? args.mode : 'taste'
     if (mode === 'taste') {
       return runTasteRecommendation(ctx)
     }

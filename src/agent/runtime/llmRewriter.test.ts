@@ -25,6 +25,7 @@ describe('rewriteAssistantMessage', () => {
   })
 
   it('returns null when api key is missing', async () => {
+    vi.stubEnv('VITE_OPENAI_API_KEY', '')
     const rewritten = await rewriteAssistantMessage(sampleResult, ['1. 데미안 - 헤르만 헤세'], makeFetch('ok'))
     expect(rewritten).toBeNull()
   })

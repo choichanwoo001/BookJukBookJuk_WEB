@@ -11,7 +11,6 @@ import { findBookByIsbnOrTitle, findBookCandidatesByTitle, type BookPreview } fr
 import { getBookCacheHint } from '../../lib/supabase/cache'
 import {
   addBookToShelf,
-  loadShelfBooks,
   mapListTypeToShelfType,
   removeBookFromShelf,
   updateBookUserState,
@@ -23,6 +22,33 @@ import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
 const TOOL_NAME = 'shoppingListTool'
 const FUZZY_AUTO_ACCEPT_SCORE = 0.78
 const FUZZY_AMBIGUOUS_GAP = 0.08
+const SYSTEM_FAILURE_CODES = new Set([
+  'HTTP_UNREACHABLE',
+  'HTTP_BAD_GATEWAY',
+  'HTTP_502',
+  'HTTP_CLIENT_ERROR',
+  'BRIDGE_TIMEOUT',
+  'BRIDGE_PROCESS_ERROR',
+])
+const MATCH_FAILURE_CODES = new Set([
+  'BOOK_NOT_IN_CATALOG',
+  'BOOK_NOT_RECOGNIZED',
+])
+
+export function classifyListFailure(code?: string): 'system' | 'match' | 'other' {
+  if (!code) return 'other'
+  if (SYSTEM_FAILURE_CODES.has(code) || /^HTTP_5\d\d$/.test(code)) return 'system'
+  if (MATCH_FAILURE_CODES.has(code)) return 'match'
+  return 'other'
+}
+
+function canonicalizeAction(action: unknown): string {
+  if (typeof action !== 'string') return ''
+  const normalized = action.trim().toLowerCase()
+  if (!normalized) return ''
+  if (normalized === 'delete') return 'remove'
+  return normalized
+}
 
 function toShoppingListData(
   entries: { booksId: string; title: string; authors?: string; coverImageUrl?: string }[],
@@ -60,13 +86,21 @@ async function resolveBookFromHint(
     hintText: typeof args.hint === 'string' ? args.hint : undefined,
   })
   if (!recognized.ok || !recognized.title) {
+    const code = recognized.errorCode ?? 'BOOK_NOT_RECOGNIZED'
+    const kind = classifyListFailure(code)
+    const message =
+      kind === 'match'
+        ? '해당 책은 서점에 없습니다.'
+        : kind === 'system'
+          ? '지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.'
+          : recognized.message
     return {
       ok: false,
       toolResult: {
         ok: false,
         toolName: TOOL_NAME,
-        message: recognized.message,
-        errorCode: recognized.errorCode ?? 'BOOK_NOT_RECOGNIZED',
+        message,
+        errorCode: code,
       },
     }
   }
@@ -283,8 +317,7 @@ async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContex
     return {
       ok: false,
       toolName: TOOL_NAME,
-      message:
-        'DB에서 책을 찾지 못했어요. 제목을 더 구체적으로 적어 주거나, 책 인식 API(FastAPI)를 실행해 주세요.',
+      message: '해당 책은 서점에 없습니다.',
       errorCode: 'BOOK_NOT_IN_CATALOG',
     }
   }
@@ -362,8 +395,7 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
     return {
       ok: false,
       toolName: TOOL_NAME,
-      message:
-        '목록·DB에서 책을 찾지 못했어요. 화면에 보이는 제목 일부를 적거나, 책 인식 API를 실행해 주세요.',
+      message: '해당 책은 서점에 없습니다.',
       errorCode: 'BOOK_NOT_IN_CATALOG',
     }
   }
@@ -374,54 +406,15 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
   return finishRemoveWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx)
 }
 
-async function handleChangeType(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const listType = typeof args.listType === 'string' ? args.listType : '쇼핑리스트'
-  const userId = getDefaultUserId()
-  const shelfType = mapListTypeToShelfType(listType)
-  const loaded = await loadShelfBooks(userId, shelfType)
-  if (!loaded.ok) {
-    return {
-      ok: false,
-      toolName: TOOL_NAME,
-      message: loaded.message ?? '리스트를 불러오지 못했어요.',
-      errorCode: loaded.errorCode,
-    }
-  }
-  const shoppingList = loaded.data.map((b) => ({
-    booksId: b.booksId,
-    title: b.title,
-    authors: b.authors,
-    coverImageUrl: b.coverImageUrl,
-  }))
-  ctx.setContext({ listType, shoppingList })
-  return {
-    ok: true,
-    toolName: TOOL_NAME,
-    message: `리스트 종류를 "${listType}"로 변경했어요.`,
-    data: { shoppingList },
-  }
-}
-
-function handleUpdateQuantity(args: Record<string, unknown>): ToolResult {
-  const quantity = typeof args.quantity === 'number' ? args.quantity : 1
-  return {
-    ok: true,
-    toolName: TOOL_NAME,
-    message: `수량 변경 요청을 반영했어요. (요청 수량: ${quantity})`,
-  }
-}
-
 export const shoppingListTool: ToolDefinition = {
   name: TOOL_NAME,
   validate(args) {
     return validateShoppingListArgs(args)
   },
   async run(args, ctx) {
-    const action = String(args.action)
+    const action = canonicalizeAction(args.action)
     if (action === 'add') return handleAdd(args, ctx)
     if (action === 'remove') return handleRemove(args, ctx)
-    if (action === 'changeType') return handleChangeType(args, ctx)
-    if (action === 'updateQuantity') return handleUpdateQuantity(args)
     return {
       ok: false,
       toolName: TOOL_NAME,

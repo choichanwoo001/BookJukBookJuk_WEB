@@ -10,15 +10,12 @@ export type AgentState =
 
 export type AgentIntentType =
   | 'select_list_mode'
-  | 'select_recommend_mode'
   | 'select_browse_mode'
   | 'search_books'
   | 'pause_mobility'
   | 'resume_mobility'
   | 'add_book'
   | 'remove_book'
-  | 'list_update_quantity'
-  | 'list_change_type'
   | 'route_replan_shortest'
   | 'request_recommendation'
   | 'confirm'
@@ -49,6 +46,7 @@ export type ShoppingListToolData = {
 export type RecommendationToolData = {
   recommendations: string[]
   source: string
+  candidates?: { title: string; authors: string }[]
   tasteMeta?: {
     richness: number
     computedAt: string
@@ -58,6 +56,8 @@ export type RecommendationToolData = {
     profileStatus: 'strong' | 'mixed' | 'weak' | 'stale' | 'none'
   }
 }
+
+export type RecommendationMode = 'taste' | 'location' | 'rating'
 
 export type BookSearchToolData = {
   books: { title: string; authors: string }[]
@@ -120,6 +120,18 @@ export type AgentMessage = {
   createdAt: number
   /** Extra lines (e.g. recommendation bullets) shown under the bubble (W7). */
   attachments?: string[]
+}
+
+export type ChatActionOption = {
+  id: string
+  label: string
+  inputText: string
+}
+
+export type ChatActionCard = {
+  title: string
+  description?: string
+  options: ChatActionOption[]
 }
 
 export type AgentEvent =

@@ -9,6 +9,10 @@ type MetricKey =
   | 'llmPlannerFallback'
   | 'llmRewriterUsed'
   | 'llmRewriterFallback'
+  | 'themeLlmUsed'
+  | 'themeLlmFallback'
+  | 'themeLlmParseError'
+  | 'themeLlmLatencyMs'
 
 const metrics: Record<MetricKey, number> = {
   toolSuccess: 0,
@@ -21,6 +25,10 @@ const metrics: Record<MetricKey, number> = {
   llmPlannerFallback: 0,
   llmRewriterUsed: 0,
   llmRewriterFallback: 0,
+  themeLlmUsed: 0,
+  themeLlmFallback: 0,
+  themeLlmParseError: 0,
+  themeLlmLatencyMs: 0,
 }
 
 const intentStats: Record<string, { success: number; failure: number }> = {}
@@ -46,6 +54,10 @@ export function recordToolLatency(toolName: string, ms: number): void {
   const arr = toolLatenciesMs[toolName]
   arr.push(ms)
   if (arr.length > 50) arr.shift()
+}
+
+export function recordThemeLlmLatency(ms: number): void {
+  metrics.themeLlmLatencyMs = ms
 }
 
 export type TelemetrySnapshot = Record<MetricKey, number> & {

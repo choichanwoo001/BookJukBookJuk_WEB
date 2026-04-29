@@ -16,6 +16,6 @@ export type DetectedFixture = {
   sourceClass?: string
 }
 
-export const DETECTED_FIXTURE_SOURCE = "ver0_1.png -> ver2_1.png"
-export const DETECTED_IMAGE_SIZE = {"width":1232,"height":667}
+export const DETECTED_FIXTURE_SOURCE = 'map_info/original.png (processMap; delta TBD)'
+export const DETECTED_IMAGE_SIZE = { width: 1477, height: 829 }
 export const detectedFixtures: DetectedFixture[] = []

@@ -88,6 +88,8 @@ export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#8af0ff'
 export const NAV_ARRIVAL_RING_INNER = 0.5
 export const NAV_ARRIVAL_RING_OUTER = 0.72
 export const NAV_ROUTE_Y = 0.04
+/** false면 3D·미니맵 경로 선만 숨김 (내비 계산은 그대로). */
+export const SHOW_NAVIGATION_ROUTE_VISUAL = false
 
 // --- Overview Pan ---
 export const OVERVIEW_PAN_SPEED = 0.002

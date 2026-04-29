@@ -40,6 +40,7 @@ import {
   WALK_DEFAULT_FOV,
   THIRD_PERSON_PLAYER_SCALE_MULT,
   MAP_VIEW_YAW_OFFSET_RAD,
+  SHOW_NAVIGATION_ROUTE_VISUAL,
 } from '../../config/constants'
 import type { ViewMode, SurfaceKind, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
@@ -553,7 +554,9 @@ export function SceneContent({
           onPointerDown={pillarPickHandler}
         />
         <BookstoreLights floorRenderRects={floorRects} />
-        {navigationRoute && <NavigationRouteMesh route={navigationRoute} />}
+        {SHOW_NAVIGATION_ROUTE_VISUAL && navigationRoute && (
+          <NavigationRouteMesh route={navigationRoute} />
+        )}
         {selections.map((selection) => (
           <group key={selection.id} userData={{ excludeCameraCollision: true }}>
             <mesh position={[selection.center.x, selection.center.y + 0.1, selection.center.z]}>

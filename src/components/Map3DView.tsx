@@ -19,6 +19,7 @@ import {
   WALK_DEFAULT_FOV,
   ZOOM_FOV_MAX,
   ZOOM_FOV_MIN,
+  SHOW_NAVIGATION_ROUTE_VISUAL,
 } from '../config/constants'
 import { useBookshelfInstances } from '../hooks/useBookshelfInstances'
 import { useBookshelfClipboard } from '../hooks/useBookshelfClipboard'
@@ -32,6 +33,9 @@ import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 
 /** 메인 씬과 오버레이 후보에 같은 위치가 있으면 한 번만 미션·충돌에 넣음 */
 const MISSION_SHELF_DEDUPE_M = 0.08
+
+/** 미니맵 UI·뷰포트 리포터 비활성화 (다시 켤 때 true) */
+const SHOW_MINIMAP = false
 
 function mergeMissionBookshelfPool(instances: FixtureRenderInstance[]): FixtureRenderInstance[] {
   const main = instances.filter((b): b is Extract<FixtureRenderInstance, { kind: 'bookshelf' }> => b.kind === 'bookshelf')
@@ -178,17 +182,12 @@ function Map3DView() {
   const [firstPersonFov, setFirstPersonFov] = useState(WALK_DEFAULT_FOV)
   const [thirdPersonFov, setThirdPersonFov] = useState(THIRD_PERSON_DEFAULT_FOV)
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
-  const [minimapPlayerPos, setMinimapPlayerPos] = useState<{ u: number; v: number; yaw: number } | null>(null)
+  const [minimapPlayerPos, setMinimapPlayerPos] = useState<MinimapPlayerPos | null>(null)
   const playerWorldXzRef = useRef<Point2 | null>(null)
   const [missionVersion, setMissionVersion] = useState(0)
   const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
   const staticInstances = useMemo(() => buildStaticInstances(), [])
-  const { spanX: minimapSpanX, spanZ: minimapSpanZ } = useMemo(() => getMinimapWorldBounds(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
-
-  const handleMinimapViewportUv = useCallback((quad: MinimapUvPoint[] | null) => {
-    setMinimapViewportUv(quad)
-  }, [])
 
   const {
     instances,
@@ -325,8 +324,8 @@ function Map3DView() {
           forwardArrowRef={forwardArrowRef}
           walkFov={mode === 'thirdPerson' ? thirdPersonFov : firstPersonFov}
           onWalkFovChange={handleWalkFovChange}
-          onMinimapViewportUv={handleMinimapViewportUv}
-          onPlayerPosition={setMinimapPlayerPos}
+          onMinimapViewportUv={SHOW_MINIMAP ? setMinimapViewportUv : undefined}
+          onPlayerPosition={SHOW_MINIMAP ? setMinimapPlayerPos : undefined}
           playerWorldXzRef={playerWorldXzRef}
           navigationRoute={navigationRoute}
         />
@@ -383,38 +382,47 @@ function Map3DView() {
         </p>
       </div>
 
-      <div className="mapMinimapWrap">
-        <button
-          type="button"
-          className="mapMinimapButton"
-          data-active={mode === 'overview'}
-          aria-label="전체 보기 토글"
-          onClick={() => {
-            if (mode === 'firstPerson' || mode === 'thirdPerson') {
-              setPrevWalkMode(mode)
-              setMode('overview')
-              setSelectedIndex(null)
-            } else if (mode === 'overview') {
-              setMode(prevWalkMode)
-              setSelectedIndex(null)
-            }
-          }}
-        >
-          <span
-            className="mapMinimapStack"
-            style={{ aspectRatio: `${minimapSpanX} / ${minimapSpanZ}` }}
+      {SHOW_MINIMAP && (
+        <div className="mapMinimapWrap">
+          <button
+            type="button"
+            className="mapMinimapButton"
+            data-active={mode === 'overview'}
+            aria-label="전체 보기 토글"
+            onClick={() => {
+              if (mode === 'firstPerson' || mode === 'thirdPerson') {
+                setPrevWalkMode(mode)
+                setMode('overview')
+                setSelectedIndex(null)
+              } else if (mode === 'overview') {
+                setMode(prevWalkMode)
+                setSelectedIndex(null)
+              }
+            }}
           >
-            <img className="mapMinimapImage" src="/map-floor-2d.png" alt="" draggable={false} />
+            <span
+              className="mapMinimapStack"
+              style={{
+                aspectRatio: (() => {
+                  const { spanX, spanZ } = getMinimapWorldBounds()
+                  return `${spanX} / ${spanZ}`
+                })(),
+              }}
+            >
+              <img className="mapMinimapImage" src="/map_info/original.png" alt="" draggable={false} />
             <MinimapSvgOverlay
               viewportUv={minimapViewportUv}
               playerPos={minimapPlayerPos}
-              navDimPath={navigationRoute?.dimPath ?? null}
-              navHighlightPath={navigationRoute?.highlightPath ?? null}
+              navDimPath={SHOW_NAVIGATION_ROUTE_VISUAL ? (navigationRoute?.dimPath ?? null) : null}
+              navHighlightPath={
+                SHOW_NAVIGATION_ROUTE_VISUAL ? (navigationRoute?.highlightPath ?? null) : null
+              }
               markerScale={1}
             />
-          </span>
-        </button>
-      </div>
+            </span>
+          </button>
+        </div>
+      )}
       </div>
 
       {isEdit && (

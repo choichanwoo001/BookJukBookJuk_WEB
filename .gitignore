@@ -26,10 +26,12 @@ dist-ssr
 # Python virtual environment
 venv/
 .venv/
+__pycache__/
+*.py[cod]
 
 # Environment variables
 .env
 .env.*
 
-# MediaPipe Hand Landmarker (downloaded on first run)
-gesture_buy/hand_landmarker.task
+# ProcessMap debug classified dumps (`--dump-classified-pgm`)
+map_info/classified_*.pgm

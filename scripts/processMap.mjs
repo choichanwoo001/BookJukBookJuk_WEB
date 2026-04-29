@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -8,8 +8,15 @@ const WALL = 1
 const FREE = 2
 const UNKNOWN = 0
 
-const DEFAULT_IMAGE = 'KakaoTalk_20260329_205358459.pgm'
-const YAML_PATH = resolve(ROOT, 'b2floor_edited.yaml')
+const DEFAULT_IMAGE = 'map_info/b2floor_edited.pgm'
+/** Canonical map YAML (image path inside is relative to repo root). */
+const YAML_PATH = resolve(ROOT, 'map_info/b2floor_edited.yaml')
+/**
+ * CLI: `--image <path>`, `--delta <path>`, `--map-offset-only`
+ * - `--raw-map` — skip wall-noise removal, morphClose, pruneWallsNotAdjacentToFree
+ * - `--classify-mode trinary|scale` — PGM only; overrides YAML `mode`
+ * - `--dump-classified-pgm <path>` — write classified grid (0/127/255) after the above steps
+ */
 
 const MIN_CLUSTER_SIZE = 28
 /** Looser snap reduces stair-stepping along diagonals vs strict Manhattan alignment. */
@@ -40,9 +47,21 @@ function parseSimpleYaml(path) {
   return result
 }
 
+/** Strip optional YAML-style surrounding quotes from simple-parser values. */
+function unwrapYamlScalar(value) {
+  let s = String(value ?? '').trim()
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim()
+  }
+  return s
+}
+
 function parseYamlMapConfig(path) {
   const data = parseSimpleYaml(path)
-  const imageName = (data.image || '').trim() || DEFAULT_IMAGE
+  const imageName = unwrapYamlScalar(data.image) || DEFAULT_IMAGE
   const mode = String(data.mode || 'trinary').trim().toLowerCase()
   const negate = Number(data.negate ?? 0)
   const resolution = Number(data.resolution ?? 0.05)
@@ -93,6 +112,30 @@ function parsePGM(filepath) {
   const pixels = new Uint8Array(width * height)
   for (let i = 0; i < width * height; i++) pixels[i] = buf[offset + i]
   return { width, height, maxval, pixels }
+}
+
+/** YAML `negate: 1` — same rule as map_server / parseRasterImage (invert gray before thresholds). */
+function applyNegateInPlaceUint8(pixels, maxval, negate) {
+  if (negate !== 1) return
+  const m = Math.max(1, Math.min(255, maxval | 0))
+  for (let i = 0; i < pixels.length; i++) pixels[i] = m - pixels[i]
+}
+
+/** Debug: WALL=dark, FREE=bright, UNKNOWN=mid (trinary visualization). */
+function writeClassifiedGridPGM(filepath, grid, width, height) {
+  const dir = dirname(filepath)
+  try {
+    mkdirSync(dir, { recursive: true })
+  } catch {
+    /* exists */
+  }
+  const body = new Uint8Array(width * height)
+  for (let i = 0; i < grid.length; i++) {
+    const v = grid[i]
+    body[i] = v === WALL ? 0 : v === FREE ? 255 : 127
+  }
+  const header = `P5\n${width} ${height}\n255\n`
+  writeFileSync(filepath, Buffer.concat([Buffer.from(header, 'ascii'), Buffer.from(body)]))
 }
 
 async function parseRasterImage(filepath, negate = 0) {
@@ -334,6 +377,7 @@ function resolveEnclosedRegions(grid, width, height) {
     const label = nextLabel++
     const localStack = [i]
     let size = 0
+    let originalFreeCount = 0
     let minX = width
     let maxX = -1
     let minY = height
@@ -343,6 +387,7 @@ function resolveEnclosedRegions(grid, width, height) {
       if (visited[idx] || grid[idx] === WALL || enclosedLabels[idx] !== 0) continue
       enclosedLabels[idx] = label
       size++
+      if (grid[idx] === FREE) originalFreeCount++
       const x = idx % width
       const y = (idx - x) / width
       if (x < minX) minX = x
@@ -359,6 +404,7 @@ function resolveEnclosedRegions(grid, width, height) {
       size,
       bboxW: maxX - minX + 1,
       bboxH: maxY - minY + 1,
+      originalFreeCount,
     })
   }
   let largest = null
@@ -369,6 +415,7 @@ function resolveEnclosedRegions(grid, width, height) {
   const structureMaxSidePx = Math.max(10, Math.round(2.8 / RESOLUTION))
   let freeAssigned = 0
   let wallAssigned = 0
+  let unknownAssigned = 0
   for (let i = 0; i < grid.length; i++) {
     const label = enclosedLabels[i]
     if (label === 0) continue
@@ -381,6 +428,10 @@ function resolveEnclosedRegions(grid, width, height) {
     if (likelyStructure) {
       if (grid[i] !== WALL) wallAssigned++
       grid[i] = WALL
+    } else if (c.originalFreeCount === 0) {
+      // Grey / UNKNOWN-only voids (e.g. keepout): do not promote to walkable FREE.
+      if (grid[i] !== UNKNOWN) unknownAssigned++
+      grid[i] = UNKNOWN
     } else {
       if (grid[i] !== FREE) freeAssigned++
       grid[i] = FREE
@@ -390,6 +441,7 @@ function resolveEnclosedRegions(grid, width, height) {
     enclosedCount: enclosedComponents.length,
     freeAssigned,
     wallAssigned,
+    unknownAssigned,
     largestEnclosedSize: largest?.size ?? 0,
   }
 }
@@ -881,6 +933,12 @@ async function main() {
   const imageArg = process.argv.indexOf('--image')
   const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
   const mapOffsetOnly = process.argv.includes('--map-offset-only')
+  const rawMap = process.argv.includes('--raw-map')
+  const classifyModeArgIdx = process.argv.indexOf('--classify-mode')
+  const classifyModeCli =
+    classifyModeArgIdx >= 0 ? String(process.argv[classifyModeArgIdx + 1] || '').toLowerCase() : null
+  const dumpGridArgIdx = process.argv.indexOf('--dump-classified-pgm')
+  const dumpClassifiedRelPath = dumpGridArgIdx >= 0 ? process.argv[dumpGridArgIdx + 1] : null
 
   const config = parseYamlMapConfig(YAML_PATH)
   RESOLUTION = config.resolution
@@ -896,10 +954,29 @@ async function main() {
   const raster = isPgm
     ? null
     : await parseRasterImage(imagePath, config.negate)
-  const { width, height, pixels } = isPgm
-    ? parsePGM(imagePath)
-    : raster
-  const classifyMode = isPgm ? config.mode : 'scale'
+  let width
+  let height
+  let pixels
+  if (isPgm) {
+    const pgm = parsePGM(imagePath)
+    width = pgm.width
+    height = pgm.height
+    pixels = pgm.pixels
+    applyNegateInPlaceUint8(pixels, pgm.maxval, config.negate)
+    if (config.negate === 1) console.log(`  YAML negate: 1 applied to PGM (maxval ${pgm.maxval})`)
+  } else {
+    width = raster.width
+    height = raster.height
+    pixels = raster.pixels
+  }
+  let classifyMode = isPgm ? config.mode : 'scale'
+  if (isPgm && classifyModeCli) {
+    if (classifyModeCli !== 'trinary' && classifyModeCli !== 'scale') {
+      throw new Error(`--classify-mode must be trinary or scale, got ${classifyModeCli}`)
+    }
+    classifyMode = classifyModeCli
+  }
+  if (rawMap) console.log('  --raw-map: minimal post-classify processing (see logs below)')
   console.log(`  Dimensions: ${width}x${height}, resolution: ${RESOLUTION}`)
   console.log(`  mode: ${classifyMode}, thresholds -> wall <= ${wallThreshold}, free >= ${freeThreshold}`)
 
@@ -915,21 +992,37 @@ async function main() {
   if (!isPgm) {
     console.log(`  raster background(gray): ${raster.backgroundValue}, raster free cutoff: ${Math.max(freeThreshold, 245)}`)
   }
-  console.log('Removing wall noise while preserving pillar-like components...')
-  const firstCleanup = removeWallNoisePreservingPillars(grid, width, height)
-  console.log(`  removed: ${firstCleanup.removed}, pillar-like kept: ${firstCleanup.pillarLike}`)
 
-  grid = morphClose(grid, width, height)
-  const secondCleanup = removeWallNoisePreservingPillars(grid, width, height)
-  console.log(`  post-close removed: ${secondCleanup.removed}, pillar-like kept: ${secondCleanup.pillarLike}`)
+  if (rawMap) {
+    console.log('  --raw-map: skipped wall noise removal and morphClose')
+  } else {
+    console.log('Removing wall noise while preserving pillar-like components...')
+    const firstCleanup = removeWallNoisePreservingPillars(grid, width, height)
+    console.log(`  removed: ${firstCleanup.removed}, pillar-like kept: ${firstCleanup.pillarLike}`)
+
+    grid = morphClose(grid, width, height)
+    const secondCleanup = removeWallNoisePreservingPillars(grid, width, height)
+    console.log(`  post-close removed: ${secondCleanup.removed}, pillar-like kept: ${secondCleanup.pillarLike}`)
+  }
 
   const enclosedResolve = resolveEnclosedRegions(grid, width, height)
   const freeSelection = keepSignificantFreeComponents(grid, width, height)
   console.log(
-    `  enclosed regions: ${enclosedResolve.enclosedCount}, free-assigned: ${enclosedResolve.freeAssigned}, wall-assigned: ${enclosedResolve.wallAssigned}, largest-enclosed: ${enclosedResolve.largestEnclosedSize}, kept free: ${freeSelection.totalKeptSize} (${freeSelection.keptCount} components), interior-priority: ${freeSelection.usedInterior}, candidates: ${freeSelection.candidateCount}`,
+    `  enclosed regions: ${enclosedResolve.enclosedCount}, free-assigned: ${enclosedResolve.freeAssigned}, wall-assigned: ${enclosedResolve.wallAssigned}, unknown-assigned: ${enclosedResolve.unknownAssigned}, largest-enclosed: ${enclosedResolve.largestEnclosedSize}, kept free: ${freeSelection.totalKeptSize} (${freeSelection.keptCount} components), interior-priority: ${freeSelection.usedInterior}, candidates: ${freeSelection.candidateCount}`,
   )
-  const wallFilter = pruneWallsNotAdjacentToFree(grid, width, height)
-  console.log(`  wall components kept near interior: ${wallFilter.kept}, wall pixels removed: ${wallFilter.removed}`)
+  let wallFilter = { kept: 0, removed: 0 }
+  if (rawMap) {
+    console.log('  --raw-map: skipped pruneWallsNotAdjacentToFree')
+  } else {
+    wallFilter = pruneWallsNotAdjacentToFree(grid, width, height)
+    console.log(`  wall components kept near interior: ${wallFilter.kept}, wall pixels removed: ${wallFilter.removed}`)
+  }
+
+  if (dumpClassifiedRelPath) {
+    const dumpAbs = resolve(ROOT, dumpClassifiedRelPath)
+    writeClassifiedGridPGM(dumpAbs, grid, width, height)
+    console.log(`  wrote classified grid PGM: ${dumpClassifiedRelPath}`)
+  }
 
   const rawFloorRects = greedyMesh(grid, width, height, FREE)
   let sumX = 0

@@ -54,6 +54,11 @@ export const ENTRANCE_DOORWAY = {
   doorOpenRad: 0.4,
 } as const
 
+/**
+ * Runtime-only floor quads merged into `floorRects` for walk mesh / spawn overlap.
+ * They are not produced from the occupancy PGM; exclude when validating “map file only” geometry.
+ * Regenerate base rects with `node scripts/processMap.mjs` (optional `--raw-map`, `--dump-classified-pgm`).
+ */
 const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
   // 입구 주변 바닥 — 스폰 지점이 floor polygon에 포함되도록 보정.
   { cx: ENTRANCE_SPAWN[0], cz: ENTRANCE_SPAWN[1], w: 0.9, d: 0.9 },

@@ -152,7 +152,7 @@ export function OverviewRig({
       />
       <OverviewZoomController />
       {!isEdit && controlsEnabled && <OverviewPanController />}
-      {isEdit && (
+      {isEdit && controlsEnabled && (
         <>
           <OverviewPanController button={2} />
           <OverviewPanController button={0} requireSpaceKey />

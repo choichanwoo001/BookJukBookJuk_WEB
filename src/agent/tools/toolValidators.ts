@@ -10,12 +10,14 @@ const shoppingListArgs = z
   .object({
     action: z.string().min(1),
     hint: z.string().optional(),
-    listType: z.string().optional(),
-    quantity: z.number().optional(),
   })
   .superRefine((val, ctx) => {
-    if (!['add', 'remove', 'changeType', 'updateQuantity'].includes(val.action)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'action이 유효하지 않습니다.' })
+    const action = val.action.trim().toLowerCase()
+    if (!['add', 'remove', 'delete'].includes(action)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'action은 add/remove만 지원합니다. (delete는 remove로 자동 처리됩니다.)',
+      })
     }
   })
 
@@ -28,7 +30,12 @@ const routeArgs = z.object({
 })
 
 const recommendationArgs = z.object({
-  mode: z.string().optional(),
+  mode: z.enum(['taste', 'location', 'rating']).optional(),
+})
+
+const bookSearchArgs = z.object({
+  query: z.string().min(1),
+  limit: z.number().optional(),
 })
 
 const goalCheckArgs = z.object({
@@ -53,6 +60,10 @@ export function validateRouteArgs(args: Record<string, unknown>): string | null 
 
 export function validateRecommendationArgs(args: Record<string, unknown>): string | null {
   return zodMessage(recommendationArgs.safeParse(args))
+}
+
+export function validateBookSearchArgs(args: Record<string, unknown>): string | null {
+  return zodMessage(bookSearchArgs.safeParse(args))
 }
 
 export function validateGoalCheckArgs(args: Record<string, unknown>): string | null {

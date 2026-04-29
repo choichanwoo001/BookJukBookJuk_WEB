@@ -25,7 +25,7 @@ export function transitionStateFromIntent(current: AgentState, intentType: strin
   }
 
   if (intentType === 'select_list_mode') return 'LIST_EDIT'
-  if (intentType === 'select_recommend_mode') return 'RECO_DISCOVERY'
+  if (intentType === 'request_recommendation') return 'RECO_DISCOVERY'
   if (intentType === 'select_browse_mode') return 'MODE_SELECT'
   if (intentType === 'route_replan_shortest') return 'NAV_PLAN'
   if (intentType === 'pause_mobility' || intentType === 'resume_mobility') return 'NAV_EXEC'

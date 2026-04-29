@@ -33,21 +33,42 @@ export const fallbackTool: ToolDefinition = {
       return {
         ok: true,
         toolName: 'fallbackTool',
-        message: '책 인식이 불안정해요. 책 제목을 채팅으로 입력해 주세요.',
+        message: '해당 책은 서점에 없습니다.',
       }
     }
-    if (reason === 'BRIDGE_TIMEOUT' || reason === 'HTTP_UNREACHABLE') {
+    if (reason === 'BRIDGE_TIMEOUT' || reason === 'HTTP_UNREACHABLE' || reason === 'HTTP_CLIENT_ERROR') {
       return {
         ok: true,
         toolName: 'fallbackTool',
-        message: '인식 서버 응답이 느려요. 잠시 후 다시 시도하거나, 책 제목을 채팅으로 직접 입력해 주세요.',
+        message: '지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.',
+      }
+    }
+    if (reason === 'HTTP_BAD_GATEWAY' || reason === 'HTTP_502' || /^HTTP_5\d\d$/.test(reason)) {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.',
+      }
+    }
+    if (reason === 'BOOK_MATCH_AMBIGUOUS') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '입력한 제목이 여러 책과 비슷해요. 제목을 조금 더 길게 입력하거나 번호로 선택해 주세요.',
+      }
+    }
+    if (reason === 'HINT_EMPTY') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '책 제목을 함께 입력해 주세요. 예: "책 추가 데미안", "데미안 삭제해줘"',
       }
     }
     if (reason === 'BOOK_NOT_IN_CATALOG') {
       return {
         ok: true,
         toolName: 'fallbackTool',
-        message: 'DB에 해당 도서가 없어요. 다른 키워드로 검색해 보세요.',
+        message: '해당 책은 서점에 없습니다.',
       }
     }
     if (reason === 'ROUTE_FAILED') {

@@ -1,12 +1,16 @@
 import { getBookRecognitionClient, type BookRecognitionResult } from '../bridges/bookRecognitionBridge'
+import {
+  matchShoppingListByTitleHint,
+  normalizeListHint,
+  shoppingListSkipRecognition,
+} from '../listHintNormalize'
 import type { ShoppingListToolData, ToolExecutionContext, ToolResult } from '../types'
 import type { ToolDefinition } from './types'
 import { validateShoppingListArgs } from './toolValidators'
-import { findBookByIsbnOrTitle, type BookPreview } from '../../lib/supabase/books'
+import { findBookByIsbnOrTitle, findBookCandidatesByTitle, type BookPreview } from '../../lib/supabase/books'
 import { getBookCacheHint } from '../../lib/supabase/cache'
 import {
   addBookToShelf,
-  loadShelfBooks,
   mapListTypeToShelfType,
   removeBookFromShelf,
   updateBookUserState,
@@ -16,11 +20,45 @@ import { getDefaultUserId } from '../../lib/supabase/env'
 import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
 
 const TOOL_NAME = 'shoppingListTool'
+const FUZZY_AUTO_ACCEPT_SCORE = 0.78
+const FUZZY_AMBIGUOUS_GAP = 0.08
+const SYSTEM_FAILURE_CODES = new Set([
+  'HTTP_UNREACHABLE',
+  'HTTP_BAD_GATEWAY',
+  'HTTP_502',
+  'HTTP_CLIENT_ERROR',
+  'BRIDGE_TIMEOUT',
+  'BRIDGE_PROCESS_ERROR',
+])
+const MATCH_FAILURE_CODES = new Set([
+  'BOOK_NOT_IN_CATALOG',
+  'BOOK_NOT_RECOGNIZED',
+])
+
+export function classifyListFailure(code?: string): 'system' | 'match' | 'other' {
+  if (!code) return 'other'
+  if (SYSTEM_FAILURE_CODES.has(code) || /^HTTP_5\d\d$/.test(code)) return 'system'
+  if (MATCH_FAILURE_CODES.has(code)) return 'match'
+  return 'other'
+}
+
+function canonicalizeAction(action: unknown): string {
+  if (typeof action !== 'string') return ''
+  const normalized = action.trim().toLowerCase()
+  if (!normalized) return ''
+  if (normalized === 'delete') return 'remove'
+  return normalized
+}
 
 function toShoppingListData(
-  entries: { booksId: string; title: string }[],
+  entries: { booksId: string; title: string; authors?: string; coverImageUrl?: string }[],
 ): ShoppingListToolData['shoppingList'] {
-  return entries.map((b) => ({ booksId: b.booksId, title: b.title }))
+  return entries.map((b) => ({
+    booksId: b.booksId,
+    title: b.title,
+    authors: b.authors,
+    coverImageUrl: b.coverImageUrl,
+  }))
 }
 
 type ResolvedBook = {
@@ -35,9 +73,7 @@ type ResolveBookOutcome =
   | { ok: false; toolResult: ToolResult }
 
 /**
- * Shared add/remove preprocessing:
- * book recognition → catalog match → user/shelf resolution.
- * Failures are converted to a ready-to-return `ToolResult`.
+ * Book recognition → catalog match (legacy path when catalog/hint path misses).
  */
 async function resolveBookFromHint(
   args: Record<string, unknown>,
@@ -50,13 +86,21 @@ async function resolveBookFromHint(
     hintText: typeof args.hint === 'string' ? args.hint : undefined,
   })
   if (!recognized.ok || !recognized.title) {
+    const code = recognized.errorCode ?? 'BOOK_NOT_RECOGNIZED'
+    const kind = classifyListFailure(code)
+    const message =
+      kind === 'match'
+        ? '해당 책은 서점에 없습니다.'
+        : kind === 'system'
+          ? '지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.'
+          : recognized.message
     return {
       ok: false,
       toolResult: {
         ok: false,
         toolName: TOOL_NAME,
-        message: recognized.message,
-        errorCode: recognized.errorCode ?? 'BOOK_NOT_RECOGNIZED',
+        message,
+        errorCode: code,
       },
     }
   }
@@ -109,10 +153,14 @@ async function buildCacheSummary(isbn13?: string): Promise<string> {
   return ` 요약: ${d.slice(0, 60)}${d.length > 60 ? '...' : ''}`
 }
 
-async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const outcome = await resolveBookFromHint(args, 'add', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook, userId, shelfType } = outcome.resolved
+async function finishAddWithBook(
+  matchedBook: BookPreview,
+  displayTitle: string,
+  ctx: ToolExecutionContext,
+  cacheIsbn?: string,
+): Promise<ToolResult> {
+  const userId = getDefaultUserId()
+  const shelfType = mapListTypeToShelfType(ctx.getContext().listType)
 
   const addRes = await addBookToShelf({ usersId: userId, booksId: matchedBook.id, shelfType })
   if (!addRes.ok) {
@@ -142,27 +190,38 @@ async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContex
     }
   }
 
-  const cacheSummary = await buildCacheSummary(recognized.isbn13)
+  const cacheSummary = await buildCacheSummary(cacheIsbn)
 
   const list = ctx.getContext().shoppingList
   const exists = list.some((b) => b.booksId === matchedBook.id)
   const nextList = exists
     ? list
-    : [...list, { booksId: matchedBook.id, title: matchedBook.title || (recognized.title ?? '') }]
+    : [
+        ...list,
+        {
+          booksId: matchedBook.id,
+          title: matchedBook.title || displayTitle,
+          authors: matchedBook.authors,
+          coverImageUrl: matchedBook.coverImageUrl,
+        },
+      ]
   ctx.setContext({ shoppingList: nextList })
 
   return {
     ok: true,
     toolName: TOOL_NAME,
-    message: `리스트에 "${recognized.title}"을(를) 추가했어요.${cacheSummary}`,
+    message: `리스트에 "${displayTitle}"을(를) 추가했어요.${cacheSummary}`,
     data: { shoppingList: toShoppingListData(nextList) },
   }
 }
 
-async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const outcome = await resolveBookFromHint(args, 'remove', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook, userId, shelfType } = outcome.resolved
+async function finishRemoveWithBook(
+  matchedBook: BookPreview,
+  displayTitle: string,
+  ctx: ToolExecutionContext,
+): Promise<ToolResult> {
+  const userId = getDefaultUserId()
+  const shelfType = mapListTypeToShelfType(ctx.getContext().listType)
 
   const rmRes = await removeBookFromShelf({ usersId: userId, booksId: matchedBook.id, shelfType })
   if (!rmRes.ok && rmRes.errorCode !== SUPABASE_NOT_CONFIGURED) {
@@ -181,41 +240,170 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
   return {
     ok: true,
     toolName: TOOL_NAME,
-    message: `리스트에서 "${recognized.title}"을(를) 제거했어요.`,
+    message: `리스트에서 "${displayTitle}"을(를) 제거했어요.`,
     data: { shoppingList: toShoppingListData(nextList) },
   }
 }
 
-async function handleChangeType(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
-  const listType = typeof args.listType === 'string' ? args.listType : '쇼핑리스트'
-  const userId = getDefaultUserId()
-  const shelfType = mapListTypeToShelfType(listType)
-  const loaded = await loadShelfBooks(userId, shelfType)
-  if (!loaded.ok) {
-    return {
-      ok: false,
-      toolName: TOOL_NAME,
-      message: loaded.message ?? '리스트를 불러오지 못했어요.',
-      errorCode: loaded.errorCode,
-    }
-  }
-  const shoppingList = loaded.data.map((b) => ({ booksId: b.booksId, title: b.title }))
-  ctx.setContext({ listType, shoppingList })
+function previewFromShelfEntry(entry: {
+  booksId: string
+  title: string
+  authors?: string
+  coverImageUrl?: string
+}): BookPreview {
   return {
-    ok: true,
-    toolName: TOOL_NAME,
-    message: `리스트 종류를 "${listType}"로 변경했어요.`,
-    data: { shoppingList },
+    id: entry.booksId,
+    title: entry.title,
+    authors: entry.authors ?? '',
+    coverImageUrl: entry.coverImageUrl ?? '',
+    kdcClassName: '',
+    sector: 0,
   }
 }
 
-function handleUpdateQuantity(args: Record<string, unknown>): ToolResult {
-  const quantity = typeof args.quantity === 'number' ? args.quantity : 1
-  return {
-    ok: true,
-    toolName: TOOL_NAME,
-    message: `수량 변경 요청을 반영했어요. (요청 수량: ${quantity})`,
+function candidateTitlesLine(titles: string[]): string {
+  return titles.slice(0, 3).map((t, i) => `${i + 1}. ${t}`).join(' / ')
+}
+
+async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
+  const rawHint = typeof args.hint === 'string' ? args.hint : ''
+  const hint = normalizeListHint(rawHint, 'add')
+  if (!hint) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '추가할 책 제목을 함께 적어 주세요. 예: "책 추가 미움받을 용기"',
+      errorCode: 'HINT_EMPTY',
+    }
   }
+
+  const catRes = await findBookByIsbnOrTitle({ title: hint })
+  if (!catRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: catRes.message ?? 'DB 조회에 실패했어요.',
+      errorCode: catRes.errorCode,
+    }
+  }
+  if (catRes.data?.id) {
+    return finishAddWithBook(catRes.data, catRes.data.title || hint, ctx)
+  }
+
+  const fuzzyRes = await findBookCandidatesByTitle(hint, 3)
+  if (!fuzzyRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: fuzzyRes.message ?? '유사 제목 검색에 실패했어요.',
+      errorCode: fuzzyRes.errorCode,
+    }
+  }
+  const [top, second] = fuzzyRes.data
+  if (top?.book?.id) {
+    const gap = second ? top.score - second.score : 1
+    if (top.score >= FUZZY_AUTO_ACCEPT_SCORE && gap >= FUZZY_AMBIGUOUS_GAP) {
+      return finishAddWithBook(top.book, top.book.title || hint, ctx)
+    }
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: `제목이 모호해요. 혹시 이 중 하나인가요? ${candidateTitlesLine(fuzzyRes.data.map((c) => c.book.title))}`,
+      errorCode: 'BOOK_MATCH_AMBIGUOUS',
+    }
+  }
+
+  if (shoppingListSkipRecognition()) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '해당 책은 서점에 없습니다.',
+      errorCode: 'BOOK_NOT_IN_CATALOG',
+    }
+  }
+
+  const outcome = await resolveBookFromHint(args, 'add', ctx)
+  if (!outcome.ok) return outcome.toolResult
+  const { recognized, matchedBook } = outcome.resolved
+  return finishAddWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx, recognized.isbn13)
+}
+
+async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
+  const rawHint = typeof args.hint === 'string' ? args.hint : ''
+  const hint = normalizeListHint(rawHint, 'remove')
+  if (!hint) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '제거할 책 제목을 함께 적어 주세요. 예: "책 제거 미움받을 용기"',
+      errorCode: 'HINT_EMPTY',
+    }
+  }
+
+  const list = ctx.getContext().shoppingList
+  const visMatches = matchShoppingListByTitleHint(list, hint)
+  if (visMatches.length > 1) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '목록에서 여러 권이 맞아요. 더 구체적인 제목을 적어 주세요.',
+      errorCode: 'AMBIGUOUS_REMOVE',
+    }
+  }
+  if (visMatches.length === 1) {
+    const matched = previewFromShelfEntry(visMatches[0])
+    return finishRemoveWithBook(matched, visMatches[0].title, ctx)
+  }
+
+  const catRes = await findBookByIsbnOrTitle({ title: hint })
+  if (!catRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: catRes.message ?? 'DB 조회에 실패했어요.',
+      errorCode: catRes.errorCode,
+    }
+  }
+  if (catRes.data?.id) {
+    return finishRemoveWithBook(catRes.data, catRes.data.title || hint, ctx)
+  }
+
+  const fuzzyRes = await findBookCandidatesByTitle(hint, 3)
+  if (!fuzzyRes.ok) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: fuzzyRes.message ?? '유사 제목 검색에 실패했어요.',
+      errorCode: fuzzyRes.errorCode,
+    }
+  }
+  const [top, second] = fuzzyRes.data
+  if (top?.book?.id) {
+    const gap = second ? top.score - second.score : 1
+    if (top.score >= FUZZY_AUTO_ACCEPT_SCORE && gap >= FUZZY_AMBIGUOUS_GAP) {
+      return finishRemoveWithBook(top.book, top.book.title || hint, ctx)
+    }
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: `제목이 모호해요. 혹시 이 중 하나인가요? ${candidateTitlesLine(fuzzyRes.data.map((c) => c.book.title))}`,
+      errorCode: 'BOOK_MATCH_AMBIGUOUS',
+    }
+  }
+
+  if (shoppingListSkipRecognition()) {
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: '해당 책은 서점에 없습니다.',
+      errorCode: 'BOOK_NOT_IN_CATALOG',
+    }
+  }
+
+  const outcome = await resolveBookFromHint(args, 'remove', ctx)
+  if (!outcome.ok) return outcome.toolResult
+  const { recognized, matchedBook } = outcome.resolved
+  return finishRemoveWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx)
 }
 
 export const shoppingListTool: ToolDefinition = {
@@ -224,11 +412,9 @@ export const shoppingListTool: ToolDefinition = {
     return validateShoppingListArgs(args)
   },
   async run(args, ctx) {
-    const action = String(args.action)
+    const action = canonicalizeAction(args.action)
     if (action === 'add') return handleAdd(args, ctx)
     if (action === 'remove') return handleRemove(args, ctx)
-    if (action === 'changeType') return handleChangeType(args, ctx)
-    if (action === 'updateQuantity') return handleUpdateQuantity(args)
     return {
       ok: false,
       toolName: TOOL_NAME,

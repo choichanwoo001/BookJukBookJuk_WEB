@@ -58,8 +58,16 @@ import { WalkRig, OverviewRig } from './rigs/CameraRigs'
 
 export type { MinimapPlayerPos }
 
+function isEditableDomTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  return target.isContentEditable
+}
+
 export function SceneContent({
   mode,
+  activePane,
   editTool,
   bookshelfRenderInstances,
   staticFixtureInstances,
@@ -79,6 +87,7 @@ export function SceneContent({
   navigationRoute,
 }: {
   mode: ViewMode
+  activePane: 'map' | 'chat'
   editTool: 'areaSelection' | 'bookshelfEdit'
   bookshelfRenderInstances: FixtureRenderInstance[]
   staticFixtureInstances: FixtureRenderInstance[]
@@ -116,7 +125,7 @@ export function SceneContent({
   const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
-  const controlsEnabled = true
+  const controlsEnabled = activePane === 'map'
   const counterRenderInstances = useMemo(() => {
     const counters = staticFixtureInstances.filter((inst) => inst.kind === 'counter')
     if (!showBookshelfOverlayLayer) return counters
@@ -137,7 +146,7 @@ export function SceneContent({
     floorRects,
     wallRects: baseWallRects,
     bookshelfRects: bookshelfCollisionRects,
-  }, characterYawRef, walkMovingRef)
+  }, characterYawRef, walkMovingRef, controlsEnabled)
 
   /**
    * 워크/오버뷰 전환 시 월드·yaw/pitch 동기화.
@@ -188,7 +197,9 @@ export function SceneContent({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (!controlsEnabled) return
       if (event.code !== 'Space') return
+      if (isEditableDomTarget(event.target)) return
       event.preventDefault()
       setIsSpacePressed(true)
       isFreeLookRef.current = false
@@ -217,7 +228,7 @@ export function SceneContent({
       window.removeEventListener('blur', handleWindowBlur)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [mode])
+  }, [controlsEnabled, mode])
 
   const pickHandler = useCallback((surface: SurfaceKind) => (event: ThreeEvent<PointerEvent>) => {
     if (!event.altKey) return

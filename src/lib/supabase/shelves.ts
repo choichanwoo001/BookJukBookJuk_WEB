@@ -9,6 +9,7 @@ export type ShelfBookItem = {
   booksId: string
   title: string
   authors: string
+  coverImageUrl: string
 }
 
 export function mapListTypeToShelfType(listType?: string): ShelfType {
@@ -75,7 +76,7 @@ export async function loadShelfBooks(usersId: string, shelfType: ShelfType): Pro
 
   const { data: books, error: booksErr } = await supabase
     .from('books')
-    .select('id,title,authors')
+    .select('id,title,authors,cover_image_url')
     .in('id', bookIds)
 
   if (booksErr) return mapPostgrestError(booksErr)
@@ -85,6 +86,7 @@ export async function loadShelfBooks(usersId: string, shelfType: ShelfType): Pro
     booksId: String((row as { id?: string }).id ?? ''),
     title: String((row as { title?: string }).title ?? ''),
     authors: String((row as { authors?: string }).authors ?? ''),
+    coverImageUrl: String((row as { cover_image_url?: string }).cover_image_url ?? ''),
   }))
   return { ok: true, data: items.filter((b) => b.booksId.length > 0) }
 }

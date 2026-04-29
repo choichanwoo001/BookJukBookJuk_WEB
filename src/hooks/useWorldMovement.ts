@@ -70,6 +70,7 @@ export function useWorldMovement(
   overrides?: DynamicCollisionOverrides,
   characterYawRef?: RefObject<number>,
   movingRef?: RefObject<boolean>,
+  keyboardEnabled = true,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -80,6 +81,18 @@ export function useWorldMovement(
   const playerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
 
   useEffect(() => {
+    const resetKeyState = () => {
+      keyStateRef.current = {
+        keyW: false,
+        keyA: false,
+        keyS: false,
+        keyD: false,
+      }
+    }
+
+    resetKeyState()
+    if (!keyboardEnabled) return
+
     const updateKeyState = (code: string, pressed: boolean) => {
       if (code === 'KeyW') keyStateRef.current.keyW = pressed
       if (code === 'KeyA') keyStateRef.current.keyA = pressed
@@ -87,8 +100,14 @@ export function useWorldMovement(
       if (code === 'KeyD') keyStateRef.current.keyD = pressed
     }
 
-    const handleKeyDown = (event: KeyboardEvent) => updateKeyState(event.code, true)
-    const handleKeyUp = (event: KeyboardEvent) => updateKeyState(event.code, false)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!keyboardEnabled) return
+      updateKeyState(event.code, true)
+    }
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (!keyboardEnabled) return
+      updateKeyState(event.code, false)
+    }
 
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
@@ -96,8 +115,9 @@ export function useWorldMovement(
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
+      resetKeyState()
     }
-  }, [])
+  }, [keyboardEnabled])
 
   useFrame((_, delta) => {
     if (!worldRef.current || !enabled) return

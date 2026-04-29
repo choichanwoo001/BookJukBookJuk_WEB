@@ -35,6 +35,12 @@ export async function getOrCreateConversation(usersId: string): Promise<string |
     return String(existing.conversation_id)
   }
 
+  return createConversation(usersId)
+}
+
+export async function createConversation(usersId: string): Promise<string | null> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return null
   const conversationId = crypto.randomUUID()
   const { error: insertError } = await supabase.from('conversation').insert({
     conversation_id: conversationId,

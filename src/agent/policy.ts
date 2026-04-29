@@ -3,7 +3,6 @@ import type { AgentIntent, AgentIntentType } from './types'
 const destructiveIntentSet = new Set<AgentIntentType>([
   'remove_book',
   'route_replan_shortest',
-  'list_change_type',
 ])
 
 export function isDestructiveIntent(type: AgentIntentType): boolean {

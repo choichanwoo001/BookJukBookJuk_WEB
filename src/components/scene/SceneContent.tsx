@@ -15,11 +15,6 @@ import {
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
 import {
-  bookshelfOverlayLayerInstances,
-  counterOverlayLayerInstances,
-  isCounterOverlaidByBookshelfOverlayLayer,
-} from '../../data/bookshelfOverlayLayer'
-import {
   FIRST_PERSON_DEFAULT_PITCH,
   FIRST_PERSON_EYE_HEIGHT_M,
   FIRST_PERSON_PITCH_MIN,
@@ -30,8 +25,6 @@ import {
   floorMaterial,
   ceilingMaterial,
   bookshelfMaterial,
-  bookshelfOverlayLayerMaterial,
-  bookshelfOverlayInteriorWoodMaterial,
   displayLowMaterial,
   pillarMaterial,
   markerMaterial,
@@ -54,8 +47,6 @@ import {
   SelectedBookshelfOverlay,
   BookstoreLights,
 } from './Meshes'
-import { MapDiffOverlayMesh } from './MapDiffOverlayMesh'
-import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
 import {
   CameraZoomController,
   OverviewZoomController,
@@ -174,14 +165,13 @@ export function SceneContent({
   mode,
   editTool,
   bookshelfRenderInstances,
+  deltaBookshelfRenderInstances,
   staticFixtureInstances,
   selections,
   onAddSelection,
   selectedBookshelfIndex,
   onSelectBookshelf,
   onUpdateBookshelf,
-  showMapDiffLayer,
-  showBookshelfOverlayLayer,
   forwardArrowRef,
   walkFov = WALK_DEFAULT_FOV,
   onWalkFovChange,
@@ -193,14 +183,13 @@ export function SceneContent({
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
   bookshelfRenderInstances: FixtureRenderInstance[]
+  deltaBookshelfRenderInstances: FixtureRenderInstance[]
   staticFixtureInstances: FixtureRenderInstance[]
   selections: CircleSelection[]
   onAddSelection: (point: PickPoint) => void
   selectedBookshelfIndex?: number | null
   onSelectBookshelf?: (index: number | null) => void
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
-  showMapDiffLayer?: boolean
-  showBookshelfOverlayLayer?: boolean
   forwardArrowRef?: RefObject<HTMLDivElement | null>
   walkFov?: number
   onWalkFovChange?: (fov: number) => void
@@ -230,10 +219,8 @@ export function SceneContent({
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = true
   const counterRenderInstances = useMemo(() => {
-    const counters = staticFixtureInstances.filter((inst) => inst.kind === 'counter')
-    if (!showBookshelfOverlayLayer) return counters
-    return counters.filter((c) => !isCounterOverlaidByBookshelfOverlayLayer(c))
-  }, [staticFixtureInstances, showBookshelfOverlayLayer])
+    return staticFixtureInstances.filter((inst) => inst.kind === 'counter')
+  }, [staticFixtureInstances])
   const displayRenderInstances = useMemo(
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
@@ -245,10 +232,17 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
+  const deltaBookshelfCollisionRects = useMemo(
+    () =>
+      deltaBookshelfRenderInstances.map(inst =>
+        axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
+      ),
+    [deltaBookshelfRenderInstances],
+  )
   useWorldMovement(worldRef, yawRef, isWalkMode && controlsEnabled, {
     floorRects,
     wallRects: baseWallRects,
-    bookshelfRects: bookshelfCollisionRects,
+    bookshelfRects: [...bookshelfCollisionRects, ...deltaBookshelfCollisionRects],
   }, characterYawRef, walkMovingRef)
 
   /**
@@ -502,21 +496,6 @@ export function SceneContent({
             />
           </group>
         )}
-        <group userData={{ excludeCameraCollision: true }}>
-          <MapDiffOverlayMesh visible={showMapDiffLayer ?? false} />
-        </group>
-        <group visible={showBookshelfOverlayLayer ?? false} userData={{ excludeCameraCollision: true }}>
-          <BookshelfOverlayInterior
-            instances={bookshelfOverlayLayerInstances}
-            shellMaterial={bookshelfOverlayLayerMaterial}
-            woodMaterial={bookshelfOverlayInteriorWoodMaterial}
-          />
-          <SupermarketCounterInstances
-            instances={counterOverlayLayerInstances}
-            overlayCandidate
-            disableRaycast
-          />
-        </group>
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
@@ -529,6 +508,11 @@ export function SceneContent({
               ? handleBookshelfPointerDown
               : bookshelfPickHandler
           }
+        />
+        <RotatedFixtureInstances
+          instances={deltaBookshelfRenderInstances}
+          material={bookshelfMaterial}
+          onPointerDown={bookshelfPickHandler}
         />
         <SupermarketCounterInstances
           instances={counterRenderInstances}

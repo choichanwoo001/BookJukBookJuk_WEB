@@ -29,24 +29,10 @@ import type { MinimapPlayerPos } from './scene/SceneContent'
 import { getMinimapWorldBounds, worldXzToMinimapUv } from '../utils/minimapBounds'
 import { SceneContent } from './scene/SceneContent'
 import { BookshelfEditPanel } from './BookshelfEditPanel'
-import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
-
-/** 메인 씬과 오버레이 후보에 같은 위치가 있으면 한 번만 미션·충돌에 넣음 */
-const MISSION_SHELF_DEDUPE_M = 0.08
+import { deltaShelfLayerInstances, deltaShelfLayerSource } from '../data/deltaShelfLayer'
 
 /** 미니맵 UI·뷰포트 리포터 비활성화 (다시 켤 때 true) */
 const SHOW_MINIMAP = false
-
-function mergeMissionBookshelfPool(instances: FixtureRenderInstance[]): FixtureRenderInstance[] {
-  const main = instances.filter((b): b is Extract<FixtureRenderInstance, { kind: 'bookshelf' }> => b.kind === 'bookshelf')
-  const out: FixtureRenderInstance[] = [...main]
-  for (const o of bookshelfOverlayLayerInstances) {
-    if (o.kind !== 'bookshelf') continue
-    const dup = out.some((m) => Math.hypot(m.cx - o.cx, m.cz - o.cz) < MISSION_SHELF_DEDUPE_M)
-    if (!dup) out.push(o)
-  }
-  return out
-}
 
 function buildStaticInstances(): FixtureRenderInstance[] {
   const counters = counterInstances.map<FixtureRenderInstance>((item) => ({
@@ -177,8 +163,6 @@ function Map3DView() {
   const [mode, setMode] = useState<ViewMode>('overview')
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
-  const [showMapDiffLayer, setShowMapDiffLayer] = useState(false)
-  const [showBookshelfOverlayLayer, setShowBookshelfOverlayLayer] = useState(false)
   const [firstPersonFov, setFirstPersonFov] = useState(WALK_DEFAULT_FOV)
   const [thirdPersonFov, setThirdPersonFov] = useState(THIRD_PERSON_DEFAULT_FOV)
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
@@ -186,6 +170,8 @@ function Map3DView() {
   const playerWorldXzRef = useRef<Point2 | null>(null)
   const [missionVersion, setMissionVersion] = useState(0)
   const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
+  const [showDeltaShelfLayer, setShowDeltaShelfLayer] = useState(false)
+  const hasDeltaShelfLayer = deltaShelfLayerSource !== null && deltaShelfLayerInstances.length > 0
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
 
@@ -205,12 +191,10 @@ function Map3DView() {
     handleUpdateD,
   } = useBookshelfInstances()
 
-  const missionBookshelfPool = useMemo(() => mergeMissionBookshelfPool(instances), [instances])
-
   const missionIndices = useMemo(() => {
-    const pool = missionBookshelfPool.map((_, i) => i)
+    const pool = instances.map((_, i) => i)
     return pickMissionIndicesSeeded(pool, missionVersion)
-  }, [missionBookshelfPool, missionVersion])
+  }, [instances, missionVersion])
 
   const handleNewMission = useCallback(() => {
     setMissionVersion((v) => v + 1)
@@ -221,20 +205,15 @@ function Map3DView() {
     return { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ }
   }, [])
   const navBookshelfRects = useMemo(() => {
-    const mainRects = instances.map((inst) =>
+    const baseRects = instances.map((inst) =>
       axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
     )
-    const extra: ReturnType<typeof axisAlignedBoundsForRotatedBookshelf>[] = []
-    for (const o of bookshelfOverlayLayerInstances) {
-      const dup = instances.some(
-        (m) => Math.hypot(m.cx - o.cx, m.cz - o.cz) < MISSION_SHELF_DEDUPE_M,
-      )
-      if (!dup) {
-        extra.push(axisAlignedBoundsForRotatedBookshelf(o.cx, o.cz, o.w, o.d, o.yaw))
-      }
-    }
-    return [...mainRects, ...extra]
-  }, [instances])
+    if (!showDeltaShelfLayer || !hasDeltaShelfLayer) return baseRects
+    const deltaRects = deltaShelfLayerInstances.map((inst) =>
+      axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
+    )
+    return [...baseRects, ...deltaRects]
+  }, [hasDeltaShelfLayer, instances, showDeltaShelfLayer])
   const navCtx = useMemo(
     () => ({
       floorRects,
@@ -248,7 +227,7 @@ function Map3DView() {
   const navigationRoute = useNavigationRoute({
     missionIndices,
     missionVersion,
-    bookshelfInstances: missionBookshelfPool,
+    bookshelfInstances: instances,
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
     bounds: navBounds,
@@ -313,14 +292,13 @@ function Map3DView() {
           mode={mode}
           editTool={editTool}
           bookshelfRenderInstances={instances}
+          deltaBookshelfRenderInstances={showDeltaShelfLayer && hasDeltaShelfLayer ? deltaShelfLayerInstances : []}
           staticFixtureInstances={staticInstances}
           selections={selections}
           onAddSelection={handleAddSelectionWithCircle}
           selectedBookshelfIndex={isEdit ? selectedIndex : null}
           onSelectBookshelf={isEdit ? setSelectedIndex : undefined}
           onUpdateBookshelf={isEdit ? handleUpdateInstance : undefined}
-          showMapDiffLayer={showMapDiffLayer}
-          showBookshelfOverlayLayer={showBookshelfOverlayLayer}
           forwardArrowRef={forwardArrowRef}
           walkFov={mode === 'thirdPerson' ? thirdPersonFov : firstPersonFov}
           onWalkFovChange={handleWalkFovChange}
@@ -343,25 +321,18 @@ function Map3DView() {
       )}
 
       <div className="mapViewButtons">
-        <label className="mapDiffLayerToggle">
-          <input
-            type="checkbox"
-            checked={showMapDiffLayer}
-            onChange={(e) => setShowMapDiffLayer(e.target.checked)}
-          />
-          맵 차이 (ver0↔ver2)
-        </label>
-        <label className="mapDiffLayerToggle">
-          <input
-            type="checkbox"
-            checked={showBookshelfOverlayLayer}
-            onChange={(e) => setShowBookshelfOverlayLayer(e.target.checked)}
-          />
-          책장 후보 (오버레이)
-        </label>
         <button type="button" onClick={handleNewMission}>
           새 미션
         </button>
+        {hasDeltaShelfLayer && (
+          <button
+            type="button"
+            data-active={showDeltaShelfLayer}
+            onClick={() => setShowDeltaShelfLayer((v) => !v)}
+          >
+            delta 책장 레이어
+          </button>
+        )}
         <button type="button" data-active={mode === 'firstPerson'} onClick={() => { setMode('firstPerson'); setSelectedIndex(null) }}>
           1인칭 시점
         </button>
@@ -377,8 +348,8 @@ function Map3DView() {
         <p className="mapMissionStatus" aria-live="polite">
           미션 v{missionVersion}
           {missionIndices.length > 0
-            ? ` · 풀 idx ${missionIndices.join(', ')} (메인+오버레이 후보)`
-            : ' · 미션용 책장 없음 (floorPlan 검출 책장·오버레이 레이어 모두 없음)'}
+            ? ` · 풀 idx ${missionIndices.join(', ')}`
+            : ' · 미션용 책장 없음'}
         </p>
       </div>
 

@@ -28,9 +28,24 @@ const CENTER_LOOP_MIN_SEGMENT_M = 0.12
 const RENDER_LOOP_MIN_SEGMENT_M = 0.28
 const HOLE_LOOP_MIN_SEGMENT_M = 0.08
 
+const FORCED_UNKNOWN_ISOLATED_AREAS = [
+  { surface: 'floor', cx: -5.560, cz: -4.861, radius: 0.350 },
+  { surface: 'wall', cx: -15.810, cz: -1.820, radius: 0.350 },
+]
+const DELTA_TARGET_WALL_AREAS = [
+  { surface: 'floor', cx: -6.892, cz: -4.451, radius: 0.350 },
+  { surface: 'floor', cx: -14.457, cz: -2.989, radius: 0.350 },
+]
+const FORCED_UNKNOWN_SCAN_MAX_M = 8.0
+const FORCED_UNKNOWN_ROOM_MIN_SIDE_M = 1.0
+const FORCED_UNKNOWN_ROOM_MAX_SIDE_M = 20.0
+const FORCED_UNKNOWN_ROOM_MAX_PIXELS = 45000
+const FORCED_UNKNOWN_ROOM_MAX_ASPECT = 20.0
+
 let RESOLUTION = 0.05
 let ORIGIN_X = -53.4
 let ORIGIN_Y = -19.1
+let PIXEL_MODE = false
 
 function parseSimpleYaml(path) {
   const text = readFileSync(path, 'utf-8')
@@ -268,7 +283,8 @@ function extractComponents(grid, width, height, targetValue) {
 
 function pxToWorld(col, row, height) {
   const wx = ORIGIN_X + col * RESOLUTION
-  const wz = ORIGIN_Y + (height - 1 - row) * RESOLUTION
+  // Keep world Z aligned with image row direction (no vertical flip).
+  const wz = ORIGIN_Y + row * RESOLUTION
   return [wx, wz]
 }
 
@@ -471,6 +487,290 @@ function keepSignificantFreeComponents(grid, width, height) {
     usedInterior: interiorComponents.length > 0,
     candidateCount: searchSpace.length,
   }
+}
+
+function forceUnknownForIsolatedAreas(grid, width, height, offsetX, offsetZ, areas) {
+  const maxScanPx = Math.max(8, Math.round(FORCED_UNKNOWN_SCAN_MAX_M / RESOLUTION))
+  const minSidePx = Math.max(2, Math.round(FORCED_UNKNOWN_ROOM_MIN_SIDE_M / RESOLUTION))
+  const maxSidePx = Math.max(4, Math.round(FORCED_UNKNOWN_ROOM_MAX_SIDE_M / RESOLUTION))
+  const blocked = new Uint8Array(grid.length)
+  const freeExtract = extractComponents(grid, width, height, FREE)
+  let largestFreeSize = 0
+  for (const c of freeExtract.components) {
+    if (c.size > largestFreeSize) largestFreeSize = c.size
+  }
+  const fallbackCandidates = freeExtract.components.filter(c =>
+    !c.touchesBoundary &&
+    c.size < largestFreeSize &&
+    c.size <= FORCED_UNKNOWN_ROOM_MAX_PIXELS &&
+    c.aspect <= 3.4,
+  )
+  const areaMatches = []
+
+  const worldCenteredToPixel = (cx, cz) => {
+    const wx = cx + offsetX
+    const wz = cz + offsetZ
+    const col = Math.round((wx - ORIGIN_X) / RESOLUTION)
+    const row = Math.round((wz - ORIGIN_Y) / RESOLUTION)
+    return { col, row }
+  }
+
+  const scanToWall = (startCol, startRow, stepCol, stepRow) => {
+    for (let step = 0; step <= maxScanPx; step++) {
+      const col = startCol + stepCol * step
+      const row = startRow + stepRow * step
+      if (col < 0 || col >= width || row < 0 || row >= height) return -1
+      const idx = row * width + col
+      if (grid[idx] === WALL) return step
+    }
+    return -1
+  }
+
+  const fallbackCarveByComponent = (area) => {
+    let matched = null
+    let bestDist = Infinity
+    for (const c of fallbackCandidates) {
+      for (const idx of c.indices) {
+        const col = idx % width
+        const row = (idx - col) / width
+        const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+        const distCentered = Math.hypot((wx - offsetX) - area.cx, (wz - offsetZ) - area.cz)
+        const distAbsolute = Math.hypot(wx - area.cx, wz - area.cz)
+        const dist = Math.min(distCentered, distAbsolute)
+        if (dist <= area.radius && dist < bestDist) {
+          bestDist = dist
+          matched = c
+        }
+      }
+    }
+    if (!matched) return { changed: 0, size: 0, reason: 'fallback-no-match' }
+    let changed = 0
+    for (const idx of matched.indices) {
+      if (blocked[idx]) continue
+      if (grid[idx] !== FREE) continue
+      blocked[idx] = 1
+      grid[idx] = UNKNOWN
+      changed++
+    }
+    return { changed, size: matched.size, reason: changed > 0 ? 'fallback-ok' : 'fallback-empty' }
+  }
+
+  let candidateComponentCount = 0
+  for (const area of areas) {
+    const seed = worldCenteredToPixel(area.cx, area.cz)
+    if (seed.col < 0 || seed.col >= width || seed.row < 0 || seed.row >= height) {
+      areaMatches.push({ area, label: 0, distance: Infinity, size: 0, reason: 'seed-oob' })
+      continue
+    }
+
+    // If center lands on wall/unknown, search nearest free pixel within the given radius.
+    let seedCol = seed.col
+    let seedRow = seed.row
+    const seedIdx = seedRow * width + seedCol
+    if (grid[seedIdx] !== FREE) {
+      const radiusPx = Math.max(1, Math.round(area.radius / RESOLUTION))
+      let bestDist = Infinity
+      let bestCol = -1
+      let bestRow = -1
+      for (let dy = -radiusPx; dy <= radiusPx; dy++) {
+        for (let dx = -radiusPx; dx <= radiusPx; dx++) {
+          const col = seed.col + dx
+          const row = seed.row + dy
+          if (col < 0 || col >= width || row < 0 || row >= height) continue
+          const dist = Math.hypot(dx, dy)
+          if (dist > radiusPx) continue
+          if (grid[row * width + col] !== FREE) continue
+          if (dist < bestDist) {
+            bestDist = dist
+            bestCol = col
+            bestRow = row
+          }
+        }
+      }
+      if (bestCol < 0) {
+        areaMatches.push({ area, label: 0, distance: Infinity, size: 0, reason: 'no-free-near-center' })
+        continue
+      }
+      seedCol = bestCol
+      seedRow = bestRow
+    }
+
+    const left = scanToWall(seedCol, seedRow, -1, 0)
+    const right = scanToWall(seedCol, seedRow, 1, 0)
+    const up = scanToWall(seedCol, seedRow, 0, -1)
+    const down = scanToWall(seedCol, seedRow, 0, 1)
+    if (left < 0 || right < 0 || up < 0 || down < 0) {
+      areaMatches.push({ area, label: 0, distance: Infinity, size: 0, reason: 'wall-not-found' })
+      continue
+    }
+
+    const minCol = seedCol - left + 1
+    const maxCol = seedCol + right - 1
+    const minRow = seedRow - up + 1
+    const maxRow = seedRow + down - 1
+    const boxW = maxCol - minCol + 1
+    const boxH = maxRow - minRow + 1
+    const boxSize = boxW * boxH
+    const aspect = boxW > boxH ? boxW / Math.max(1, boxH) : boxH / Math.max(1, boxW)
+    if (
+      boxW < minSidePx ||
+      boxH < minSidePx ||
+      boxW > maxSidePx ||
+      boxH > maxSidePx ||
+      boxSize > FORCED_UNKNOWN_ROOM_MAX_PIXELS ||
+      aspect > FORCED_UNKNOWN_ROOM_MAX_ASPECT
+    ) {
+      const fallback = fallbackCarveByComponent(area)
+      if (fallback.changed > 0) {
+        candidateComponentCount++
+        let radiusChanged = 0
+        const radiusPx = Math.max(1, Math.ceil(area.radius / RESOLUTION) + 1)
+        for (let dy = -radiusPx; dy <= radiusPx; dy++) {
+          for (let dx = -radiusPx; dx <= radiusPx; dx++) {
+            const col = seed.col + dx
+            const row = seed.row + dy
+            if (col < 0 || col >= width || row < 0 || row >= height) continue
+            const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+            const dist = Math.hypot((wx - offsetX) - area.cx, (wz - offsetZ) - area.cz)
+            if (dist > area.radius) continue
+            const idx = row * width + col
+            if (blocked[idx]) continue
+            if (grid[idx] !== FREE) continue
+            blocked[idx] = 1
+            grid[idx] = UNKNOWN
+            radiusChanged++
+          }
+        }
+        areaMatches.push({
+          area,
+          label: candidateComponentCount,
+          distance: 0,
+          size: fallback.changed + radiusChanged,
+          reason: `${fallback.reason}+radius`,
+        })
+      } else {
+        areaMatches.push({ area, label: 0, distance: Infinity, size: boxSize, reason: 'box-filtered' })
+      }
+      continue
+    }
+
+    candidateComponentCount++
+    let changed = 0
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        const idx = row * width + col
+        if (blocked[idx]) continue
+        if (grid[idx] !== FREE) continue
+        blocked[idx] = 1
+        grid[idx] = UNKNOWN
+        changed++
+      }
+    }
+    let radiusChanged = 0
+    const radiusPx = Math.max(1, Math.ceil(area.radius / RESOLUTION) + 1)
+    for (let dy = -radiusPx; dy <= radiusPx; dy++) {
+      for (let dx = -radiusPx; dx <= radiusPx; dx++) {
+        const col = seed.col + dx
+        const row = seed.row + dy
+        if (col < 0 || col >= width || row < 0 || row >= height) continue
+        const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+        const dist = Math.hypot((wx - offsetX) - area.cx, (wz - offsetZ) - area.cz)
+        if (dist > area.radius) continue
+        const idx = row * width + col
+        if (blocked[idx]) continue
+        if (grid[idx] !== FREE) continue
+        blocked[idx] = 1
+        grid[idx] = UNKNOWN
+        radiusChanged++
+      }
+    }
+    areaMatches.push({ area, label: candidateComponentCount, distance: 0, size: changed + radiusChanged, reason: 'ok+radius' })
+  }
+
+  let changedPixels = 0
+  for (let i = 0; i < blocked.length; i++) {
+    if (blocked[i]) changedPixels++
+  }
+  return {
+    targetedComponentCount: areaMatches.filter(v => v.label !== 0).length,
+    changedPixels,
+    areaMatches,
+    candidateComponentCount,
+  }
+}
+
+function selectDeltaWallComponentsNearAreas(components, width, height, offsetX, offsetZ, areas) {
+  const pixelCenters = components.map((c) => {
+    const pts = c.indices.map((idx) => {
+      const col = idx % width
+      const row = (idx - col) / width
+      const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+      return [wx - offsetX, wz - offsetZ]
+    })
+    return { component: c, pts }
+  })
+  const selected = []
+  const usedLabels = new Set()
+  for (const area of areas) {
+    let best = null
+    let bestDist = Infinity
+    for (const entry of pixelCenters) {
+      const c = entry.component
+      if (usedLabels.has(c.label)) continue
+      for (const p of entry.pts) {
+        const d = Math.hypot(p[0] - area.cx, p[1] - area.cz)
+        if (d < bestDist) {
+          bestDist = d
+          best = c
+        }
+      }
+    }
+    if (!best) continue
+    // Keep matching strict around requested circle-area neighborhood.
+    if (bestDist > area.radius + 0.9) continue
+    usedLabels.add(best.label)
+    selected.push({ area, component: best, distance: bestDist })
+  }
+  return selected
+}
+
+function markBlockedBackspaceUnknownNearAreas(grid, width, height, offsetX, offsetZ, areas) {
+  const freeExtract = extractComponents(grid, width, height, FREE)
+  let largestFree = 0
+  for (const c of freeExtract.components) largestFree = Math.max(largestFree, c.size)
+  const changedByArea = []
+  let totalChanged = 0
+  for (const area of areas) {
+    let best = null
+    let bestDist = Infinity
+    for (const c of freeExtract.components) {
+      if (c.touchesBoundary) continue
+      if (c.size > Math.max(200, Math.floor(largestFree * 0.2))) continue
+      for (const idx of c.indices) {
+        const col = idx % width
+        const row = (idx - col) / width
+        const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+        const d = Math.hypot((wx - offsetX) - area.cx, (wz - offsetZ) - area.cz)
+        if (d < bestDist) {
+          bestDist = d
+          best = c
+        }
+      }
+    }
+    if (!best || bestDist > area.radius + 1.2) {
+      changedByArea.push({ area, changed: 0, reason: 'no-near-enclosed-free' })
+      continue
+    }
+    let changed = 0
+    for (const idx of best.indices) {
+      if (grid[idx] !== FREE) continue
+      grid[idx] = UNKNOWN
+      changed++
+    }
+    totalChanged += changed
+    changedByArea.push({ area, changed, reason: changed > 0 ? 'ok' : 'empty' })
+  }
+  return { totalChanged, changedByArea }
 }
 
 function pruneWallsNotAdjacentToFree(grid, width, height) {
@@ -749,6 +1049,10 @@ function pruneShortSegments(loop, minLength) {
 
 function finalizeLoop(loop, imgHeight, offsetX, offsetZ, simplifyTolerance, minSegmentLength) {
   const world = gridLoopToWorld(loop, imgHeight, offsetX, offsetZ)
+  if (PIXEL_MODE) {
+    // Pixel mode: keep the polyline as-is (no axis snapping / RDP simplification / short segment pruning).
+    return dedupeLoop(world)
+  }
   const snapped1 = snapLoopToAxis(world, AXIS_SNAP_DEG)
   const simplified = simplifyLoop(snapped1, simplifyTolerance)
   const snapped2 = snapLoopToAxis(simplified, AXIS_SNAP_DEG)
@@ -933,7 +1237,9 @@ async function main() {
   const imageArg = process.argv.indexOf('--image')
   const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
   const mapOffsetOnly = process.argv.includes('--map-offset-only')
-  const rawMap = process.argv.includes('--raw-map')
+  const smoothMap = process.argv.includes('--smooth-map')
+  const rawMap = process.argv.includes('--raw-map') || !smoothMap
+  PIXEL_MODE = process.argv.includes('--pixel-mode') || rawMap
   const classifyModeArgIdx = process.argv.indexOf('--classify-mode')
   const classifyModeCli =
     classifyModeArgIdx >= 0 ? String(process.argv[classifyModeArgIdx + 1] || '').toLowerCase() : null
@@ -976,7 +1282,9 @@ async function main() {
     }
     classifyMode = classifyModeCli
   }
-  if (rawMap) console.log('  --raw-map: minimal post-classify processing (see logs below)')
+  if (rawMap) {
+    console.log('  raw-minimal mode: enabled (default). pass --smooth-map for full smoothing pipeline.')
+  }
   console.log(`  Dimensions: ${width}x${height}, resolution: ${RESOLUTION}`)
   console.log(`  mode: ${classifyMode}, thresholds -> wall <= ${wallThreshold}, free >= ${freeThreshold}`)
 
@@ -1024,7 +1332,7 @@ async function main() {
     console.log(`  wrote classified grid PGM: ${dumpClassifiedRelPath}`)
   }
 
-  const rawFloorRects = greedyMesh(grid, width, height, FREE)
+  let rawFloorRects = greedyMesh(grid, width, height, FREE)
   let sumX = 0
   let sumZ = 0
   let totalArea = 0
@@ -1036,9 +1344,45 @@ async function main() {
     sumZ += ((z1 + z2) / 2) * area
     totalArea += area
   }
-  const offsetX = totalArea > 0 ? sumX / totalArea : 0
-  const offsetZ = totalArea > 0 ? sumZ / totalArea : 0
-  console.log(`  center offset: (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
+  let offsetX = totalArea > 0 ? sumX / totalArea : 0
+  let offsetZ = totalArea > 0 ? sumZ / totalArea : 0
+  console.log(`  center offset (pre-forced): (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
+
+  const forcedUnknown = forceUnknownForIsolatedAreas(
+    grid,
+    width,
+    height,
+    offsetX,
+    offsetZ,
+    FORCED_UNKNOWN_ISOLATED_AREAS,
+  )
+  console.log(
+    `  forced unknown isolated areas: candidates=${forcedUnknown.candidateComponentCount}, components=${forcedUnknown.targetedComponentCount}, pixels=${forcedUnknown.changedPixels}`,
+  )
+  for (const match of forcedUnknown.areaMatches) {
+    const labelText = match.label === 0 ? 'none' : String(match.label)
+    const distText = Number.isFinite(match.distance) ? match.distance.toFixed(3) : 'n/a'
+    const sizeText = match.size > 0 ? String(match.size) : 'n/a'
+    console.log(
+      `    ${match.area.surface} circle @(${match.area.cx.toFixed(3)}, ${match.area.cz.toFixed(3)}) r=${match.area.radius.toFixed(3)} -> component=${labelText}, nearestDist=${distText}, size=${sizeText}, reason=${match.reason}`,
+    )
+  }
+
+  rawFloorRects = greedyMesh(grid, width, height, FREE)
+  sumX = 0
+  sumZ = 0
+  totalArea = 0
+  for (const r of rawFloorRects) {
+    const [x1, z1] = pxToWorld(r.x, r.y, height)
+    const [x2, z2] = pxToWorld(r.x + r.w, r.y + r.h, height)
+    const area = Math.abs(x2 - x1) * Math.abs(z2 - z1)
+    sumX += ((x1 + x2) / 2) * area
+    sumZ += ((z1 + z2) / 2) * area
+    totalArea += area
+  }
+  offsetX = totalArea > 0 ? sumX / totalArea : 0
+  offsetZ = totalArea > 0 ? sumZ / totalArea : 0
+  console.log(`  center offset (final): (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
 
   if (mapOffsetOnly) {
     console.log(
@@ -1054,6 +1398,144 @@ async function main() {
       }),
     )
     process.exit(0)
+  }
+
+  const deltaShelfRectsFromDiff = []
+  const deltaShelfComponentsFromDiff = []
+  const deltaWallComponentsForBase = []
+  if (deltaImageName) {
+    console.log(`\nDelta mode: classifying added components from ${deltaImageName}`)
+    const deltaPath = resolve(ROOT, deltaImageName)
+    const deltaExt = extname(deltaImageName).toLowerCase()
+    const deltaIsPgm = deltaExt === '.pgm' || deltaExt === '.pnm'
+    let dw
+    let dh
+    let deltaPixels
+    let deltaBackground = null
+    if (deltaIsPgm) {
+      const pgm = parsePGM(deltaPath)
+      dw = pgm.width
+      dh = pgm.height
+      deltaPixels = pgm.pixels
+      applyNegateInPlaceUint8(deltaPixels, pgm.maxval, config.negate)
+    } else {
+      const deltaRaster = await parseRasterImage(deltaPath, config.negate)
+      dw = deltaRaster.width
+      dh = deltaRaster.height
+      deltaPixels = deltaRaster.pixels
+      deltaBackground = deltaRaster.backgroundValue
+    }
+    if (dw !== width || dh !== height) {
+      throw new Error(`Delta image size must match base map size: delta=${dw}x${dh}, base=${width}x${height}`)
+    }
+
+    let deltaGrid = deltaIsPgm
+      ? classify(deltaPixels, wallThreshold, freeThreshold, classifyMode)
+      : classifyRaster(deltaPixels, wallThreshold, Math.max(freeThreshold, 245), deltaBackground, 30)
+    if (rawMap) {
+      console.log('  delta raw-minimal: skipped wall noise removal and morphClose')
+    } else {
+      removeWallNoisePreservingPillars(deltaGrid, dw, dh)
+      deltaGrid = morphClose(deltaGrid, dw, dh)
+      removeWallNoisePreservingPillars(deltaGrid, dw, dh)
+    }
+
+    const deltaWallGrid = new Uint8Array(dw * dh)
+    let deltaCount = 0
+    for (let y = 0; y < dh; y++) {
+      for (let x = 0; x < dw; x++) {
+        const di = y * dw + x
+        if (deltaGrid[di] !== WALL) continue
+        const baseIsWall = grid[y * width + x] === WALL
+        if (!baseIsWall) {
+          deltaWallGrid[di] = WALL
+          deltaCount++
+        }
+      }
+    }
+    console.log(`  delta image: ${dw}x${dh}, base: ${width}x${height}`)
+    console.log(`  delta wall pixels: ${deltaCount}`)
+
+    const baseWorldMinX = ORIGIN_X - offsetX
+    const baseWorldMaxX = ORIGIN_X + (width - 1) * RESOLUTION - offsetX
+    const baseWorldMinZ = ORIGIN_Y - offsetZ
+    const baseWorldMaxZ = ORIGIN_Y + (height - 1) * RESOLUTION - offsetZ
+
+    const deltaForComponents = rawMap ? deltaWallGrid : morphClose(deltaWallGrid, dw, dh)
+    const { components: deltaComponents } = extractComponents(deltaForComponents, dw, dh, WALL)
+    const selectedDeltaWalls = selectDeltaWallComponentsNearAreas(
+      deltaComponents,
+      dw,
+      dh,
+      offsetX,
+      offsetZ,
+      DELTA_TARGET_WALL_AREAS,
+    )
+    for (const sel of selectedDeltaWalls) {
+      deltaWallComponentsForBase.push(sel.component)
+      console.log(
+        `  delta target wall: center=(${sel.area.cx.toFixed(3)}, ${sel.area.cz.toFixed(3)}), label=${sel.component.label}, dist=${sel.distance.toFixed(3)}, size=${sel.component.size}`,
+      )
+    }
+    for (const c of deltaComponents) {
+      const [x1, z1] = pxToWorld(c.minX, c.minY, dh)
+      const [x2, z2] = pxToWorld(c.maxX + 1, c.maxY + 1, dh)
+      const w = Math.abs(x2 - x1)
+      const d = Math.abs(z2 - z1)
+      const cx = (x1 + x2) / 2 - offsetX
+      const cz = (z1 + z2) / 2 - offsetZ
+      const smallSide = Math.min(w, d)
+      const longSide = Math.max(w, d)
+
+      const inBaseArea = (
+        cx >= baseWorldMinX + 1 && cx <= baseWorldMaxX - 1 &&
+        cz >= baseWorldMinZ + 1 && cz <= baseWorldMaxZ - 1
+      )
+
+      const isShelf = (
+        !c.touchesBoundary &&
+        inBaseArea &&
+        c.size >= 15 &&
+        smallSide >= 0.9 &&
+        smallSide <= 2.5 &&
+        longSide >= 1.0 &&
+        longSide <= 3.0
+      )
+
+      if (isShelf) {
+        deltaShelfRectsFromDiff.push({
+          cx: Math.round(cx * 1000) / 1000,
+          cz: Math.round(cz * 1000) / 1000,
+          w: Math.round(w * 1000) / 1000,
+          d: Math.round(d * 1000) / 1000,
+        })
+        deltaShelfComponentsFromDiff.push(c)
+      }
+    }
+    console.log(`  delta components: ${deltaComponents.length}, shelf candidates: ${deltaShelfRectsFromDiff.length}`)
+    console.log(`  delta selected walls for base: ${deltaWallComponentsForBase.length}`)
+    deltaShelfRectsFromDiff.forEach((r, i) => console.log(`    shelf ${i}: cx=${r.cx} cz=${r.cz} w=${r.w} d=${r.d}`))
+    console.log('  delta wall-like components are ignored for base mapData except explicitly selected target walls')
+  }
+
+  if (deltaWallComponentsForBase.length > 0) {
+    for (const c of deltaWallComponentsForBase) {
+      for (const idx of c.indices) grid[idx] = WALL
+    }
+    const backspaceUnknown = markBlockedBackspaceUnknownNearAreas(
+      grid,
+      width,
+      height,
+      offsetX,
+      offsetZ,
+      DELTA_TARGET_WALL_AREAS,
+    )
+    console.log(`  backspace unknown by new walls: ${backspaceUnknown.totalChanged}`)
+    for (const item of backspaceUnknown.changedByArea) {
+      console.log(
+        `    area @(${item.area.cx.toFixed(3)}, ${item.area.cz.toFixed(3)}) changed=${item.changed}, reason=${item.reason}`,
+      )
+    }
   }
 
   const rawLoops = extractFreeBoundaryLoops(grid, width, height)
@@ -1083,9 +1565,6 @@ async function main() {
 
   const wallExtract = extractComponents(grid, width, height, WALL)
   const { labels: wallLabels, components: wallComponents } = wallExtract
-  const shelfLabels = new Set()
-  const shelfComponentRects = []
-  const shelfComponentObjects = []
   const pillarCandidateRects = []
   for (const c of wallComponents) {
     const [x1, z1] = pxToWorld(c.minX, c.minY, height)
@@ -1096,11 +1575,9 @@ async function main() {
     const cz = (z1 + z2) / 2 - offsetZ
     const smallSide = Math.min(w, d)
     const longSide = Math.max(w, d)
-    const area = w * d
     const aspect = longSide / Math.max(0.001, smallSide)
     const center = [cx, cz]
     const outerDistance = outerLoop.length > 0 ? nearestDistanceToLoop(center, outerLoop) : Infinity
-    const nearOuterWall = outerDistance <= 2.0
     const pillar = (
       !c.touchesBoundary &&
       c.size >= 8 &&
@@ -1123,37 +1600,6 @@ async function main() {
       c.fillRatio >= 0.1
     )
     const pillarLike = pillar || tinyPillar
-    const looksLikeShelfNearOuterWall = (
-      !pillarLike &&
-      !c.touchesBoundary &&
-      nearOuterWall &&
-      c.size >= 18 &&
-      c.fillRatio >= 0.25 &&
-      smallSide >= 0.2 &&
-      smallSide <= 1.4 &&
-      longSide >= 0.45 &&
-      longSide <= 10 &&
-      aspect >= 1.15 &&
-      aspect <= 16 &&
-      area >= 0.08 &&
-      area <= 20
-    )
-    // ver1 interior shelf blocks are often square-ish and far from the outer boundary.
-    const looksLikeInteriorShelfBlock = (
-      !pillarLike &&
-      !c.touchesBoundary &&
-      !nearOuterWall &&
-      c.size >= 20 &&
-      c.fillRatio >= 0.45 &&
-      smallSide >= 0.35 &&
-      smallSide <= 1.8 &&
-      longSide >= 0.35 &&
-      longSide <= 2.2 &&
-      aspect <= 2.6 &&
-      area >= 0.12 &&
-      area <= 4.84
-    )
-    const looksLikeShelf = looksLikeShelfNearOuterWall || looksLikeInteriorShelfBlock
     if (pillarLike) {
       pillarCandidateRects.push({
         label: c.label,
@@ -1166,16 +1612,6 @@ async function main() {
         },
       })
       continue
-    }
-    if (looksLikeShelf) {
-      shelfLabels.add(c.label)
-      shelfComponentRects.push({
-        cx: Math.round(cx * 1000) / 1000,
-        cz: Math.round(cz * 1000) / 1000,
-        w: Math.round(w * 1000) / 1000,
-        d: Math.round(d * 1000) / 1000,
-      })
-      shelfComponentObjects.push(c)
     }
   }
 
@@ -1218,19 +1654,18 @@ async function main() {
     if (grid[i] !== WALL) continue
     const label = wallLabels[i]
     if (pillarLabels.has(label)) continue
-    else if (shelfLabels.has(label)) continue
+    // Keep shelf-like wall components in base wall layer.
+    // Delta shelf layer is handled separately via --delta input.
     else wallGrid[i] = WALL
   }
 
   const rawWallRects = greedyMesh(wallGrid, width, height, WALL)
   const wallRects = pixelRectsToWorld(rawWallRects, height, offsetX, offsetZ)
-  const bookshelfRects = shelfComponentRects
-
   const renderBoundaryGrid = new Uint8Array(grid)
   for (let i = 0; i < renderBoundaryGrid.length; i++) {
     if (grid[i] !== WALL) continue
     const label = wallLabels[i]
-    if (pillarLabels.has(label) || shelfLabels.has(label)) renderBoundaryGrid[i] = FREE
+    if (pillarLabels.has(label)) renderBoundaryGrid[i] = FREE
   }
   for (let i = 0; i < grid.length; i++) {
     if (grid[i] !== WALL) continue
@@ -1299,126 +1734,34 @@ async function main() {
   const principalAxes = computePrincipalAxes(fallbackPolylines)
   console.log(`  principal axes: [${principalAxes.map(a => a.toFixed(4)).join(', ')}]`)
 
-  let finalBookshelfRects = bookshelfRects
-  let finalBookshelfInstances
+  // Base mapData should remain wall-centric (no bookshelf auto-injection).
+  let finalBookshelfRects = []
+  let finalBookshelfInstances = []
+  const deltaShelfLayerInstances = deltaShelfRectsFromDiff.map((r, i) => {
+    const comp = deltaShelfComponentsFromDiff[i]
+    const obb = componentOrientedBBox(comp, width)
+    const longSide = Math.max(obb.w, obb.d)
+    const shortSide = Math.min(obb.w, obb.d)
+    const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
+    const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
+    const wallAxis = snapYawToNearestAxis(nearest.angle, principalAxes)
+    const wallCandidates = [wallAxis, wallAxis + Math.PI / 2, wallAxis - Math.PI / 2, wallAxis + Math.PI]
+    const snappedYaw = snapYawToNearestAxis(rawAngle, wallCandidates)
+    return {
+      kind: 'bookshelf',
+      cx: r.cx,
+      cz: r.cz,
+      w: Math.round(longSide * 1000) / 1000,
+      d: Math.round(shortSide * 1000) / 1000,
+      yaw: Math.round(snappedYaw * 10000) / 10000,
+      h: 2.34,
+    }
+  })
 
   if (deltaImageName) {
-    console.log(`\nDelta mode: extracting new shelves from ${deltaImageName}`)
-    const deltaPath = resolve(ROOT, deltaImageName)
-    const deltaRaster = await parseRasterImage(deltaPath, config.negate)
-    const dw = deltaRaster.width
-    const dh = deltaRaster.height
-
-    let deltaGrid = classifyRaster(deltaRaster.pixels, wallThreshold, Math.max(freeThreshold, 245), deltaRaster.backgroundValue, 30)
-    removeWallNoisePreservingPillars(deltaGrid, dw, dh)
-    deltaGrid = morphClose(deltaGrid, dw, dh)
-    removeWallNoisePreservingPillars(deltaGrid, dw, dh)
-
-    console.log(`  delta image: ${dw}x${dh}, base: ${width}x${height}`)
-
-    const deltaWallGrid = new Uint8Array(dw * dh)
-    let deltaCount = 0
-    for (let y = 0; y < dh; y++) {
-      for (let x = 0; x < dw; x++) {
-        const di = y * dw + x
-        if (deltaGrid[di] !== WALL) continue
-        const baseIsWall = (x < width && y < height) ? grid[y * width + x] === WALL : false
-        if (!baseIsWall) {
-          deltaWallGrid[di] = WALL
-          deltaCount++
-        }
-      }
-    }
-    console.log(`  delta wall pixels: ${deltaCount}`)
-
-    const baseWorldMinX = ORIGIN_X - offsetX
-    const baseWorldMaxX = ORIGIN_X + (width - 1) * RESOLUTION - offsetX
-    const baseWorldMinZ = ORIGIN_Y - offsetZ
-    const baseWorldMaxZ = ORIGIN_Y + (height - 1) * RESOLUTION - offsetZ
-
-    const closedDelta = morphClose(deltaWallGrid, dw, dh)
-    const { components: deltaComponents } = extractComponents(closedDelta, dw, dh, WALL)
-    const deltaShelfRects = []
-    const deltaShelfComponents = []
-    for (const c of deltaComponents) {
-      const [x1, z1] = pxToWorld(c.minX, c.minY, dh)
-      const [x2, z2] = pxToWorld(c.maxX + 1, c.maxY + 1, dh)
-      const w = Math.abs(x2 - x1)
-      const d = Math.abs(z2 - z1)
-      const cx = (x1 + x2) / 2 - offsetX
-      const cz = (z1 + z2) / 2 - offsetZ
-      const smallSide = Math.min(w, d)
-      const longSide = Math.max(w, d)
-
-      const inBaseArea = (
-        cx >= baseWorldMinX + 1 && cx <= baseWorldMaxX - 1 &&
-        cz >= baseWorldMinZ + 1 && cz <= baseWorldMaxZ - 1
-      )
-
-      const isShelf = (
-        !c.touchesBoundary &&
-        inBaseArea &&
-        c.size >= 15 &&
-        smallSide >= 0.9 &&
-        smallSide <= 2.5 &&
-        longSide >= 1.0 &&
-        longSide <= 3.0
-      )
-
-      if (isShelf) {
-        deltaShelfRects.push({
-          cx: Math.round(cx * 1000) / 1000,
-          cz: Math.round(cz * 1000) / 1000,
-          w: Math.round(w * 1000) / 1000,
-          d: Math.round(d * 1000) / 1000,
-        })
-        deltaShelfComponents.push(c)
-      }
-    }
-
-    console.log(`  delta components: ${deltaComponents.length}, shelf candidates: ${deltaShelfRects.length}`)
-    deltaShelfRects.forEach((r, i) => console.log(`    shelf ${i}: cx=${r.cx} cz=${r.cz} w=${r.w} d=${r.d}`))
-
-    finalBookshelfRects = deltaShelfRects
-
-    finalBookshelfInstances = deltaShelfRects.map((r, i) => {
-      const comp = deltaShelfComponents[i]
-      const obb = componentOrientedBBox(comp, dw)
-      const longSide = Math.max(obb.w, obb.d)
-      const shortSide = Math.min(obb.w, obb.d)
-      const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
-      const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
-      const wallAxis = snapYawToNearestAxis(nearest.angle, principalAxes)
-      const wallCandidates = [wallAxis, wallAxis + Math.PI / 2, wallAxis - Math.PI / 2, wallAxis + Math.PI]
-      const snappedYaw = snapYawToNearestAxis(rawAngle, wallCandidates)
-      return {
-        cx: r.cx,
-        cz: r.cz,
-        w: Math.round(longSide * 1000) / 1000,
-        d: Math.round(shortSide * 1000) / 1000,
-        yaw: Math.round(snappedYaw * 10000) / 10000,
-      }
-    })
-  } else {
-    finalBookshelfInstances = bookshelfRects.map((r, i) => {
-      const comp = shelfComponentObjects[i]
-      const obb = componentOrientedBBox(comp, width)
-      const longSide = Math.max(obb.w, obb.d)
-      const shortSide = Math.min(obb.w, obb.d)
-      const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
-      // Snap to wall-aligned axes: nearest wall direction ± 90°
-      const nearest = nearestSegmentAngle([r.cx, r.cz], fallbackPolylines)
-      const wallAxis = snapYawToNearestAxis(nearest.angle, principalAxes)
-      const wallCandidates = [wallAxis, wallAxis + Math.PI / 2, wallAxis - Math.PI / 2, wallAxis + Math.PI]
-      const snappedYaw = snapYawToNearestAxis(rawAngle, wallCandidates)
-      return {
-        cx: r.cx,
-        cz: r.cz,
-        w: Math.round(longSide * 1000) / 1000,
-        d: Math.round(shortSide * 1000) / 1000,
-        yaw: Math.round(snappedYaw * 10000) / 10000,
-      }
-    })
+    // Keep base mapData layer fixed (wall/floor centric) in delta mode as well.
+    finalBookshelfRects = []
+    finalBookshelfInstances = []
   }
 
   const floorRects = pixelRectsToWorld(rawFloorRects, height, offsetX, offsetZ)
@@ -1436,9 +1779,10 @@ async function main() {
   const mapWidth = Math.round((maxX - minX) * 100) / 100
   const mapDepth = Math.round((maxZ - minZ) * 100) / 100
 
-  const sourceLabel = deltaImageName ? `${config.imageName} + delta ${deltaImageName}` : config.imageName
-  const ts = `// Auto-generated from ${sourceLabel} — do not edit manually.
-// Run: node scripts/processMap.mjs${deltaImageName ? ' --delta ' + deltaImageName : ''}
+  const baseSourceLabel = config.imageName
+  const deltaSourceLabel = deltaImageName ? `${config.imageName} + delta ${deltaImageName}` : config.imageName
+  const ts = `// Auto-generated from ${baseSourceLabel} — do not edit manually.
+// Run: node scripts/processMap.mjs
 
 export type WallRect = { cx: number; cz: number; w: number; d: number }
 export type BookshelfInstance = { cx: number; cz: number; w: number; d: number; yaw: number }
@@ -1472,6 +1816,27 @@ export const floorRects: WallRect[] = ${JSON.stringify(floorRects)}
   console.log(`  pillarRects: ${pillarRects.length}`)
   console.log(`  wallPolylines: ${wallPolylines.length}, wallHolePolylines: ${wallHolePolylines.length}`)
   console.log(`  floorRects: ${floorRects.length}`)
+
+  const deltaOutPath = resolve(ROOT, 'src', 'data', 'deltaShelfLayer.ts')
+  const deltaTs = `// Auto-generated from ${deltaSourceLabel} (delta shelf layer) — do not edit manually.
+// Run: node scripts/processMap.mjs${deltaImageName ? ' --delta ' + deltaImageName : ''}
+
+export type DeltaShelfInstance = {
+  kind: 'bookshelf'
+  cx: number
+  cz: number
+  w: number
+  d: number
+  yaw: number
+  h: number
+}
+
+export const deltaShelfLayerSource = ${JSON.stringify(deltaImageName ?? null)}
+export const deltaShelfLayerInstances: DeltaShelfInstance[] = ${JSON.stringify(deltaShelfLayerInstances)}
+`
+  writeFileSync(deltaOutPath, deltaTs, 'utf-8')
+  console.log(`Wrote ${deltaOutPath}`)
+  console.log(`  deltaShelfLayerInstances: ${deltaShelfLayerInstances.length}`)
 }
 
 main().catch(err => {

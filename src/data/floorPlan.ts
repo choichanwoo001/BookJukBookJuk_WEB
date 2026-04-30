@@ -59,22 +59,7 @@ export const ENTRANCE_DOORWAY = {
  * They are not produced from the occupancy PGM; exclude when validating “map file only” geometry.
  * Regenerate base rects with `node scripts/processMap.mjs` (optional `--raw-map`, `--dump-classified-pgm`).
  */
-const MANUAL_FLOOR_FILL_RECTS: WallRect[] = [
-  // 입구 주변 바닥 — 스폰 지점이 floor polygon에 포함되도록 보정.
-  { cx: ENTRANCE_SPAWN[0], cz: ENTRANCE_SPAWN[1], w: 0.9, d: 0.9 },
-  // Floor fill near center (x=-2.938, z=8.543).
-  { cx: -2.938, cz: 8.543, w: 1.327, d: 3.3 },
-  // Two point-only reports: small local fill squares.
-  { cx: -4.671, cz: 3.952, w: 0.6, d: 0.6 },
-  { cx: -5.201, cz: 3.091, w: 0.6, d: 0.6 },
-  // Floor fill near center (x=-11.874, z=12.400).
-  { cx: -11.874, cz: 12.4, w: 1.008, d: 2.571 },
-  // Floor gap at (-2.440, 10.540) — just past the top edge of the region above.
-  { cx: -2.440, cz: 10.540, w: 0.80, d: 0.80 },
-  // Floor-wall junction gaps (surface=wall but y≈0 → floor not reaching wall).
-  { cx: -3.643, cz: 6.905, w: 0.50, d: 0.50 },
-  { cx: -5.583, cz: 3.366, w: 0.50, d: 0.50 },
-]
+const MANUAL_FLOOR_FILL_RECTS: WallRect[] = []
 
 // Thin rectangular wall-patch loops appended to wallPolylines.
 // WallRibbonMesh renders these as proper wall-height panels — no separate box geometry.

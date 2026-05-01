@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { useChatAgent } from '../hooks/useChatAgent'
+import { useTts } from '../hooks/useTts'
+import { useSpeechInput } from '../hooks/useSpeechInput'
 import { ConfirmationCard } from './ConfirmationCard'
 import { ChatActionCard } from './ChatActionCard'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
@@ -32,6 +34,17 @@ function ChatPanel({
     actionCard,
   } = useChatAgent({ startMode })
 
+  const tts = useTts()
+
+  const handleSpeechResult = useCallback(
+    (transcript: string) => {
+      void submitUserText(transcript, 'chat')
+    },
+    [submitUserText],
+  )
+
+  const speech = useSpeechInput({ onResult: handleSpeechResult })
+
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
   const shelfTitle = '내 리스트'
@@ -45,6 +58,16 @@ function ChatPanel({
     await submitUserText(draft)
     setDraft('')
   }
+
+  // 새 assistant 메시지 자동 발화
+  const prevMsgCountRef = useRef(0)
+  useEffect(() => {
+    const last = messages[messages.length - 1]
+    if (messages.length > prevMsgCountRef.current && last?.role === 'assistant') {
+      void tts.speak(last.text)
+    }
+    prevMsgCountRef.current = messages.length
+  }, [messages, tts])
 
   useEffect(() => {
     const listEl = messageListRef.current
@@ -157,25 +180,102 @@ function ChatPanel({
           </div>
         )}
 
-        <form className="chatForm" onSubmit={handleSubmit}>
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault()
-                const form = event.currentTarget.form
-                if (form) form.requestSubmit()
-              }
-            }}
-            placeholder="메시지를 입력하세요"
-            aria-label="메시지 입력"
-            disabled={busy}
-            rows={2}
-          />
-          <button type="submit" disabled={!canSend}>
-            전송
+        <div className="chatVoiceBar">
+          <button
+            type="button"
+            className="chatTtsToggle"
+            data-enabled={tts.enabled}
+            onClick={() => tts.setEnabled(!tts.enabled)}
+            aria-pressed={tts.enabled}
+            aria-label={tts.enabled ? '음성 응답 끄기' : '음성 응답 켜기'}
+          >
+            {tts.enabled ? '음성 켜짐' : '음성 꺼짐'}
           </button>
+          {tts.speaking && (
+            <span className="chatTtsSpeaking" aria-live="polite">
+              읽는 중…
+            </span>
+          )}
+        </div>
+
+        <form className="chatForm" onSubmit={handleSubmit}>
+          {speech.isSupported && speech.isListening && (
+            <div className="chatMicPreviewBar">
+              <span className="chatMicPreviewStatus" aria-live="polite">
+                <span className="chatMicPreviewDot" aria-hidden />
+                듣는 중
+                {speech.livePreview ? (
+                  <>
+                    <span className="chatMicPreviewSep" aria-hidden>
+                      ·
+                    </span>
+                    <span className="chatMicPreviewText">{speech.livePreview}</span>
+                  </>
+                ) : null}
+              </span>
+            </div>
+          )}
+          <div className="chatFormInputRow">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  const form = event.currentTarget.form
+                  if (form) form.requestSubmit()
+                }
+              }}
+              placeholder="메시지를 입력하세요"
+              aria-label="메시지 입력"
+              disabled={busy}
+              rows={2}
+            />
+            {speech.isSupported && (
+              <button
+                type="button"
+                className="chatMicButton"
+                data-listening={speech.isListening}
+                onClick={() => (speech.isListening ? speech.stopListening() : speech.startListening())}
+                aria-label={speech.isListening ? '음성 입력 마치고 전송' : '음성으로 말하기 시작'}
+                aria-pressed={speech.isListening}
+                disabled={busy}
+              >
+                <span className="chatMicButtonInner">
+                  {speech.isListening ? (
+                    <svg
+                      className="chatMicIcon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="chatMicIcon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      aria-hidden
+                    >
+                      <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" />
+                      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" />
+                    </svg>
+                  )}
+                  <span className="chatMicButtonLabel">{speech.isListening ? '중지' : '말하기'}</span>
+                </span>
+              </button>
+            )}
+            <button type="submit" disabled={!canSend}>
+              전송
+            </button>
+          </div>
         </form>
       </div>
     </div>

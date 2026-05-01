@@ -51,6 +51,7 @@ import {
 } from './chatAgent/buildFlow'
 import type { BuildFlowSession, RecommendationCandidate, ThemeOption } from './chatAgent/buildFlow'
 import { useExistingListGate } from './chatAgent/useExistingListGate'
+import { isProceedToken } from './chatAgent/proceedToken'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -106,20 +107,6 @@ function createAssistant(text: string, attachments?: string[]): AgentMessage {
     attachments,
     createdAt: Date.now(),
   }
-}
-
-/** 기존 리스트 진행 확정 게이트: 사용자가 말로 확정할 때 인식하는 토큰 */
-function isProceedToken(text: string): boolean {
-  const raw = text.trim()
-  if (!raw) return false
-  const t = raw.toLowerCase()
-  if (/^진행/.test(raw)) return true
-  if (/^확정/.test(raw)) return true
-  const short = ['오케이', 'okay', 'ok', '맞아', '확정할게']
-  for (const k of short) {
-    if (t === k || t.startsWith(`${k} `) || t.startsWith(`${k}\n`)) return true
-  }
-  return false
 }
 
 const VALID_INTENT_TYPES: AgentIntentType[] = [
@@ -340,7 +327,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
       }
       setContext({ listType: '쇼핑리스트' })
       await appendAssistantAndStore(
-        '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 원하시면 바로 관심/이력 리스트에 저장할 수 있어요.',
+        '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 원하시면 바로 쇼핑리스트에 저장할 수 있어요.',
       )
       appliedStartModeKeyRef.current = appliedKey
       setHasAppliedStartMode(true)
@@ -562,7 +549,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
             loadThemesForAnswers,
             loadCandidatesForTheme,
             runToolWithFallback,
-            shoppingListCount: contextRef.current.shoppingList.length,
+            getShoppingListCount: () => contextRef.current.shoppingList.length,
           })
           if (handled) {
             return
@@ -581,9 +568,8 @@ export function useChatAgent(options: { startMode: StartMode }) {
             setMessages,
           })
           updateExistingListGate({ status: 'confirmed' })
-          await appendAssistantAndStore(
-            '리스트를 확정했어요. 다음 단계로 진행할게요. (이후 흐름은 추후 구현)',
-          )
+          await appendAssistantAndStore('리스트를 확정했어요. 최단 경로 안내를 시작할게요.')
+          await runToolWithFallback({ name: 'routePlannerTool', args: { mode: 'shortest' } }, 'route_replan_shortest')
           return
         }
 
@@ -637,7 +623,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
         if (mergedIntent.type === 'select_browse_mode') {
           setContext({ listType: '쇼핑리스트' })
           await appendAssistantAndStore(
-            '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 필요하면 "추천해줘"라고 말해 주세요.',
+            '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 필요하면 "추천해줘"라고 말해 주세요. 마음에 들면 쇼핑리스트에 담을 수 있어요.',
           )
           recordIntentOutcome('select_browse_mode', true)
           return

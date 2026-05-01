@@ -13,6 +13,8 @@ const rules: Rule[] = [
   { type: 'cancel', keywords: ['취소', '아니', '됐어', '그만', 'cancel', 'no thanks'], priority: 110, confidence: 0.94 },
   { type: 'cancel', regex: /^\s*(no|nope)\s*$/i, priority: 109, confidence: 0.92 },
   { type: 'confirm', keywords: ['오케이', 'okay', 'ok', '맞아', '찬성'], priority: 108, confidence: 0.93 },
+  { type: 'resume_mobility', regex: /^\s*\/\s*(?:로봇\s*)?진행(?:해)?\s*$/i, priority: 107, confidence: 0.94 },
+  { type: 'confirm', regex: /^\s*\/\s*(?:로봇\s*)?확정(?:해)?\s*$/i, priority: 107, confidence: 0.94 },
   { type: 'pause_mobility', keywords: ['멈춰', '정지', 'stop'], priority: 100, confidence: 0.95 },
   { type: 'resume_mobility', keywords: ['진행해', '재개', 'go'], priority: 99, confidence: 0.95 },
   { type: 'add_book', regex: /책\s*(추가|담아|넣어)/, priority: 88, confidence: 0.9 },

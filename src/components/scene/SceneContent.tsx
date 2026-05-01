@@ -10,6 +10,7 @@ import {
   pillarRects,
   floorRects,
   floorFillRects,
+  bookshelfPolygons,
   FLOOR_HEIGHT_M,
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
@@ -43,6 +44,7 @@ import {
   FloorPolygonMesh,
   PillarCylinderInstances,
   RotatedFixtureInstances,
+  BookshelfPolygonInstances,
   SupermarketCounterInstances,
   SelectedBookshelfOverlay,
   BookstoreLights,
@@ -213,6 +215,7 @@ export function SceneContent({
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
+  const hasBookshelfPolygons = bookshelfPolygons.length > 0
   /** 저전시대(displayLow)는 바닥 밖에 떠 보이기 쉬워 1인칭에서만 표시. */
   const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
@@ -243,6 +246,7 @@ export function SceneContent({
     floorRects,
     wallRects: baseWallRects,
     bookshelfRects: [...bookshelfCollisionRects, ...deltaBookshelfCollisionRects],
+    bookshelfPolygons,
   }, characterYawRef, walkMovingRef)
 
   /**
@@ -500,15 +504,24 @@ export function SceneContent({
           onPointerDown={wallPickHandler}
         />
         <EntranceDoorwayDecor />
-        <RotatedFixtureInstances
-          instances={bookshelfRenderInstances}
-          material={bookshelfMaterial}
-          onPointerDown={
-            isBookshelfEdit
-              ? handleBookshelfPointerDown
-              : bookshelfPickHandler
-          }
-        />
+        {hasBookshelfPolygons ? (
+          <BookshelfPolygonInstances
+            polygons={bookshelfPolygons}
+            height={FLOOR_HEIGHT_M * 0.78}
+            material={bookshelfMaterial}
+            onPointerDown={bookshelfPickHandler}
+          />
+        ) : (
+          <RotatedFixtureInstances
+            instances={bookshelfRenderInstances}
+            material={bookshelfMaterial}
+            onPointerDown={
+              isBookshelfEdit
+                ? handleBookshelfPointerDown
+                : bookshelfPickHandler
+            }
+          />
+        )}
         <RotatedFixtureInstances
           instances={deltaBookshelfRenderInstances}
           material={bookshelfMaterial}

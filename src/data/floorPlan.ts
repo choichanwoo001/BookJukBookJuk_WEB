@@ -1,9 +1,11 @@
 import {
   wallRects as rawWallRects,
   pillarRects as rawPillarRects,
+  bookshelfInstances as rawBookshelfInstances,
   wallPolylines as rawWallPolylines,
   wallHolePolylines as rawWallHolePolylines,
   floorRects as rawFloorRects,
+  bookshelfPolygons as rawBookshelfPolygons,
   mapWidth, mapDepth, MAP_RESOLUTION,
 } from './mapData'
 import type { WallRect, BookshelfInstance } from './mapData'
@@ -85,6 +87,7 @@ export const wallPolylines = [
   ...MANUAL_WALL_PATCH_LOOPS,
 ]
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
+export const bookshelfPolygons = rawBookshelfPolygons.filter(loop => loop.length >= 3)
 
 // Photo / measured placements (persist here; merged with detected fixtures).
 // yaw radians; w,d meters; h shelf height.
@@ -136,7 +139,20 @@ const detectedFixtureInstances: RuntimeFixtureInstance[] = detectedFixtures.map(
   }
 })
 
-export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(detectedFixtureInstances, manualFixtureInstances)
+const mapBookshelfInstances: RuntimeFixtureInstance[] = rawBookshelfInstances.map((fixture) => ({
+  kind: 'bookshelf',
+  cx: fixture.cx,
+  cz: fixture.cz,
+  w: fixture.w,
+  d: fixture.d,
+  yaw: fixture.yaw,
+  h: MANUAL_BOOKSHELF_H,
+}))
+
+export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(
+  mergeFixtures(mapBookshelfInstances, detectedFixtureInstances),
+  manualFixtureInstances,
+)
 export const bookshelfInstanceModels = fixtureInstances.filter(v => v.kind === 'bookshelf')
 export const counterInstances = fixtureInstances.filter(v => v.kind === 'counter')
 export const displayLowInstances = fixtureInstances.filter(v => v.kind === 'displayLow')

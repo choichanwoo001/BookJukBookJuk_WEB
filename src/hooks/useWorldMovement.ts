@@ -6,6 +6,7 @@ import {
   floorRects as baseFloorRects,
   wallRects,
   allBookshelfCollisionRects,
+  bookshelfPolygons,
   pillarRects,
   PLAYER_RADIUS_M,
   SPAWN_POINT_WORLD,
@@ -17,6 +18,7 @@ import {
   SPAWN_SEARCH_STEP,
 } from '../config/constants'
 import { pointInAnyRect } from '../utils/rectUtils'
+import { pointInAnyPolygon } from '../utils/polygonCollision'
 
 type KeyState = {
   keyW: boolean
@@ -35,6 +37,7 @@ function canOccupy(point: [number, number]) {
   if (!pointInAnyRect(baseFloorRects, point[0], point[1])) return false
   if (pointInAnyRect(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   if (pointInAnyRect(allBookshelfCollisionRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+  if (pointInAnyPolygon(bookshelfPolygons, point[0], point[1], PLAYER_RADIUS_M)) return false
   if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   return true
 }
@@ -61,6 +64,7 @@ type DynamicCollisionOverrides = {
   floorRects?: Array<{ cx: number; cz: number; w: number; d: number }>
   wallRects?: Array<{ cx: number; cz: number; w: number; d: number }>
   bookshelfRects?: Array<{ cx: number; cz: number; w: number; d: number }>
+  bookshelfPolygons?: Array<Array<[number, number]>>
 }
 
 export function useWorldMovement(
@@ -105,10 +109,12 @@ export function useWorldMovement(
     const effectiveFloorRects = overrides?.floorRects ?? baseFloorRects
     const effectiveWallRects = overrides?.wallRects ?? wallRects
     const effectiveBookshelfRects = overrides?.bookshelfRects ?? allBookshelfCollisionRects
+    const effectiveBookshelfPolygons = overrides?.bookshelfPolygons ?? bookshelfPolygons
     const canOccupyWithOverrides = (point: [number, number]) => {
       if (!pointInAnyRect(effectiveFloorRects, point[0], point[1])) return false
       if (pointInAnyRect(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
       if (pointInAnyRect(effectiveBookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
+      if (pointInAnyPolygon(effectiveBookshelfPolygons, point[0], point[1], PLAYER_RADIUS_M)) return false
       if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
       return true
     }

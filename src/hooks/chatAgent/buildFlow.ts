@@ -1,4 +1,4 @@
-import type { AgentContext, ToolCall } from '../../agent/types'
+import type { AgentContext, ToolCall, ToolResult } from '../../agent/types'
 import { formatAbCandidateAttachments } from './helpers'
 import type { Dispatch, SetStateAction } from 'react'
 
@@ -127,8 +127,12 @@ type BuildFlowHandlerParams = {
   setBuildFlow: Dispatch<SetStateAction<BuildFlowSession>>
   loadThemesForAnswers: (answers: string[]) => Promise<ThemeOption[]>
   loadCandidatesForTheme: (theme: ThemeOption, refreshCount: number) => Promise<RecommendationCandidate[]>
-  runToolWithFallback: (toolCall: ToolCall, intentTypeForOutcome: string, extraContextPatch?: Partial<AgentContext>) => Promise<unknown>
-  shoppingListCount: number
+  runToolWithFallback: (
+    toolCall: ToolCall,
+    intentTypeForOutcome: string,
+    extraContextPatch?: Partial<AgentContext>,
+  ) => Promise<ToolResult>
+  getShoppingListCount: () => number
 }
 
 type HandlerStateSetter = Dispatch<SetStateAction<BuildFlowSession>>
@@ -142,7 +146,7 @@ export async function handleBuildFlowInput(params: Omit<BuildFlowHandlerParams, 
     loadThemesForAnswers,
     loadCandidatesForTheme,
     runToolWithFallback,
-    shoppingListCount,
+    getShoppingListCount,
   } = params
 
   if (buildFlow.step === 'step1_question_1') {
@@ -247,11 +251,30 @@ export async function handleBuildFlowInput(params: Omit<BuildFlowHandlerParams, 
       await appendAssistantAndStore('A 담기 / B 담기 / 둘 다 담기 중에서 선택해 주세요.')
       return true
     }
+    const succeededTitles: string[] = []
+    const failedTitles: string[] = []
     for (const title of targets) {
-      await runToolWithFallback({ name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${title}` } }, 'add_book')
+      const result = await runToolWithFallback(
+        { name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${title}` } },
+        'add_book',
+      )
+      if (result.ok) succeededTitles.push(title)
+      else failedTitles.push(title)
+    }
+    if (succeededTitles.length === 0) {
+      await appendAssistantAndStore('선택한 책을 리스트에 담지 못했어요. A/B 중 다시 선택하거나 다른 2권 보기를 시도해 주세요.')
+      return true
+    }
+    if (failedTitles.length > 0) {
+      await appendAssistantAndStore(
+        `일부만 담겼어요. 성공: ${succeededTitles.join(', ')} / 실패: ${failedTitles.join(
+          ', ',
+        )}. 실패한 책은 다시 시도하거나 다른 2권 보기로 바꿔볼 수 있어요.`,
+      )
+      return true
     }
     setBuildFlow((prev) => ({ ...prev, step: 'step4_review_confirm' }))
-    await appendAssistantAndStore(`현재 리스트는 ${shoppingListCount}권이에요. 이 리스트로 확정할까요?`)
+    await appendAssistantAndStore(`현재 리스트는 ${getShoppingListCount()}권이에요. 이 리스트로 확정할까요?`)
     return true
   }
 

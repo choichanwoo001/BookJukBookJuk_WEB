@@ -34,7 +34,7 @@ function ChatPanel({
 
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
-  const shelfTitle = startMode === 'browse_no_list' ? '관심/이력 리스트' : '내 리스트'
+  const shelfTitle = '내 리스트'
   const isBuildMode = startMode === 'build_list_chat'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -87,7 +87,7 @@ function ChatPanel({
               {startMode === 'build_list_chat'
                 ? '새 리스트로 시작했어요. 채팅으로 책을 추가하거나 기존 리스트를 불러올 수 있어요.'
                 : startMode === 'browse_no_list'
-                  ? '현재는 비어 있어요. 탐색 중 추천을 선택하면 관심/이력 리스트에 쌓여요.'
+                  ? '현재는 비어 있어요. 탐색 중 추천을 선택하면 쇼핑리스트에 쌓여요.'
                   : '서가에 담긴 책이 없어요.'}
             </p>
           ) : (

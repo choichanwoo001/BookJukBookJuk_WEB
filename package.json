@@ -10,6 +10,8 @@
     "preview": "vite preview",
     "fixtures:convert": "node scripts/convertDetectedFixtures.mjs",
     "fixtures:delta": "node scripts/detectDeltaFixtures.mjs",
+    "map:gen": "node scripts/processMap.mjs --keepout map_info/keepout_mask.pgm",
+    "map:gen:occupancy-only": "node scripts/processMap.mjs",
     "map:diff-overlay": "node scripts/diffMapOverlay.mjs --base ver0_1.png --target ver2_1.png --write-web",
     "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts",
     "seed:book-shelf": "tsx scripts/seedBookShelfId.ts"

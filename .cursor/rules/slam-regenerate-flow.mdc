@@ -7,6 +7,6 @@ alwaysApply: true
 
 - Map pipeline is `PGM + YAML -> scripts/processMap.mjs -> src/data/mapData.ts -> src/data/floorPlan.ts`.
 - Before regenerating, confirm YAML `image`, `resolution`, and `origin` are correct for the current PGM.
-- Regenerate with `node scripts/processMap.mjs` after map asset or extraction logic updates.
+- Regenerate after map asset or `processMap.mjs` logic updates. For the **web app** (책장 + 기둥 + 벽/바닥), use **`npm run map:gen`** (`--keepout map_info/keepout_mask.pgm`). Plain `node scripts/processMap.mjs` fills `bookshelfInstances` with `[]` — 책장이 사라짐. Occupancy-only 디버그는 `npm run map:gen:occupancy-only`.
 - Do not patch large coordinate arrays in `mapData.ts` manually.
 - If map output changed unexpectedly, verify YAML references before changing runtime code.

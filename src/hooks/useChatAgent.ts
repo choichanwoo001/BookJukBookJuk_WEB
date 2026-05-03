@@ -57,6 +57,8 @@ import {
 import type { BuildFlowSession, RecommendationCandidate, ThemeOption } from './chatAgent/buildFlow'
 import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
+import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
+import { isRedundantFallbackAssistantText } from './chatAgent/assistantMessageDedupe'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -378,7 +380,8 @@ export function useChatAgent(options: { startMode: StartMode }) {
       const rewritten = await rewriteAssistantMessage(result, recAttach)
       if (rewritten) incrementMetric('llmRewriterUsed')
       else incrementMetric('llmRewriterFallback')
-      await appendAssistantAndStore(rewritten ?? result.message, recAttach)
+      const primaryAssistantText = rewritten ?? result.message
+      await appendAssistantAndStore(primaryAssistantText, recAttach)
 
       if (!result.ok) {
         incrementMetric('fallbackUsed')
@@ -387,7 +390,9 @@ export function useChatAgent(options: { startMode: StartMode }) {
           { name: 'fallbackTool', args: { reason: result.errorCode ?? 'UNKNOWN' } },
           toolExecutionContext,
         )
-        await appendAssistantAndStore(fallback.message)
+        if (!isRedundantFallbackAssistantText(primaryAssistantText, fallback.message)) {
+          await appendAssistantAndStore(fallback.message)
+        }
       }
 
       await runEditFollowUp(result, appendAssistantAndStore)
@@ -576,6 +581,36 @@ export function useChatAgent(options: { startMode: StartMode }) {
           await appendAssistantAndStore('리스트를 확정했어요. 최단 경로 안내를 시작할게요.')
           await runToolWithFallback({ name: 'routePlannerTool', args: { mode: 'shortest' } }, 'route_replan_shortest')
           return
+        }
+
+        if (contextRef.current.pendingConfirmation) {
+          const pendingReply = resolvePendingConfirmationReply(intentText)
+          if (pendingReply === 'confirm') {
+            await appendUserMessageAndStore({
+              text: normalized,
+              conversationId: conversationIdRef.current,
+              intent: 'confirm',
+              setMessages,
+            })
+            setContext({
+              state: transitionStateFromIntent(contextRef.current.state, 'confirm'),
+            })
+            await handleConfirmIntent()
+            return
+          }
+          if (pendingReply === 'cancel') {
+            await appendUserMessageAndStore({
+              text: normalized,
+              conversationId: conversationIdRef.current,
+              intent: 'cancel',
+              setMessages,
+            })
+            setContext({
+              state: transitionStateFromIntent(contextRef.current.state, 'cancel'),
+            })
+            await handleCancelIntent()
+            return
+          }
         }
 
         const llmPlan = await planWithLlm({

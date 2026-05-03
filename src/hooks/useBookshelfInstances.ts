@@ -15,16 +15,54 @@ function buildInitialInstances(): FixtureRenderInstance[] {
     d: item.d,
     yaw: item.yaw,
     h: DEFAULT_BOOKSHELF_SIZE.h,
+    shelfId: item.shelfId,
   }))
+}
+
+function buildInitialSectors(): Array<number | null | undefined> {
+  return bookshelfInstances.map(item => item.sector)
+}
+
+function stripSector(inst: FixtureRenderInstance): FixtureRenderInstance {
+  const geometry = { ...inst }
+  delete geometry.sector
+  return geometry
+}
+
+function attachSector(
+  inst: FixtureRenderInstance,
+  sector: number | null | undefined,
+): FixtureRenderInstance {
+  return sector !== undefined ? { ...inst, sector } : inst
 }
 
 export function useBookshelfInstances() {
   const [instances, setInstances] = useState<FixtureRenderInstance[]>(buildInitialInstances)
+  const [sectorByIndex, setSectorByIndex] = useState<Array<number | null | undefined>>(buildInitialSectors)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const initialInstances = useMemo(() => buildInitialInstances(), [])
+  const initialSectorByIndex = useMemo(() => buildInitialSectors(), [])
+  const initialInstancesWithSectors = useMemo(
+    () => initialInstances.map((inst, i) => attachSector(inst, initialSectorByIndex[i])),
+    [initialInstances, initialSectorByIndex],
+  )
+  const instancesWithSectors = useMemo(
+    () => instances.map((inst, i) => attachSector(inst, sectorByIndex[i])),
+    [instances, sectorByIndex],
+  )
 
   const handleUpdateInstance = useCallback((index: number, patch: Partial<FixtureRenderInstance>) => {
-    setInstances(prev => prev.map((inst, i) => i === index ? { ...inst, ...patch } : inst))
+    const { sector, ...geometryPatch } = patch
+    if ('sector' in patch) {
+      setSectorByIndex(prev => prev.map((value, i) => i === index ? sector : value))
+    }
+    if (Object.keys(geometryPatch).length > 0) {
+      setInstances(prev => prev.map((inst, i) => i === index ? { ...inst, ...geometryPatch } : inst))
+    }
+  }, [])
+
+  const handleSetSector = useCallback((index: number, sector: number | null) => {
+    setSectorByIndex(prev => prev.map((value, i) => i === index ? sector : value))
   }, [])
 
   const handleAddBookshelf = useCallback(() => {
@@ -45,19 +83,26 @@ export function useBookshelfInstances() {
       setSelectedIndex(next.length - 1)
       return next
     })
-  }, [selectedIndex])
+    setSectorByIndex((prev) => [
+      ...prev,
+      selectedIndex !== null ? sectorByIndex[selectedIndex] : undefined,
+    ])
+  }, [selectedIndex, sectorByIndex])
 
   const addInstance = useCallback((inst: FixtureRenderInstance) => {
+    const { sector } = inst
     setInstances((prev) => {
-      const next = [...prev, inst]
+      const next = [...prev, stripSector(inst)]
       setSelectedIndex(next.length - 1)
       return next
     })
+    setSectorByIndex((prev) => [...prev, sector])
   }, [])
 
   const handleDeleteBookshelf = useCallback(() => {
     if (selectedIndex === null) return
     setInstances((prev) => prev.filter((_, i) => i !== selectedIndex))
+    setSectorByIndex((prev) => prev.filter((_, i) => i !== selectedIndex))
     setSelectedIndex(null)
   }, [selectedIndex])
 
@@ -97,10 +142,14 @@ export function useBookshelfInstances() {
 
   return {
     instances,
+    instancesWithSectors,
+    sectorByIndex,
     selectedIndex,
     setSelectedIndex,
     initialInstances,
+    initialInstancesWithSectors,
     handleUpdateInstance,
+    handleSetSector,
     addInstance,
     handleAddBookshelf,
     handleDeleteBookshelf,

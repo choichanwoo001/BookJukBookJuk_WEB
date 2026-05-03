@@ -14,6 +14,7 @@ import {
   FLOOR_HEIGHT_M,
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
+import { findNearestBookshelfIndexAtXZ } from '../../utils/bookshelfSelection'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
 import {
   FIRST_PERSON_DEFAULT_PITCH,
@@ -167,6 +168,7 @@ export function SceneContent({
   mode,
   editTool,
   bookshelfRenderInstances,
+  bookshelfSectorValues,
   deltaBookshelfRenderInstances,
   staticFixtureInstances,
   selections,
@@ -185,6 +187,7 @@ export function SceneContent({
   mode: ViewMode
   editTool: 'areaSelection' | 'bookshelfEdit'
   bookshelfRenderInstances: FixtureRenderInstance[]
+  bookshelfSectorValues?: readonly (number | null | undefined)[]
   deltaBookshelfRenderInstances: FixtureRenderInstance[]
   staticFixtureInstances: FixtureRenderInstance[]
   selections: CircleSelection[]
@@ -355,6 +358,19 @@ export function SceneContent({
     onSelectBookshelf(instanceId)
   }, [isBookshelfEdit, onSelectBookshelf])
 
+  /** 폴리곤 병합 책장: instanceId 없음 → 클릭 지점 xz로 가장 가까운 책장 선택 */
+  const handleBookshelfPolygonEditPointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
+    if (!isBookshelfEdit || !onSelectBookshelf) return
+    if (!event.altKey) return
+    if (!worldRef.current) return
+    if (isBookshelfDraggingRef.current) return
+    event.stopPropagation()
+    event.nativeEvent.preventDefault()
+    const local = worldRef.current.worldToLocal(event.point.clone())
+    const idx = findNearestBookshelfIndexAtXZ(local.x, local.z, bookshelfRenderInstances)
+    if (idx !== null) onSelectBookshelf(idx)
+  }, [isBookshelfEdit, onSelectBookshelf, bookshelfRenderInstances])
+
   const handleDragStart = useCallback(() => {
     isBookshelfDraggingRef.current = true
   }, [])
@@ -509,12 +525,16 @@ export function SceneContent({
             polygons={bookshelfPolygons}
             height={FLOOR_HEIGHT_M * 0.78}
             material={bookshelfMaterial}
-            onPointerDown={bookshelfPickHandler}
+            onPointerDown={
+              isBookshelfEdit ? handleBookshelfPolygonEditPointerDown : bookshelfPickHandler
+            }
           />
         ) : (
           <RotatedFixtureInstances
             instances={bookshelfRenderInstances}
+            sectorValues={bookshelfSectorValues}
             material={bookshelfMaterial}
+            tintSectors={isBookshelfEdit}
             onPointerDown={
               isBookshelfEdit
                 ? handleBookshelfPointerDown

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   BoxGeometry,
   BufferGeometry,
+  Color,
   CylinderGeometry,
   DynamicDrawUsage,
   ExtrudeGeometry,
@@ -50,6 +51,7 @@ import {
   entranceDoorLeafMaterial,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
+import { SECTOR_TINT_HEX } from '../../data/shelfSectorAssignments'
 import { createPerInstanceOpacityMaterial } from '../../utils/perInstanceOpacityMaterial'
 
 const _dummy = new Object3D()
@@ -345,21 +347,34 @@ export function PillarCylinderInstances({
 
 export function RotatedFixtureInstances({
   instances,
+  sectorValues,
   material,
+  tintSectors = false,
   disableRaycast,
   onDoubleClick,
   onClick,
   onPointerDown,
 }: {
   instances: FixtureRenderInstance[]
+  sectorValues?: readonly (number | null | undefined)[]
   material: MeshStandardMaterial
+  /** 편집 모드: sector(0–9)별 인스턴스 색. 미배정은 회색. */
+  tintSectors?: boolean
   disableRaycast?: boolean
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
   const meshRef = useRef<ThreeInstancedMesh>(null)
-  const materialWithOpacity = useMemo(() => createPerInstanceOpacityMaterial(material), [material])
+  const materialWithOpacity = useMemo(() => {
+    if (tintSectors) {
+      const m = material.clone()
+      m.transparent = false
+      m.depthWrite = true
+      return m
+    }
+    return createPerInstanceOpacityMaterial(material)
+  }, [material, tintSectors])
 
   useEffect(() => {
     if (!meshRef.current) return
@@ -374,6 +389,26 @@ export function RotatedFixtureInstances({
     meshRef.current.instanceMatrix.needsUpdate = true
     meshRef.current.boundingSphere = null
   }, [instances])
+
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh || instances.length === 0) return
+    const c = new Color()
+    if (tintSectors) {
+      for (let i = 0; i < instances.length; i++) {
+        const sec = sectorValues?.[i]
+        if (typeof sec === 'number' && sec >= 0 && sec < SECTOR_TINT_HEX.length) {
+          c.set(SECTOR_TINT_HEX[sec])
+        } else {
+          c.set('#888888')
+        }
+        mesh.setColorAt(i, c)
+      }
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    } else {
+      mesh.instanceColor = null
+    }
+  }, [instances.length, sectorValues, tintSectors])
 
   useLayoutEffect(() => {
     const mesh = meshRef.current

@@ -41,7 +41,10 @@ const TOOL_NAME_ALIASES: Record<string, string> = {
 }
 
 const SYSTEM_PROMPT =
-  '너는 도서관 쇼핑리스트 에이전트 planner다. 반드시 JSON만 출력한다. toolCall은 허용 도구명만 사용한다.'
+  '너는 도서관 쇼핑리스트 에이전트 planner다. 반드시 JSON만 출력한다. toolCall은 허용 도구명만 사용한다.\n' +
+  '쇼핑리스트 편집: 제목/표현 뒤에 "삭제해줘","제거해줘","빼줘","리스트에서 삭제" 등이 있으면 intentType은 remove_book, toolCall은 shoppingListTool(action remove).\n' +
+  '"책 추가","추가해줘","담아줘","넣어줘" 등으로 특정 책을 리스트에 넣으려 하면 intentType은 add_book, toolCall은 shoppingListTool(action add).\n' +
+  '위 패턴이 명확하면 추천·검색보다 리스트 편집 intent를 우선한다.'
 
 function toHistoryText(history: AgentMessage[]): string {
   return history

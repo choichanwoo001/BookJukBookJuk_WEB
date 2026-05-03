@@ -4,7 +4,12 @@ import {
   recommendationAttachmentsFromResult,
   toolCallForIntent,
 } from '../agent/runtime/chatAgentRuntime'
-import { chooseHigherPriorityIntent, requiresConfirmation } from '../agent/policy'
+import {
+  chooseHigherPriorityIntent,
+  isListEditIntentType,
+  mergePlannerIntentWithRules,
+  requiresConfirmation,
+} from '../agent/policy'
 import { transitionStateFromIntent, transitionStateFromTool } from '../agent/stateMachine'
 import {
   getTelemetrySnapshot,
@@ -582,16 +587,21 @@ export function useChatAgent(options: { startMode: StartMode }) {
         const parsedIntent = parseUserIntent(intentText, source)
         const llmIntentType = llmPlan ? asIntentType(llmPlan.intentType) : 'unknown'
         const hasUsableLlmIntent = llmPlan !== null && llmIntentType !== 'unknown'
-        const nextIntent = hasUsableLlmIntent
-          ? ({
-              type: llmIntentType,
-              source,
-              rawText: text,
-              confidence: llmPlan.confidence,
-              payload: undefined,
-              timestamp: Date.now(),
-            } satisfies AgentIntent)
-          : parsedIntent
+        const nextIntent = mergePlannerIntentWithRules({
+          ruleIntent: parsedIntent,
+          llmPlan,
+          rawTextForLlm: text,
+          source,
+          llmIntentType,
+          hasUsableLlmIntent,
+        })
+        if (
+          hasUsableLlmIntent &&
+          isListEditIntentType(parsedIntent.type) &&
+          llmIntentType !== parsedIntent.type
+        ) {
+          incrementMetric('listEditRuleOverridesLlm')
+        }
         if (hasUsableLlmIntent) incrementMetric('llmPlannerUsed')
         else incrementMetric('llmPlannerFallback')
         const mergedIntent = intentBufferRef.current

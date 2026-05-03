@@ -46,6 +46,21 @@ describe('mergePlannedToolCall', () => {
     expect(merged?.args.hint).toBe('데미안 추가해줘')
   })
 
+  it('drops mismatched planner tool when list-edit intent uses shoppingListTool', () => {
+    const deterministic: ToolCall = {
+      name: 'shoppingListTool',
+      args: { action: 'remove', hint: '시원스쿨 기초영어법 삭제해줘' },
+    }
+    const planned: ToolCall = {
+      name: 'recommendationTool',
+      args: { mode: 'taste' },
+    }
+
+    const merged = mergePlannedToolCall(deterministic, planned, 'remove_book')
+    expect(merged?.name).toBe('shoppingListTool')
+    expect(merged?.args.hint).toBe('시원스쿨 기초영어법 삭제해줘')
+  })
+
   it('still allows planner args for non-list-edit intents', () => {
     const deterministic: ToolCall = {
       name: 'recommendationTool',

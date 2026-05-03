@@ -1,4 +1,4 @@
-import type { AgentIntent, AgentIntentType } from './types'
+import type { AgentIntent, AgentIntentSource, AgentIntentType } from './types'
 
 const destructiveIntentSet = new Set<AgentIntentType>([
   'remove_book',
@@ -26,4 +26,37 @@ export function chooseHigherPriorityIntent(a: AgentIntent, b: AgentIntent): Agen
   if (b.source === 'voice' && a.source !== 'voice') return b
 
   return a.timestamp >= b.timestamp ? a : b
+}
+
+export function isListEditIntentType(type: AgentIntentType): boolean {
+  return type === 'add_book' || type === 'remove_book'
+}
+
+/**
+ * Keyword/rule parser wins for 쇼핑리스트 추가·삭제 when it matches, so LLM mislabels
+ * (e.g. recommendation) do not override deterministic list-edit intents.
+ */
+export function mergePlannerIntentWithRules(input: {
+  ruleIntent: AgentIntent
+  llmPlan: { intentType: string; confidence: number } | null
+  rawTextForLlm: string
+  source: AgentIntentSource
+  llmIntentType: AgentIntentType
+  hasUsableLlmIntent: boolean
+}): AgentIntent {
+  const { ruleIntent, llmPlan, rawTextForLlm, source, llmIntentType, hasUsableLlmIntent } = input
+  if (isListEditIntentType(ruleIntent.type)) {
+    return ruleIntent
+  }
+  if (hasUsableLlmIntent && llmPlan) {
+    return {
+      type: llmIntentType,
+      source,
+      rawText: rawTextForLlm,
+      confidence: llmPlan.confidence,
+      payload: undefined,
+      timestamp: Date.now(),
+    }
+  }
+  return ruleIntent
 }

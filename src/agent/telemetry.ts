@@ -5,6 +5,7 @@ type MetricKey =
   | 'sessionCompleted'
   | 'reconfirmRequested'
   | 'fallbackUsed'
+  | 'listEditRuleOverridesLlm'
   | 'llmPlannerUsed'
   | 'llmPlannerFallback'
   | 'llmRewriterUsed'
@@ -21,6 +22,7 @@ const metrics: Record<MetricKey, number> = {
   sessionCompleted: 0,
   reconfirmRequested: 0,
   fallbackUsed: 0,
+  listEditRuleOverridesLlm: 0,
   llmPlannerUsed: 0,
   llmPlannerFallback: 0,
   llmRewriterUsed: 0,

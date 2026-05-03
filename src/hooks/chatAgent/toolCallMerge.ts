@@ -18,7 +18,16 @@ export function mergePlannedToolCall(
   plannedToolCall: ToolCall | null,
   intentType: AgentIntentType,
 ): ToolCall | null {
-  const toolCall = plannedToolCall ?? deterministicToolCall
+  let effectivePlanned = plannedToolCall
+  if (
+    isListEditIntent(intentType) &&
+    deterministicToolCall?.name === 'shoppingListTool' &&
+    plannedToolCall &&
+    plannedToolCall.name !== 'shoppingListTool'
+  ) {
+    effectivePlanned = null
+  }
+  const toolCall = effectivePlanned ?? deterministicToolCall
   if (!toolCall) return null
 
   const mergedArgs: Record<string, unknown> = deterministicToolCall

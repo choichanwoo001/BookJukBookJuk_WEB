@@ -62,6 +62,16 @@ const KEEPOUT_BACKSPACE_UNKNOWN_AREAS = [
   { surface: 'floor', cx: 28.451, cz: -0.324, radius: 0.350 },
   { surface: 'floor', cx: 19.567, cz: -4.396, radius: 0.350 },
   { surface: 'floor', cx: 10.365, cz: -8.448, radius: 0.350 },
+  { surface: 'floor', cx: 6.184, cz: -9.521, radius: 0.350 },
+]
+/** 복도 축 샘플 (circle-area). `clearShelfFootprintAndCorridorApronPixels`가 전면 확장 방향 판별에 사용. */
+const CORRIDOR_CIRCLE_AREAS = [
+  { cx: 41.258, cz: 4.934, radius: 0.350 },
+  { cx: 33.416, cz: 1.762, radius: 0.350 },
+  { cx: 24.243, cz: -2.305, radius: 0.350 },
+  { cx: 16.146, cz: -5.429, radius: 0.350 },
+  { cx: 10.435, cz: -8.423, radius: 0.350 },
+  { cx: 6.184, cz: -9.521, radius: 0.350 },
 ]
 const DELTA_TARGET_WALL_AREAS = [
   { surface: 'floor', cx: -6.892, cz: -4.451, radius: 0.350 },
@@ -1365,6 +1375,7 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
   const bookshelfPolygons = []
   const bookshelfInstances = []
   const bookshelfRects = []
+  const bookshelfComponents = []
   for (const component of components) {
     if (excludeBookshelfLabels.has(component.label)) continue
     if (component.size < 8) continue
@@ -1401,6 +1412,7 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
     bookshelfPolygons.push(outer)
     bookshelfInstances.push(instance)
     bookshelfRects.push(rect)
+    bookshelfComponents.push(component)
   }
 
   const order = bookshelfInstances.map((v, i) => ({ i, v }))
@@ -1414,6 +1426,7 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
     bookshelfPolygons: order.map(i => bookshelfPolygons[i]),
     bookshelfInstances: order.map(i => bookshelfInstances[i]),
     bookshelfRects: order.map(i => bookshelfRects[i]),
+    bookshelfComponents: order.map(i => bookshelfComponents[i]),
   }
 }
 
@@ -1427,6 +1440,184 @@ function median(values) {
   const mid = Math.floor(sorted.length / 2)
   if (sorted.length % 2 === 1) return sorted[mid]
   return (sorted[mid - 1] + sorted[mid]) / 2
+}
+
+/** offset-world XZ 폴리곤 내부 (비교용 좌표는 gridLoopToWorld와 동일). */
+function pointInPolygonXZ(x, z, poly) {
+  let inside = false
+  const n = poly.length
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i][0]
+    const zi = poly[i][1]
+    const xj = poly[j][0]
+    const zj = poly[j][1]
+    const denom = zj - zi
+    const intersect = ((zi > z) !== (zj > z)) && x < ((xj - xi) * (z - zi)) / (Math.abs(denom) < 1e-14 ? 1e-14 : denom) + xi
+    if (intersect) inside = !inside
+  }
+  return inside
+}
+
+/**
+ * 킵아웃 책장 컴포넌트 원본 셀을 기반으로, 발자국 전체의 WALL/UNKNOWN을 FREE로 비운다.
+ * 이어서 복도 전면 방향으로 1~2px 확장 클리어를 수행해 픽셀 경계 잔선을 없앤다.
+ */
+function clearShelfFootprintAndCorridorApronPixels(
+  grid,
+  width,
+  _height,
+  offsetX,
+  offsetZ,
+  bookshelfInstances,
+  bookshelfComponents,
+  corridorSamples,
+) {
+  if (!corridorSamples?.length || !bookshelfInstances?.length || !bookshelfComponents?.length) {
+    return {
+      totalCleared: 0,
+      footprintCleared: 0,
+      apronCleared: 0,
+      shelfStats: [],
+    }
+  }
+  const MAX_SAMPLE_DIST_M = 5.0
+  const APRON_DEPTH_M = Math.max(RESOLUTION * 2.2, 0.12)
+  const APRON_SIDE_EXTRA_M = Math.max(RESOLUTION * 1.2, 0.08)
+  const MIN_FRONT_M = -0.5 * RESOLUTION
+  let footprintCleared = 0
+  let apronCleared = 0
+  let totalCleared = 0
+  const shelfStats = []
+
+  for (let si = 0; si < bookshelfInstances.length; si++) {
+    const s = bookshelfInstances[si]
+    const comp = bookshelfComponents[si]
+    if (!comp || !comp.indices?.length) continue
+    const { cx, cz, w, d, yaw } = s
+    let shelfFootprintCleared = 0
+    for (const idx of comp.indices) {
+      if (grid[idx] !== WALL && grid[idx] !== UNKNOWN) continue
+      grid[idx] = FREE
+      totalCleared++
+      footprintCleared++
+      shelfFootprintCleared++
+    }
+
+    let bestCx = corridorSamples[0].cx
+    let bestCz = corridorSamples[0].cz
+    let bestD = Infinity
+    for (const q of corridorSamples) {
+      const dd = Math.hypot(q.cx - cx, q.cz - cz)
+      if (dd < bestD) {
+        bestD = dd
+        bestCx = q.cx
+        bestCz = q.cz
+      }
+    }
+    if (bestD > MAX_SAMPLE_DIST_M) {
+      shelfStats.push({
+        shelfIndex: si,
+        nearestCorridorDist: bestD,
+        clearedFootprintPx: shelfFootprintCleared,
+        clearedApronPx: 0,
+        skipped: true,
+      })
+      continue
+    }
+
+    let cdx = bestCx - cx
+    let cdz = bestCz - cz
+    const cLen = Math.hypot(cdx, cdz)
+    if (cLen < 1e-6) {
+      shelfStats.push({
+        shelfIndex: si,
+        nearestCorridorDist: bestD,
+        clearedFootprintPx: shelfFootprintCleared,
+        clearedApronPx: 0,
+        skipped: true,
+      })
+      continue
+    }
+    cdx /= cLen
+    cdz /= cLen
+
+    const sn = Math.sin(yaw)
+    const cs = Math.cos(yaw)
+    // yaw 기반 책장 깊이축을 corridor 샘플 방향과 맞춘다.
+    let dax = sn
+    let daz = cs
+    if (dax * cdx + daz * cdz < 0) {
+      dax = -sn
+      daz = -cs
+    }
+    const lax = cs
+    const laz = -sn
+    const maxLat = Math.max(w, d) * 0.5 + APRON_SIDE_EXTRA_M
+    const minCol = Math.max(0, comp.minX - 3)
+    const maxCol = Math.min(width - 1, comp.maxX + 3)
+    const minRow = Math.max(0, comp.minY - 3)
+    const maxRow = Math.min(_height - 1, comp.maxY + 3)
+    let shelfApronCleared = 0
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        const idx = row * width + col
+        const cell = grid[idx]
+        if (cell !== WALL && cell !== UNKNOWN) continue
+        const wx = ORIGIN_X + (col + 0.5) * RESOLUTION
+        const wz = ORIGIN_Y + (row + 0.5) * RESOLUTION
+        const px = wx - offsetX
+        const pz = wz - offsetZ
+        const rx = px - cx
+        const rz = pz - cz
+        const projD = rx * dax + rz * daz
+        if (projD < MIN_FRONT_M || projD > APRON_DEPTH_M) continue
+        const projL = rx * lax + rz * laz
+        if (Math.abs(projL) > maxLat) continue
+        grid[idx] = FREE
+        totalCleared++
+        apronCleared++
+        shelfApronCleared++
+      }
+    }
+    shelfStats.push({
+      shelfIndex: si,
+      nearestCorridorDist: bestD,
+      clearedFootprintPx: shelfFootprintCleared,
+      clearedApronPx: shelfApronCleared,
+      skipped: false,
+    })
+  }
+  return {
+    totalCleared,
+    footprintCleared,
+    apronCleared,
+    shelfStats,
+  }
+}
+
+function countWallSegmentsInsideBookshelfPolygons(wallLoops, shelfPolygons) {
+  if (!wallLoops?.length || !shelfPolygons?.length) return 0
+  let insideCount = 0
+  for (const loop of wallLoops) {
+    const n = loop.length
+    if (n < 2) continue
+    for (let i = 0; i < n; i++) {
+      const a = loop[i]
+      const b = loop[(i + 1) % n]
+      const mx = (a[0] + b[0]) * 0.5
+      const mz = (a[1] + b[1]) * 0.5
+      let inside = false
+      for (const poly of shelfPolygons) {
+        if (!poly || poly.length < 3) continue
+        if (pointInPolygonXZ(mx, mz, poly)) {
+          inside = true
+          break
+        }
+      }
+      if (inside) insideCount++
+    }
+  }
+  return insideCount
 }
 
 async function main() {
@@ -1776,6 +1967,31 @@ async function main() {
     }
   }
 
+  if (keepoutExtraction && keepoutExtraction.bookshelfInstances.length > 0) {
+    const clearedShelfWalls = clearShelfFootprintAndCorridorApronPixels(
+      grid,
+      width,
+      height,
+      offsetX,
+      offsetZ,
+      keepoutExtraction.bookshelfInstances,
+      keepoutExtraction.bookshelfComponents,
+      CORRIDOR_CIRCLE_AREAS,
+    )
+    if (clearedShelfWalls.totalCleared > 0) {
+      gridChangedAfterFloorMesh = true
+      console.log(
+        `  corridor shelf clear: total=${clearedShelfWalls.totalCleared}, footprint=${clearedShelfWalls.footprintCleared}, apron=${clearedShelfWalls.apronCleared}`,
+      )
+      for (const stat of clearedShelfWalls.shelfStats) {
+        const distText = Number.isFinite(stat.nearestCorridorDist) ? stat.nearestCorridorDist.toFixed(3) : 'n/a'
+        console.log(
+          `    shelf[${stat.shelfIndex}] nearestCorridorDist=${distText}, footprint=${stat.clearedFootprintPx}, apron=${stat.clearedApronPx}, skipped=${stat.skipped}`,
+        )
+      }
+    }
+  }
+
   if (gridChangedAfterFloorMesh) {
     rawFloorRects = greedyMesh(grid, width, height, FREE)
   }
@@ -1972,6 +2188,13 @@ async function main() {
     .filter((c, i) => i !== outerLoopIdx && !c.isRoom)
     .map(c => c.holeLoop)
   console.log(`  classified loops: ${classifiedLoops.length} total, ${wallHolePolylines.length} holes, ${classifiedLoops.filter(c => c.isRoom).length} rooms`)
+  if (keepoutExtraction?.bookshelfPolygons?.length) {
+    const insideShelfWallSegments = countWallSegmentsInsideBookshelfPolygons(
+      wallPolylines,
+      keepoutExtraction.bookshelfPolygons,
+    )
+    console.log(`  shelf overlap diagnostic: insideShelfWallSegments=${insideShelfWallSegments}`)
+  }
   const fallbackPolylines = wallPolylines.length > 0 ? wallPolylines : centerLoops
   const principalAxes = computePrincipalAxes(fallbackPolylines)
   console.log(`  principal axes: [${principalAxes.map(a => a.toFixed(4)).join(', ')}]`)

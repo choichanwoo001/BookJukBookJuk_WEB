@@ -1,6 +1,6 @@
 /**
- * 3D FloorPolygonMesh와 동일한 바닥(외곽 폴리곤 + 수동 클립) + 본편 책장 + 책장 후보 오버레이 레이어를 위에서 본 2D PNG로 내보냅니다.
- * 실행: npx tsx scripts/exportFloorMap2d.ts [--out path] [--width 2048] [--no-overlay]
+ * 3D FloorPolygonMesh와 동일한 바닥(외곽 폴리곤 + 수동 클립) + 본편 책장을 위에서 본 2D PNG로 내보냅니다.
+ * 실행: npx tsx scripts/exportFloorMap2d.ts [--out path] [--width 2048]
  *
  * 색: `src/data/map2dPngPalette.ts` — 3D 재질 알베도와 동일 계열, 전체 보기 조명 체감에 맞게 어둡게 보정.
  */
@@ -10,8 +10,7 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { getMinimapWorldBounds } from '../src/utils/minimapBounds'
 import { createFloorPointInclusionTest } from '../src/utils/floorPolygon'
-import { bookshelfOverlayLayerInstances } from '../src/data/bookshelfOverlayLayer'
-import { bookshelfInstances, floorFillRects, wallPolylines } from '../src/data/floorPlan'
+import { bookshelfInstances, bookshelfPolygons, floorFillRects, wallPolylines } from '../src/data/floorPlan'
 import { MAP2D_PNG, hexToRgba } from '../src/data/map2dPngPalette'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -20,23 +19,19 @@ const ROOT = resolve(__dirname, '..')
 const BG = hexToRgba(MAP2D_PNG.bg)
 const FLOOR = hexToRgba(MAP2D_PNG.floor)
 const BOOKSHELF = hexToRgba(MAP2D_PNG.bookshelf)
-const BOOKSHELF_OVERLAY = hexToRgba(MAP2D_PNG.bookshelfOverlay)
 
 function parseArgs() {
   const argv = process.argv.slice(2)
   let out = resolve(ROOT, 'public', 'map-floor-2d.png')
   let width = 2048
-  let includeOverlay = true
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--out' && argv[i + 1]) {
       out = resolve(argv[++i])
     } else if (argv[i] === '--width' && argv[i + 1]) {
       width = Math.max(64, Math.floor(Number(argv[++i])))
-    } else if (argv[i] === '--no-overlay') {
-      includeOverlay = false
     }
   }
-  return { out, width, includeOverlay }
+  return { out, width }
 }
 
 function pointInPolygon2D(x: number, z: number, ring: [number, number][]): boolean {
@@ -77,13 +72,12 @@ function fixtureListToQuads(
 }
 
 async function main() {
-  const { out, width: W, includeOverlay } = parseArgs()
+  const { out, width: W } = parseArgs()
   const { minX, maxX, minZ, maxZ, spanX, spanZ } = getMinimapWorldBounds()
   const H = Math.max(1, Math.round((W * spanZ) / spanX))
 
   const floorTest = createFloorPointInclusionTest(wallPolylines, floorFillRects)
   const mainShelfQuads = fixtureListToQuads(bookshelfInstances)
-  const overlayShelfQuads = includeOverlay ? fixtureListToQuads(bookshelfOverlayLayerInstances) : []
 
   const buf = Buffer.alloc(W * H * 4)
 
@@ -97,8 +91,8 @@ async function main() {
       for (const quad of mainShelfQuads) {
         if (pointInPolygon2D(x, z, quad)) color = BOOKSHELF
       }
-      for (const quad of overlayShelfQuads) {
-        if (pointInPolygon2D(x, z, quad)) color = BOOKSHELF_OVERLAY
+      for (const poly of bookshelfPolygons) {
+        if (pointInPolygon2D(x, z, poly)) color = BOOKSHELF
       }
       const o = row + u * 4
       buf[o] = color.r
@@ -112,7 +106,7 @@ async function main() {
   const png = await sharp(buf, { raw: { width: W, height: H, channels: 4 } }).png().toBuffer()
   writeFileSync(out, png)
   console.log(
-    `Wrote ${out} (${W}×${H} px, world X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}], mainShelves=${mainShelfQuads.length}, overlayShelves=${overlayShelfQuads.length})`,
+    `Wrote ${out} (${W}×${H} px, world X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}], shelves=${Math.max(mainShelfQuads.length, bookshelfPolygons.length)})`,
   )
 }
 

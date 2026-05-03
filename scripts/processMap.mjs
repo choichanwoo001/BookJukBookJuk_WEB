@@ -24,9 +24,11 @@ const AXIS_SNAP_DEG = 22
 const CENTER_LOOP_SIMPLIFY_M = 0.15
 const RENDER_LOOP_SIMPLIFY_M = 0.38
 const HOLE_LOOP_SIMPLIFY_M = 0.08
+const KEEPOUT_LOOP_SIMPLIFY_M = 0.04
 const CENTER_LOOP_MIN_SEGMENT_M = 0.12
 const RENDER_LOOP_MIN_SEGMENT_M = 0.28
 const HOLE_LOOP_MIN_SEGMENT_M = 0.08
+const KEEPOUT_LOOP_MIN_SEGMENT_M = 0.04
 
 const FORCED_UNKNOWN_ISOLATED_AREAS = [
   { surface: 'floor', cx: -5.560, cz: -4.861, radius: 0.350 },
@@ -834,9 +836,9 @@ function greedyMesh(grid, width, height, targetValue) {
   return rects
 }
 
-function extractFreeBoundaryLoops(grid, width, height) {
+function extractBoundaryLoops(grid, width, height, targetValue = FREE) {
   const segments = []
-  const inside = (x, y) => grid[y * width + x] === FREE
+  const inside = (x, y) => grid[y * width + x] === targetValue
   const edgePoint = (x, y, edgeId) => {
     if (edgeId === 0) return [x + 0.5, y]
     if (edgeId === 1) return [x + 1, y + 0.5]
@@ -920,6 +922,10 @@ function extractFreeBoundaryLoops(grid, width, height) {
     }
   }
   return loops
+}
+
+function extractFreeBoundaryLoops(grid, width, height) {
+  return extractBoundaryLoops(grid, width, height, FREE)
 }
 
 function distToSegment(p, a, b) {
@@ -1219,6 +1225,145 @@ function componentOrientedBBox(component, imgWidth) {
   return { angle: -thetaPx, w: extentU, d: extentV }
 }
 
+function componentOrientedBookshelfInstance(component, imgWidth, imgHeight, offsetX, offsetZ) {
+  const n = component.indices.length
+  if (n < 2) {
+    const [wx, wz] = pxToWorld(component.minX + 0.5, component.minY + 0.5, imgHeight)
+    return {
+      cx: Math.round((wx - offsetX) * 1000) / 1000,
+      cz: Math.round((wz - offsetZ) * 1000) / 1000,
+      w: RESOLUTION,
+      d: RESOLUTION,
+      yaw: 0,
+    }
+  }
+
+  let sumCol = 0
+  let sumRow = 0
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    sumCol += col
+    sumRow += row
+  }
+  const meanCol = sumCol / n
+  const meanRow = sumRow / n
+
+  let scc = 0, srr = 0, scr = 0
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    const dc = col - meanCol
+    const dr = row - meanRow
+    scc += dc * dc
+    srr += dr * dr
+    scr += dc * dr
+  }
+
+  const thetaPx = 0.5 * Math.atan2(2 * scr, scc - srr)
+  const cosT = Math.cos(thetaPx)
+  const sinT = Math.sin(thetaPx)
+  let minU = Infinity, maxU = -Infinity
+  let minV = Infinity, maxV = -Infinity
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    const dc = col - meanCol
+    const dr = row - meanRow
+    const u = dc * cosT + dr * sinT
+    const v = -dc * sinT + dr * cosT
+    if (u < minU) minU = u
+    if (u > maxU) maxU = u
+    if (v < minV) minV = v
+    if (v > maxV) maxV = v
+  }
+
+  const centerU = (minU + maxU) * 0.5
+  const centerV = (minV + maxV) * 0.5
+  const centerCol = meanCol + centerU * cosT - centerV * sinT
+  const centerRow = meanRow + centerU * sinT + centerV * cosT
+  const [wx, wz] = pxToWorld(centerCol + 0.5, centerRow + 0.5, imgHeight)
+  const extentU = (maxU - minU + 1) * RESOLUTION
+  const extentV = (maxV - minV + 1) * RESOLUTION
+  const useU = extentU >= extentV
+  const rawYaw = useU ? -thetaPx : -thetaPx + Math.PI / 2
+  return {
+    cx: Math.round((wx - offsetX) * 1000) / 1000,
+    cz: Math.round((wz - offsetZ) * 1000) / 1000,
+    w: Math.round(Math.max(extentU, extentV) * 1000) / 1000,
+    d: Math.round(Math.min(extentU, extentV) * 1000) / 1000,
+    yaw: Math.round(snapYawToNearestAxis(rawYaw, [rawYaw]) * 10000) / 10000,
+  }
+}
+
+function componentToMask(component, width, height) {
+  const mask = new Uint8Array(width * height)
+  for (const idx of component.indices) mask[idx] = WALL
+  return mask
+}
+
+function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ) {
+  const keepoutPath = resolve(ROOT, keepoutImageName)
+  const keepoutExt = extname(keepoutImageName).toLowerCase()
+  if (keepoutExt !== '.pgm' && keepoutExt !== '.pnm') {
+    throw new Error(`--keepout currently expects a PGM/PNM mask, got ${keepoutImageName}`)
+  }
+
+  const pgm = parsePGM(keepoutPath)
+  if (pgm.width !== width || pgm.height !== height) {
+    throw new Error(`Keepout image size must match base map size: keepout=${pgm.width}x${pgm.height}, base=${width}x${height}`)
+  }
+
+  const keepoutGrid = new Uint8Array(width * height)
+  for (let i = 0; i < pgm.pixels.length; i++) {
+    if (pgm.pixels[i] <= 127) keepoutGrid[i] = WALL
+  }
+
+  const { components } = extractComponents(keepoutGrid, width, height, WALL)
+  const bookshelfPolygons = []
+  const bookshelfInstances = []
+  const bookshelfRects = []
+  for (const component of components) {
+    if (component.size < 8) continue
+    const mask = componentToMask(component, width, height)
+    const loops = extractBoundaryLoops(mask, width, height, WALL)
+      .map(loop => {
+        const world = gridLoopToWorld(loop, height, offsetX, offsetZ)
+        const simplified = simplifyLoop(world, KEEPOUT_LOOP_SIMPLIFY_M)
+        return dedupeLoop(pruneShortSegments(simplified, KEEPOUT_LOOP_MIN_SEGMENT_M))
+      })
+      .filter(loop => loop.length >= 3 && Math.abs(loopSignedArea(loop)) >= RESOLUTION * RESOLUTION)
+
+    if (loops.length === 0) continue
+    loops.sort((a, b) => Math.abs(loopSignedArea(b)) - Math.abs(loopSignedArea(a)))
+    const outer = loops[0]
+    const instance = componentOrientedBookshelfInstance(component, width, height, offsetX, offsetZ)
+    const [x1, z1] = pxToWorld(component.minX, component.minY, height)
+    const [x2, z2] = pxToWorld(component.maxX + 1, component.maxY + 1, height)
+    const rect = {
+      cx: Math.round((((x1 + x2) / 2) - offsetX) * 1000) / 1000,
+      cz: Math.round((((z1 + z2) / 2) - offsetZ) * 1000) / 1000,
+      w: Math.round(Math.abs(x2 - x1) * 1000) / 1000,
+      d: Math.round(Math.abs(z2 - z1) * 1000) / 1000,
+    }
+    bookshelfPolygons.push(outer)
+    bookshelfInstances.push(instance)
+    bookshelfRects.push(rect)
+  }
+
+  const order = bookshelfInstances.map((v, i) => ({ i, v }))
+    .sort((a, b) => (b.v.cz - a.v.cz) || (a.v.cx - b.v.cx))
+    .map(v => v.i)
+
+  return {
+    source: keepoutImageName,
+    components: components.length,
+    bookshelfPolygons: order.map(i => bookshelfPolygons[i]),
+    bookshelfInstances: order.map(i => bookshelfInstances[i]),
+    bookshelfRects: order.map(i => bookshelfRects[i]),
+  }
+}
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
 }
@@ -1234,6 +1379,8 @@ function median(values) {
 async function main() {
   const deltaArg = process.argv.indexOf('--delta')
   const deltaImageName = deltaArg >= 0 ? process.argv[deltaArg + 1] : null
+  const keepoutArg = process.argv.indexOf('--keepout')
+  const keepoutImageName = keepoutArg >= 0 ? process.argv[keepoutArg + 1] : null
   const imageArg = process.argv.indexOf('--image')
   const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
   const mapOffsetOnly = process.argv.includes('--map-offset-only')
@@ -1734,9 +1881,20 @@ async function main() {
   const principalAxes = computePrincipalAxes(fallbackPolylines)
   console.log(`  principal axes: [${principalAxes.map(a => a.toFixed(4)).join(', ')}]`)
 
-  // Base mapData should remain wall-centric (no bookshelf auto-injection).
+  // Base mapData remains wall-centric unless a keepout mask explicitly provides bookshelf footprints.
   let finalBookshelfRects = []
   let finalBookshelfInstances = []
+  let finalBookshelfPolygons = []
+  let keepoutSourceLabel = null
+  if (keepoutImageName) {
+    console.log(`\nKeepout mode: extracting bookshelf footprints from ${keepoutImageName}`)
+    const keepout = extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ)
+    finalBookshelfRects = keepout.bookshelfRects
+    finalBookshelfInstances = keepout.bookshelfInstances
+    finalBookshelfPolygons = keepout.bookshelfPolygons
+    keepoutSourceLabel = keepout.source
+    console.log(`  keepout components: ${keepout.components}, bookshelf footprints: ${finalBookshelfPolygons.length}`)
+  }
   const deltaShelfLayerInstances = deltaShelfRectsFromDiff.map((r, i) => {
     const comp = deltaShelfComponentsFromDiff[i]
     const obb = componentOrientedBBox(comp, width)
@@ -1758,10 +1916,11 @@ async function main() {
     }
   })
 
-  if (deltaImageName) {
+  if (deltaImageName && !keepoutImageName) {
     // Keep base mapData layer fixed (wall/floor centric) in delta mode as well.
     finalBookshelfRects = []
     finalBookshelfInstances = []
+    finalBookshelfPolygons = []
   }
 
   const floorRects = pixelRectsToWorld(rawFloorRects, height, offsetX, offsetZ)
@@ -1779,10 +1938,10 @@ async function main() {
   const mapWidth = Math.round((maxX - minX) * 100) / 100
   const mapDepth = Math.round((maxZ - minZ) * 100) / 100
 
-  const baseSourceLabel = config.imageName
+  const baseSourceLabel = keepoutSourceLabel ? `${config.imageName} + keepout ${keepoutSourceLabel}` : config.imageName
   const deltaSourceLabel = deltaImageName ? `${config.imageName} + delta ${deltaImageName}` : config.imageName
   const ts = `// Auto-generated from ${baseSourceLabel} — do not edit manually.
-// Run: node scripts/processMap.mjs
+// Run: node scripts/processMap.mjs${keepoutImageName ? ' --keepout ' + keepoutImageName : ''}
 
 export type WallRect = { cx: number; cz: number; w: number; d: number }
 export type BookshelfInstance = { cx: number; cz: number; w: number; d: number; yaw: number }
@@ -1803,6 +1962,7 @@ export const mapImageOffsetZ = ${Math.round(offsetZ * 10000) / 10000}
 export const wallRects: WallRect[] = ${JSON.stringify(wallRects)}
 export const bookshelfRects: WallRect[] = ${JSON.stringify(finalBookshelfRects)}
 export const bookshelfInstances: BookshelfInstance[] = ${JSON.stringify(finalBookshelfInstances)}
+export const bookshelfPolygons: Point2[][] = ${JSON.stringify(finalBookshelfPolygons)}
 export const pillarRects: WallRect[] = ${JSON.stringify(pillarRects)}
 export const wallPolylines: Point2[][] = ${JSON.stringify(wallPolylines)}
 export const wallHolePolylines: Point2[][] = ${JSON.stringify(wallHolePolylines)}

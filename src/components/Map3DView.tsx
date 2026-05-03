@@ -4,6 +4,7 @@ import {
   counterInstances,
   displayLowInstances,
   floorRects,
+  bookshelfPolygons,
   pillarRects,
   PLAYER_RADIUS_M,
   wallRects as baseWallRects,
@@ -29,7 +30,6 @@ import type { MinimapPlayerPos } from './scene/SceneContent'
 import { getMinimapWorldBounds, worldXzToMinimapUv } from '../utils/minimapBounds'
 import { SceneContent } from './scene/SceneContent'
 import { BookshelfEditPanel } from './BookshelfEditPanel'
-import { deltaShelfLayerInstances, deltaShelfLayerSource } from '../data/deltaShelfLayer'
 
 /** 미니맵 UI·뷰포트 리포터 비활성화 (다시 켤 때 true) */
 const SHOW_MINIMAP = false
@@ -170,8 +170,6 @@ function Map3DView() {
   const playerWorldXzRef = useRef<Point2 | null>(null)
   const [missionVersion, setMissionVersion] = useState(0)
   const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
-  const [showDeltaShelfLayer, setShowDeltaShelfLayer] = useState(false)
-  const hasDeltaShelfLayer = deltaShelfLayerSource !== null && deltaShelfLayerInstances.length > 0
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
 
@@ -205,20 +203,16 @@ function Map3DView() {
     return { minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ }
   }, [])
   const navBookshelfRects = useMemo(() => {
-    const baseRects = instances.map((inst) =>
+    return instances.map((inst) =>
       axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
     )
-    if (!showDeltaShelfLayer || !hasDeltaShelfLayer) return baseRects
-    const deltaRects = deltaShelfLayerInstances.map((inst) =>
-      axisAlignedBoundsForRotatedBookshelf(inst.cx, inst.cz, inst.w, inst.d, inst.yaw),
-    )
-    return [...baseRects, ...deltaRects]
-  }, [hasDeltaShelfLayer, instances, showDeltaShelfLayer])
+  }, [instances])
   const navCtx = useMemo(
     () => ({
       floorRects,
       wallRects: baseWallRects,
       bookshelfRects: navBookshelfRects,
+      bookshelfPolygons,
       pillarRects,
       playerRadiusM: PLAYER_RADIUS_M,
     }),
@@ -292,7 +286,7 @@ function Map3DView() {
           mode={mode}
           editTool={editTool}
           bookshelfRenderInstances={instances}
-          deltaBookshelfRenderInstances={showDeltaShelfLayer && hasDeltaShelfLayer ? deltaShelfLayerInstances : []}
+          deltaBookshelfRenderInstances={[]}
           staticFixtureInstances={staticInstances}
           selections={selections}
           onAddSelection={handleAddSelectionWithCircle}
@@ -324,15 +318,6 @@ function Map3DView() {
         <button type="button" onClick={handleNewMission}>
           새 미션
         </button>
-        {hasDeltaShelfLayer && (
-          <button
-            type="button"
-            data-active={showDeltaShelfLayer}
-            onClick={() => setShowDeltaShelfLayer((v) => !v)}
-          >
-            delta 책장 레이어
-          </button>
-        )}
         <button type="button" data-active={mode === 'firstPerson'} onClick={() => { setMode('firstPerson'); setSelectedIndex(null) }}>
           1인칭 시점
         </button>

@@ -4,6 +4,7 @@ import {
   BufferGeometry,
   CylinderGeometry,
   DynamicDrawUsage,
+  ExtrudeGeometry,
   Group,
   InstancedBufferAttribute,
   InstancedMesh,
@@ -22,6 +23,7 @@ import {
   wallPolylines,
   FLOOR_HEIGHT_M,
   ENTRANCE_DOORWAY,
+  type Point2,
   type WallRect,
 } from '../../data/floorPlan'
 import { pointInAnyRect } from '../../utils/rectUtils'
@@ -414,6 +416,62 @@ export function RotatedFixtureInstances({
       <boxGeometry args={[1, 1, 1]} />
       <primitive object={materialWithOpacity} attach="material" />
     </instancedMesh>
+  )
+}
+
+function polygonToBookshelfGeometry(points: Point2[], height: number) {
+  const shape = new Shape()
+  shape.moveTo(points[0][0], points[0][1])
+  for (let i = 1; i < points.length; i++) shape.lineTo(points[i][0], points[i][1])
+  shape.closePath()
+
+  const geometry = new ExtrudeGeometry(shape, {
+    depth: height,
+    bevelEnabled: false,
+  })
+  const pos = geometry.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const z = pos.getY(i)
+    const y = pos.getZ(i)
+    pos.setXYZ(i, x, y, z)
+  }
+  pos.needsUpdate = true
+  geometry.computeVertexNormals()
+  geometry.computeBoundingSphere()
+  return geometry
+}
+
+export function BookshelfPolygonInstances({
+  polygons,
+  height,
+  material,
+  onPointerDown,
+}: {
+  polygons: Point2[][]
+  height: number
+  material: MeshStandardMaterial
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
+}) {
+  const geometry = useMemo(() => {
+    const geometries = polygons
+      .filter(points => points.length >= 3)
+      .map(points => polygonToBookshelfGeometry(points, height))
+    if (geometries.length === 0) return null
+    const merged = mergeGeometries(geometries)
+    geometries.forEach(g => g.dispose())
+    merged.computeBoundingSphere()
+    return merged
+  }, [height, polygons])
+
+  useEffect(() => {
+    return () => geometry?.dispose()
+  }, [geometry])
+
+  if (!geometry) return null
+
+  return (
+    <mesh geometry={geometry} material={material} frustumCulled={false} onPointerDown={onPointerDown} />
   )
 }
 

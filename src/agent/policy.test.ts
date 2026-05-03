@@ -80,4 +80,23 @@ describe('mergePlannerIntentWithRules', () => {
     })
     expect(merged).toBe(ruleIntent)
   })
+
+  it('prefers rule-based confirm over LLM remove_book', () => {
+    const ruleIntent: AgentIntent = {
+      type: 'confirm',
+      source: 'chat',
+      rawText: '오케이',
+      confidence: 0.93,
+      timestamp: 1,
+    }
+    const merged = mergePlannerIntentWithRules({
+      ruleIntent,
+      llmPlan: { intentType: 'remove_book', confidence: 0.9 },
+      rawTextForLlm: '오케이',
+      source: 'chat',
+      llmIntentType: 'remove_book',
+      hasUsableLlmIntent: true,
+    })
+    expect(merged.type).toBe('confirm')
+  })
 })

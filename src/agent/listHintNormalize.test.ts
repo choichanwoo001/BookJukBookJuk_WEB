@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { matchShoppingListByTitleHint, normalizeListHint } from './listHintNormalize'
+import {
+  findBestFuzzyShoppingListMatch,
+  matchShoppingListByTitleHint,
+  normalizeListHint,
+} from './listHintNormalize'
 
 describe('normalizeListHint', () => {
   it('strips add command prefixes', () => {
@@ -50,5 +54,35 @@ describe('matchShoppingListByTitleHint', () => {
 
   it('returns empty for blank hint', () => {
     expect(matchShoppingListByTitleHint(list, '   ')).toEqual([])
+  })
+})
+
+describe('findBestFuzzyShoppingListMatch', () => {
+  it('matches a one- to two-character typo when the closest title is unique', () => {
+    const list = [
+      { booksId: 'a', title: '시원스쿨 기초영어법' },
+      { booksId: 'b', title: '넛지 : 똑똑한 선택을 이끄는 힘' },
+    ]
+    expect(findBestFuzzyShoppingListMatch(list, '시원스쿨 기초영업법')).toEqual(list[0])
+    expect(matchShoppingListByTitleHint(list, '시원스쿨 기초영업법')).toEqual([])
+  })
+
+  it('ignores spacing differences between hint and shelf title', () => {
+    const list = [{ booksId: 'a', title: '시원스쿨 기초영어법' }]
+    expect(findBestFuzzyShoppingListMatch(list, '시원스쿨 기초 영업법')).toEqual(list[0])
+  })
+
+  it('returns null when two list titles tie for edit distance', () => {
+    const list = [
+      { booksId: '1', title: '코스 기초영어법' },
+      { booksId: '2', title: '코스 기초영업법' },
+    ]
+    expect(matchShoppingListByTitleHint(list, '코스 기초영음법')).toEqual([])
+    expect(findBestFuzzyShoppingListMatch(list, '코스 기초영음법')).toBeNull()
+  })
+
+  it('returns null when the hint is too far from every title', () => {
+    const list = [{ booksId: 'x', title: '전혀 다른 책 제목입니다' }]
+    expect(findBestFuzzyShoppingListMatch(list, '시원스쿨 기초영업법')).toBeNull()
   })
 })

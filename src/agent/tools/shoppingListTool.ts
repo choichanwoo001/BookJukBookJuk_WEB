@@ -1,8 +1,7 @@
-import { getBookRecognitionClient, type BookRecognitionResult } from '../bridges/bookRecognitionBridge'
 import {
+  findBestFuzzyShoppingListMatch,
   matchShoppingListByTitleHint,
   normalizeListHint,
-  shoppingListSkipRecognition,
 } from '../listHintNormalize'
 import type { ShoppingListToolData, ToolExecutionContext, ToolResult } from '../types'
 import type { ToolDefinition } from './types'
@@ -14,7 +13,6 @@ import {
   mapListTypeToShelfType,
   removeBookFromShelf,
   updateBookUserState,
-  type ShelfType,
 } from '../../lib/supabase/shelves'
 import { getDefaultUserId } from '../../lib/supabase/env'
 import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
@@ -22,24 +20,14 @@ import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
 const TOOL_NAME = 'shoppingListTool'
 const FUZZY_AUTO_ACCEPT_SCORE = 0.78
 const FUZZY_AMBIGUOUS_GAP = 0.08
-const SYSTEM_FAILURE_CODES = new Set([
-  'HTTP_UNREACHABLE',
-  'HTTP_BAD_GATEWAY',
-  'HTTP_502',
-  'HTTP_CLIENT_ERROR',
-  'BRIDGE_TIMEOUT',
-  'BRIDGE_PROCESS_ERROR',
-])
-const MATCH_FAILURE_CODES = new Set([
-  'BOOK_NOT_IN_CATALOG',
-  'BOOK_NOT_RECOGNIZED',
-])
 
-export function classifyListFailure(code?: string): 'system' | 'match' | 'other' {
-  if (!code) return 'other'
-  if (SYSTEM_FAILURE_CODES.has(code) || /^HTTP_5\d\d$/.test(code)) return 'system'
-  if (MATCH_FAILURE_CODES.has(code)) return 'match'
-  return 'other'
+function catalogMissResult(): ToolResult {
+  return {
+    ok: false,
+    toolName: TOOL_NAME,
+    message: '해당 책은 서점에 없습니다.',
+    errorCode: 'BOOK_NOT_IN_CATALOG',
+  }
 }
 
 function canonicalizeAction(action: unknown): string {
@@ -59,90 +47,6 @@ function toShoppingListData(
     authors: b.authors,
     coverImageUrl: b.coverImageUrl,
   }))
-}
-
-type ResolvedBook = {
-  recognized: BookRecognitionResult
-  matchedBook: BookPreview
-  userId: string
-  shelfType: ShelfType
-}
-
-type ResolveBookOutcome =
-  | { ok: true; resolved: ResolvedBook }
-  | { ok: false; toolResult: ToolResult }
-
-/**
- * Book recognition → catalog match (legacy path when catalog/hint path misses).
- */
-async function resolveBookFromHint(
-  args: Record<string, unknown>,
-  reason: 'add' | 'remove',
-  ctx: ToolExecutionContext,
-): Promise<ResolveBookOutcome> {
-  const bridge = getBookRecognitionClient()
-  const recognized = await bridge.identifyBook({
-    reason,
-    hintText: typeof args.hint === 'string' ? args.hint : undefined,
-  })
-  if (!recognized.ok || !recognized.title) {
-    const code = recognized.errorCode ?? 'BOOK_NOT_RECOGNIZED'
-    const kind = classifyListFailure(code)
-    const message =
-      kind === 'match'
-        ? '해당 책은 서점에 없습니다.'
-        : kind === 'system'
-          ? '지금은 확인이 어려워요. 잠시 후 다시 시도해 주세요.'
-          : recognized.message
-    return {
-      ok: false,
-      toolResult: {
-        ok: false,
-        toolName: TOOL_NAME,
-        message,
-        errorCode: code,
-      },
-    }
-  }
-
-  const matchedRes = await findBookByIsbnOrTitle({
-    isbn13: recognized.isbn13,
-    title: recognized.title,
-  })
-  if (!matchedRes.ok) {
-    return {
-      ok: false,
-      toolResult: {
-        ok: false,
-        toolName: TOOL_NAME,
-        message: matchedRes.message ?? 'DB 조회에 실패했어요.',
-        errorCode: matchedRes.errorCode,
-      },
-    }
-  }
-
-  const matchedBook = matchedRes.data
-  if (!matchedBook?.id) {
-    return {
-      ok: false,
-      toolResult: {
-        ok: false,
-        toolName: TOOL_NAME,
-        message: `DB에서 "${recognized.title}"을(를) 찾지 못했어요.`,
-        errorCode: 'BOOK_NOT_IN_CATALOG',
-      },
-    }
-  }
-
-  return {
-    ok: true,
-    resolved: {
-      recognized,
-      matchedBook,
-      userId: getDefaultUserId(),
-      shelfType: mapListTypeToShelfType(ctx.getContext().listType),
-    },
-  }
 }
 
 async function buildCacheSummary(isbn13?: string): Promise<string> {
@@ -313,19 +217,7 @@ async function handleAdd(args: Record<string, unknown>, ctx: ToolExecutionContex
     }
   }
 
-  if (shoppingListSkipRecognition()) {
-    return {
-      ok: false,
-      toolName: TOOL_NAME,
-      message: '해당 책은 서점에 없습니다.',
-      errorCode: 'BOOK_NOT_IN_CATALOG',
-    }
-  }
-
-  const outcome = await resolveBookFromHint(args, 'add', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook } = outcome.resolved
-  return finishAddWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx, recognized.isbn13)
+  return catalogMissResult()
 }
 
 async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionContext): Promise<ToolResult> {
@@ -353,6 +245,12 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
   if (visMatches.length === 1) {
     const matched = previewFromShelfEntry(visMatches[0])
     return finishRemoveWithBook(matched, visMatches[0].title, ctx)
+  }
+
+  const fuzzyMatch = findBestFuzzyShoppingListMatch(list, hint)
+  if (fuzzyMatch) {
+    const matched = previewFromShelfEntry(fuzzyMatch)
+    return finishRemoveWithBook(matched, fuzzyMatch.title, ctx)
   }
 
   const catRes = await findBookByIsbnOrTitle({ title: hint })
@@ -391,19 +289,7 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
     }
   }
 
-  if (shoppingListSkipRecognition()) {
-    return {
-      ok: false,
-      toolName: TOOL_NAME,
-      message: '해당 책은 서점에 없습니다.',
-      errorCode: 'BOOK_NOT_IN_CATALOG',
-    }
-  }
-
-  const outcome = await resolveBookFromHint(args, 'remove', ctx)
-  if (!outcome.ok) return outcome.toolResult
-  const { recognized, matchedBook } = outcome.resolved
-  return finishRemoveWithBook(matchedBook, recognized.title ?? matchedBook.title, ctx)
+  return catalogMissResult()
 }
 
 export const shoppingListTool: ToolDefinition = {

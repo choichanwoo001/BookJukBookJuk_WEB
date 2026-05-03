@@ -57,6 +57,56 @@ export function matchShoppingListByTitleHint(
   return shoppingList.filter((b) => b.title.toLowerCase().includes(h))
 }
 
-export function shoppingListSkipRecognition(): boolean {
-  return import.meta.env.VITE_SHOPPING_LIST_SKIP_RECOGNITION === 'true'
+function levenshtein(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  if (m === 0) return n
+  if (n === 0) return m
+  const prev = new Array<number>(n + 1)
+  const curr = new Array<number>(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i
+    const ca = a.charCodeAt(i - 1)
+    for (let j = 1; j <= n; j++) {
+      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost)
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j]
+  }
+  return prev[n]
 }
+
+/**
+ * When substring match fails (e.g. small title typos), pick a unique closest list title by edit distance.
+ */
+function compactForTitleDistance(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, '')
+}
+
+export function findBestFuzzyShoppingListMatch(
+  shoppingList: { booksId: string; title: string }[],
+  hint: string,
+): { booksId: string; title: string } | null {
+  const h = hint.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!h || shoppingList.length === 0) return null
+
+  const hCompact = compactForTitleDistance(h)
+  const scored = shoppingList.map((item) => {
+    const tCompact = compactForTitleDistance(item.title)
+    return { item, dist: levenshtein(hCompact, tCompact) }
+  })
+  scored.sort((a, b) => a.dist - b.dist || a.item.title.localeCompare(b.item.title))
+  const best = scored[0]!
+  const second = scored[1]
+  const maxLen = Math.max(
+    hCompact.length,
+    compactForTitleDistance(best.item.title).length,
+    1,
+  )
+  const maxAllowedDist = Math.max(1, Math.min(8, Math.floor(0.28 * maxLen)))
+  if (best.dist > maxAllowedDist) return null
+  if (second && second.dist - best.dist < 2) return null
+  return best.item
+}
+

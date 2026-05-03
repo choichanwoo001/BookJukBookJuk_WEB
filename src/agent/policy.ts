@@ -48,6 +48,9 @@ export function mergePlannerIntentWithRules(input: {
   if (isListEditIntentType(ruleIntent.type)) {
     return ruleIntent
   }
+  if (ruleIntent.type === 'confirm' || ruleIntent.type === 'cancel') {
+    return ruleIntent
+  }
   if (hasUsableLlmIntent && llmPlan) {
     return {
       type: llmIntentType,

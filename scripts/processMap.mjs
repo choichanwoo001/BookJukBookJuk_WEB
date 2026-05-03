@@ -77,6 +77,10 @@ const DELTA_TARGET_WALL_AREAS = [
   { surface: 'floor', cx: -6.892, cz: -4.451, radius: 0.350 },
   { surface: 'floor', cx: -14.457, cz: -2.989, radius: 0.350 },
 ]
+/** circle-area (offset-world): 잘못 잡힌 기둥 제거 — 원 내부 WALL을 FREE로 깎음. */
+const PILLAR_DELETE_OPEN_AREAS = [{ cx: -9.812, cz: 14.386, radius: 0.350 }]
+/** circle-area (offset-world): 기둥 휴리스틱 스킵 — PGM 벽을 wallGrid/폴리라인에 그대로 유지. */
+const PILLAR_FORCE_WALL_CIRCLE_AREAS = [{ cx: 0.716, cz: -12.211, radius: 0.350 }]
 const FORCED_UNKNOWN_SCAN_MAX_M = 8.0
 const FORCED_UNKNOWN_ROOM_MIN_SIDE_M = 1.0
 const FORCED_UNKNOWN_ROOM_MAX_SIDE_M = 20.0
@@ -327,6 +331,29 @@ function pxToWorld(col, row, height) {
   // Keep world Z aligned with image row direction (no vertical flip).
   const wz = ORIGIN_Y + row * RESOLUTION
   return [wx, wz]
+}
+
+/** Offset-world 원 내부의 벽 픽셀을 통로로 연다. */
+function carveWallToFreeInCircles(grid, width, height, offsetX, offsetZ, areas) {
+  if (!areas.length) return 0
+  let changed = 0
+  for (let row = 0; row < height; row++) {
+    for (let col = 0; col < width; col++) {
+      const idx = row * width + col
+      if (grid[idx] !== WALL) continue
+      const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+      const ox = wx - offsetX
+      const oz = wz - offsetZ
+      for (const a of areas) {
+        if (Math.hypot(ox - a.cx, oz - a.cz) <= a.radius) {
+          grid[idx] = FREE
+          changed++
+          break
+        }
+      }
+    }
+  }
+  return changed
 }
 
 function isLikelyPillar(component) {
@@ -1775,6 +1802,33 @@ async function main() {
   offsetZ = totalArea > 0 ? sumZ / totalArea : 0
   console.log(`  center offset (final): (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
 
+  const pillarCarvePx = carveWallToFreeInCircles(
+    grid,
+    width,
+    height,
+    offsetX,
+    offsetZ,
+    PILLAR_DELETE_OPEN_AREAS,
+  )
+  if (pillarCarvePx > 0) {
+    console.log(`  pillar delete open areas: ${pillarCarvePx} wall pixels -> FREE`)
+    rawFloorRects = greedyMesh(grid, width, height, FREE)
+    sumX = 0
+    sumZ = 0
+    totalArea = 0
+    for (const r of rawFloorRects) {
+      const [x1, z1] = pxToWorld(r.x, r.y, height)
+      const [x2, z2] = pxToWorld(r.x + r.w, r.y + r.h, height)
+      const area = Math.abs(x2 - x1) * Math.abs(z2 - z1)
+      sumX += ((x1 + x2) / 2) * area
+      sumZ += ((z1 + z2) / 2) * area
+      totalArea += area
+    }
+    offsetX = totalArea > 0 ? sumX / totalArea : 0
+    offsetZ = totalArea > 0 ? sumZ / totalArea : 0
+    console.log(`  center offset (after pillar carve): (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
+  }
+
   if (mapOffsetOnly) {
     console.log(
       JSON.stringify({
@@ -1796,6 +1850,8 @@ async function main() {
   const deltaWallComponentsForBase = []
   let gridChangedAfterFloorMesh = false
   let keepoutExtraction = null
+  /** PGM/occupancy만 반영한 그리드. keepout·delta 벽 합류 후 생기는 작은 덩어리가 기둥으로 오인되지 않게 기둥 후보는 이 스냅샷에서만 추출한다. */
+  const gridForPillarExtraction = new Uint8Array(grid)
   if (deltaImageName) {
     console.log(`\nDelta mode: classifying added components from ${deltaImageName}`)
     const deltaPath = resolve(ROOT, deltaImageName)
@@ -1996,7 +2052,7 @@ async function main() {
     rawFloorRects = greedyMesh(grid, width, height, FREE)
   }
 
-  const rawLoops = extractFreeBoundaryLoops(grid, width, height)
+  const rawLoops = extractFreeBoundaryLoops(gridForPillarExtraction, width, height)
   const centerLoops = rawLoops
     .map(loop => finalizeLoop(loop, height, offsetX, offsetZ, CENTER_LOOP_SIMPLIFY_M, CENTER_LOOP_MIN_SEGMENT_M))
     .filter(loop => loop.length >= 3)
@@ -2021,8 +2077,8 @@ async function main() {
     }
   }
 
-  const wallExtract = extractComponents(grid, width, height, WALL)
-  const { labels: wallLabels, components: wallComponents } = wallExtract
+  const wallExtract = extractComponents(gridForPillarExtraction, width, height, WALL)
+  const { components: wallComponents } = wallExtract
   const pillarCandidateRects = []
   for (const c of wallComponents) {
     const [x1, z1] = pxToWorld(c.minX, c.minY, height)
@@ -2049,7 +2105,7 @@ async function main() {
     )
     const tinyPillar = (
       !c.touchesBoundary &&
-      c.size >= 1 &&
+      c.size >= 6 &&
       c.size <= 90 &&
       smallSide >= 0.03 &&
       smallSide <= 0.6 &&
@@ -2058,7 +2114,10 @@ async function main() {
       c.fillRatio >= 0.1
     )
     const pillarLike = pillar || tinyPillar
-    if (pillarLike) {
+    const forcePgmWall = PILLAR_FORCE_WALL_CIRCLE_AREAS.some(
+      a => Math.hypot(cx - a.cx, cz - a.cz) <= a.radius,
+    )
+    if (pillarLike && !forcePgmWall) {
       pillarCandidateRects.push({
         label: c.label,
         size: c.size,
@@ -2074,47 +2133,49 @@ async function main() {
   }
 
   const PILLAR_DIAMETER = 0.2
-  const PILLAR_COUNT = 3
-  const PILLAR_CLUSTER_DIST = 15
+  /** 같은 기둥의 잔여 픽셀(satellite)을 흡수하기 위한 NMS 반경. 영역별로 가장 큰 후보 1개만 채택. */
+  const PILLAR_NMS_RADIUS_M = 1.0
 
   pillarCandidateRects.sort((a, b) => b.size - a.size)
-  let bestCluster = pillarCandidateRects.slice(0, PILLAR_COUNT)
-  if (pillarCandidateRects.length > PILLAR_COUNT) {
-    let bestScore = -Infinity
-    for (let seed = 0; seed < Math.min(pillarCandidateRects.length, 5); seed++) {
-      const anchor = pillarCandidateRects[seed]
-      const nearby = pillarCandidateRects
-        .filter(v => {
-          const d = Math.hypot(v.rect.cx - anchor.rect.cx, v.rect.cz - anchor.rect.cz)
-          return d < PILLAR_CLUSTER_DIST
-        })
-        .slice(0, PILLAR_COUNT)
-      const score = nearby.reduce((s, v) => s + v.size, 0)
-      if (nearby.length >= PILLAR_COUNT && score > bestScore) {
-        bestScore = score
-        bestCluster = nearby
-      }
-    }
+  const bestCluster = []
+  for (const c of pillarCandidateRects) {
+    const tooClose = bestCluster.some(s =>
+      Math.hypot(s.rect.cx - c.rect.cx, s.rect.cz - c.rect.cz) < PILLAR_NMS_RADIUS_M,
+    )
+    if (!tooClose) bestCluster.push(c)
   }
 
-  const pillarLabels = new Set(bestCluster.map(v => v.label))
   const pillarRects = bestCluster.map(v => ({
     cx: v.rect.cx,
     cz: v.rect.cz,
     w: PILLAR_DIAMETER,
     d: PILLAR_DIAMETER,
   }))
-  console.log(`  pillar candidates: ${pillarCandidateRects.length}, selected: ${bestCluster.length} (cluster within ${PILLAR_CLUSTER_DIST}m)`)
+  console.log(`  pillar candidates: ${pillarCandidateRects.length}, selected: ${bestCluster.length} (NMS radius ${PILLAR_NMS_RADIUS_M}m)`)
   bestCluster.forEach((v, i) => console.log(`    pillar ${i}: cx=${v.rect.cx} cz=${v.rect.cz} size=${v.size}`))
+
+  /** 최종 grid(keepout 책장 벽 포함)와 스냅샷 기둥 bbox 라벨이 어긋나므로, offset-world 박스로만 기둥 픽셀을 판별한다. */
+  const pillarFootprintHalf = v => ({
+    hw: v.rect.w * 0.5 + RESOLUTION * 0.25,
+    hd: v.rect.d * 0.5 + RESOLUTION * 0.25,
+  })
+  const pixelCenterInPillarFootprint = (col, row) => {
+    const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, height)
+    const ox = wx - offsetX, oz = wz - offsetZ
+    for (const v of bestCluster) {
+      const { hw, hd } = pillarFootprintHalf(v)
+      if (Math.abs(ox - v.rect.cx) <= hw && Math.abs(oz - v.rect.cz) <= hd) return true
+    }
+    return false
+  }
 
   const wallGrid = new Uint8Array(grid.length)
   for (let i = 0; i < grid.length; i++) {
     if (grid[i] !== WALL) continue
-    const label = wallLabels[i]
-    if (pillarLabels.has(label)) continue
-    // Keep shelf-like wall components in base wall layer.
-    // Delta shelf layer is handled separately via --delta input.
-    else wallGrid[i] = WALL
+    const col = i % width
+    const row = (i - col) / width
+    if (pixelCenterInPillarFootprint(col, row)) continue
+    wallGrid[i] = WALL
   }
 
   const rawWallRects = greedyMesh(wallGrid, width, height, WALL)
@@ -2122,15 +2183,17 @@ async function main() {
   const renderBoundaryGrid = new Uint8Array(grid)
   for (let i = 0; i < renderBoundaryGrid.length; i++) {
     if (grid[i] !== WALL) continue
-    const label = wallLabels[i]
-    if (pillarLabels.has(label)) renderBoundaryGrid[i] = FREE
+    const col = i % width
+    const row = (i - col) / width
+    if (pixelCenterInPillarFootprint(col, row)) renderBoundaryGrid[i] = FREE
   }
   for (let i = 0; i < grid.length; i++) {
     if (grid[i] !== WALL) continue
-    const label = wallLabels[i]
-    if (!pillarLabels.has(label)) continue
-    const px = i % width
-    const py = (i - px) / width
+    const col = i % width
+    const row = (i - col) / width
+    if (!pixelCenterInPillarFootprint(col, row)) continue
+    const px = col
+    const py = row
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         const nx = px + dx, ny = py + dy

@@ -4,7 +4,7 @@
  */
 export type ShelfRegistryEntry = { id: string; cx: number; cz: number }
 
-/** 41 shelves — same order as cz→cx sort of raw map bookshelves. */
+/** 39 shelves — same order as cz→cx sort of raw map bookshelves (`shelf_018`·`shelf_022` 제외). */
 export const SHELF_REGISTRY: ShelfRegistryEntry[] = [
   { id: 'shelf_001', cx: -7.688, cz: -16.595 },
   { id: 'shelf_002', cx: -4.622, cz: -15.492 },
@@ -23,11 +23,9 @@ export const SHELF_REGISTRY: ShelfRegistryEntry[] = [
   { id: 'shelf_015', cx: 19.309, cz: -5.737 },
   { id: 'shelf_016', cx: -2.012, cz: -5.461 },
   { id: 'shelf_017', cx: -0.862, cz: -5.111 },
-  { id: 'shelf_018', cx: -6.689, cz: -4.449 },
   { id: 'shelf_019', cx: -12.978, cz: -4.429 },
   { id: 'shelf_020', cx: 17.508, cz: -4.002 },
   { id: 'shelf_021', cx: -8.763, cz: -2.962 },
-  { id: 'shelf_022', cx: -14.371, cz: -2.93 },
   { id: 'shelf_023', cx: 20.989, cz: -2.461 },
   { id: 'shelf_024', cx: 29.006, cz: -1.479 },
   { id: 'shelf_025', cx: 25.932, cz: -0.387 },

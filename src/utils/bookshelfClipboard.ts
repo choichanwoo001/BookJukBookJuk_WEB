@@ -13,10 +13,13 @@ export function clampFixturePlanDimension(value: number): number {
 /** Offset copy so the duplicate does not sit on top of the source. */
 export function offsetDuplicateBookshelf(source: FixtureRenderInstance): FixtureRenderInstance {
   return {
-    ...source,
     kind: 'bookshelf',
     cx: source.cx + Math.max(BOOKSHELF_DUPLICATE_MIN_OFFSET, source.w * BOOKSHELF_DUPLICATE_RATIO),
     cz: source.cz + Math.max(BOOKSHELF_DUPLICATE_MIN_OFFSET, source.d * BOOKSHELF_DUPLICATE_RATIO),
+    w: source.w,
+    d: source.d,
+    yaw: source.yaw,
+    h: source.h,
   }
 }
 
@@ -40,6 +43,14 @@ export function parseBookshelfFromClipboardText(text: string): FixtureRenderInst
   const yaw = typeof o.yaw === 'number' ? o.yaw : Number(o.yaw)
   const h = typeof o.h === 'number' ? o.h : Number(o.h)
   if (![cx, cz, w, d, yaw, h].every(Number.isFinite)) return null
+  const shelfId = typeof o.shelfId === 'string' ? o.shelfId : undefined
+  let sector: number | null | undefined
+  if (o.sector === null) sector = null
+  else if (typeof o.sector === 'number' && Number.isFinite(o.sector)) sector = o.sector
+  else if (typeof o.sector === 'string' && o.sector !== '') {
+    const n = Number(o.sector)
+    if (Number.isFinite(n)) sector = n
+  }
   return {
     kind: 'bookshelf',
     cx,
@@ -48,5 +59,7 @@ export function parseBookshelfFromClipboardText(text: string): FixtureRenderInst
     d: clampFixturePlanDimension(d),
     yaw,
     h: clampFixturePlanDimension(h),
+    ...(shelfId ? { shelfId } : {}),
+    ...(sector !== undefined ? { sector } : {}),
   }
 }

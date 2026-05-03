@@ -468,6 +468,39 @@
   border: 1px solid rgba(127, 166, 255, 0.22);
 }
 
+.chatMicPreviewRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.chatForm .chatMicPreviewCancel {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0.28rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(16, 24, 42, 0.75);
+  color: #b8c8e8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.chatForm .chatMicPreviewCancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8edf8;
+}
+
+.chatForm .chatMicPreviewCancel:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: rgba(16, 24, 42, 0.5);
+}
+
 .chatMicPreviewStatus {
   display: flex;
   align-items: baseline;
@@ -476,6 +509,7 @@
   font-size: 0.8rem;
   color: #9eb8e8;
   line-height: 1.35;
+  min-width: 0;
 }
 
 .chatMicPreviewDot {

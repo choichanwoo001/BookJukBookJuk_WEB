@@ -36,12 +36,12 @@ function ChatPanel({
 
   const tts = useTts()
 
-  const handleSpeechResult = useCallback(
-    (transcript: string) => {
-      void submitUserText(transcript, 'chat')
-    },
-    [submitUserText],
-  )
+  const handleSpeechResult = useCallback((transcript: string) => {
+    setDraft((prev) => {
+      const t = prev.trim()
+      return t ? `${t} ${transcript}` : transcript
+    })
+  }, [])
 
   const speech = useSpeechInput({ onResult: handleSpeechResult })
 
@@ -201,18 +201,29 @@ function ChatPanel({
         <form className="chatForm" onSubmit={handleSubmit}>
           {speech.isSupported && speech.isListening && (
             <div className="chatMicPreviewBar">
-              <span className="chatMicPreviewStatus" aria-live="polite">
-                <span className="chatMicPreviewDot" aria-hidden />
-                듣는 중
-                {speech.livePreview ? (
-                  <>
-                    <span className="chatMicPreviewSep" aria-hidden>
-                      ·
-                    </span>
-                    <span className="chatMicPreviewText">{speech.livePreview}</span>
-                  </>
-                ) : null}
-              </span>
+              <div className="chatMicPreviewRow">
+                <span className="chatMicPreviewStatus" aria-live="polite">
+                  <span className="chatMicPreviewDot" aria-hidden />
+                  듣는 중
+                  {speech.livePreview ? (
+                    <>
+                      <span className="chatMicPreviewSep" aria-hidden>
+                        ·
+                      </span>
+                      <span className="chatMicPreviewText">{speech.livePreview}</span>
+                    </>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  className="chatMicPreviewCancel"
+                  onClick={() => speech.cancelListening()}
+                  disabled={busy}
+                  aria-label="음성 인식 취소"
+                >
+                  인식 취소
+                </button>
+              </div>
             </div>
           )}
           <div className="chatFormInputRow">
@@ -237,7 +248,9 @@ function ChatPanel({
                 className="chatMicButton"
                 data-listening={speech.isListening}
                 onClick={() => (speech.isListening ? speech.stopListening() : speech.startListening())}
-                aria-label={speech.isListening ? '음성 입력 마치고 전송' : '음성으로 말하기 시작'}
+                aria-label={
+                  speech.isListening ? '음성 인식 끝내고 입력란에 넣기' : '음성으로 말하기 시작'
+                }
                 aria-pressed={speech.isListening}
                 disabled={busy}
               >
@@ -268,7 +281,7 @@ function ChatPanel({
                       <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" />
                     </svg>
                   )}
-                  <span className="chatMicButtonLabel">{speech.isListening ? '중지' : '말하기'}</span>
+                  <span className="chatMicButtonLabel">{speech.isListening ? '입력란에 넣기' : '말하기'}</span>
                 </span>
               </button>
             )}

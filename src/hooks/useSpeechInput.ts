@@ -16,6 +16,7 @@ export type UseSpeechInputReturn = {
   livePreview: string
   startListening: () => void
   stopListening: () => void
+  cancelListening: () => void
 }
 
 export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions): UseSpeechInputReturn {
@@ -25,6 +26,7 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
   const onResultRef = useRef(onResult)
   const micSessionRef = useRef(false)
   const userRequestedStopRef = useRef(false)
+  const discardOnStopRef = useRef(false)
   const finalBufferRef = useRef('')
   const lastInterimRef = useRef('')
 
@@ -80,6 +82,7 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
       if (ev.error === 'not-allowed' || ev.error === 'audio-capture') {
         micSessionRef.current = false
         userRequestedStopRef.current = false
+        discardOnStopRef.current = false
         finalBufferRef.current = ''
         lastInterimRef.current = ''
         recognitionRef.current = null
@@ -94,6 +97,14 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
       if (userRequestedStopRef.current) {
         userRequestedStopRef.current = false
         micSessionRef.current = false
+        if (discardOnStopRef.current) {
+          discardOnStopRef.current = false
+          finalBufferRef.current = ''
+          lastInterimRef.current = ''
+          setLivePreview('')
+          setIsListening(false)
+          return
+        }
         flushAndNotifyIfNonEmpty()
         setIsListening(false)
         return
@@ -114,6 +125,7 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
     } catch {
       micSessionRef.current = false
       userRequestedStopRef.current = false
+      discardOnStopRef.current = false
       recognitionRef.current = null
       setLivePreview('')
       setIsListening(false)
@@ -126,6 +138,15 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
 
   const stopListening = useCallback(() => {
     if (!micSessionRef.current && !recognitionRef.current) return
+    discardOnStopRef.current = false
+    userRequestedStopRef.current = true
+    micSessionRef.current = false
+    recognitionRef.current?.stop()
+  }, [])
+
+  const cancelListening = useCallback(() => {
+    if (!micSessionRef.current && !recognitionRef.current) return
+    discardOnStopRef.current = true
     userRequestedStopRef.current = true
     micSessionRef.current = false
     recognitionRef.current?.stop()
@@ -137,6 +158,7 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
 
     micSessionRef.current = true
     userRequestedStopRef.current = false
+    discardOnStopRef.current = false
     finalBufferRef.current = ''
     lastInterimRef.current = ''
     setLivePreview('')
@@ -148,10 +170,11 @@ export function useSpeechInput({ onResult, lang = 'ko-KR' }: SpeechInputOptions)
     return () => {
       micSessionRef.current = false
       userRequestedStopRef.current = false
+      discardOnStopRef.current = false
       recognitionRef.current?.stop()
       recognitionRef.current = null
     }
   }, [])
 
-  return { isListening, isSupported, livePreview, startListening, stopListening }
+  return { isListening, isSupported, livePreview, startListening, stopListening, cancelListening }
 }

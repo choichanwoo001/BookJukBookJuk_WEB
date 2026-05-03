@@ -11,6 +11,9 @@ export function BookshelfEditPanel({
   selected,
   selectedIndex,
   setSelectedIndex,
+  unassignedSectorCount = 0,
+  onSetSector,
+  onExportSectorAssignments,
   onAdd,
   onDelete,
   onUpdateW,
@@ -27,6 +30,11 @@ export function BookshelfEditPanel({
   selected: FixtureRenderInstance | null
   selectedIndex: number | null
   setSelectedIndex: (index: number | null) => void
+  /** 책장 중 sector 숫자 미설정 개수 (회색 표시 대상) */
+  unassignedSectorCount?: number
+  onSetSector?: (sector: number | null) => void
+  /** 현재 instances 기준 shelf 매핑 JSON → 클립보드 (src/data/shelfSectorAssignments.ts 갱신용) */
+  onExportSectorAssignments?: () => void
   onAdd: () => void
   onDelete: () => void
   onUpdateW: (v: number) => void
@@ -38,6 +46,8 @@ export function BookshelfEditPanel({
   onCopyChanged: () => void
   onCopyAll: () => void
 }) {
+  const showSectorUi = editTool === 'bookshelfEdit' && onSetSector
+
   return (
     <div className="editPanel">
       <div className="editPanelHeader">책장 편집</div>
@@ -63,8 +73,19 @@ export function BookshelfEditPanel({
       {selected !== null && selectedIndex !== null ? (
         <div className="editPanelBody">
           <div className="editPanelRow">
-            <span className="editLabel">#{selectedIndex}</span>
+            <span className="editLabel">
+              #{selectedIndex}
+              {selected.kind === 'bookshelf' && selected.shelfId
+                ? ` · ${selected.shelfId}`
+                : ''}
+            </span>
           </div>
+          {selected.kind === 'bookshelf' && typeof selected.sector === 'number' && (
+            <div className="editPanelRow">
+              <span className="editLabel">섹터</span>
+              <span className="editValue">{selected.sector}</span>
+            </div>
+          )}
           <div className="editPanelRow">
             <span className="editLabel">X</span>
             <span className="editValue">{selected.cx.toFixed(3)}</span>
@@ -101,6 +122,31 @@ export function BookshelfEditPanel({
               onChange={(e) => onUpdateD(Number(e.target.value))}
             />
           </div>
+          {showSectorUi && selected.kind === 'bookshelf' && (
+            <>
+              <div className="editPanelRow">
+                <span className="editLabel">KDC 섹터</span>
+              </div>
+              <div className="sectorButtonGrid" role="group" aria-label="섹터 0에서 9까지">
+                {Array.from({ length: 10 }, (_, n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className="sectorChip"
+                    data-active={selected.sector === n}
+                    onClick={() => onSetSector!(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="editPanelActions sectorActionsRow">
+                <button type="button" onClick={() => onSetSector!(null)}>
+                  섹터 해제 (미배정)
+                </button>
+              </div>
+            </>
+          )}
           <div className="editPanelActions">
             <button type="button" onClick={onSnapParallel}>벽 평행(yaw)</button>
             <button type="button" onClick={onSnapPerpendicular}>벽 직각(yaw)</button>
@@ -111,9 +157,14 @@ export function BookshelfEditPanel({
         <div className="editPanelBody">
           <div className="editPanelHint">
             {editTool === 'bookshelfEdit'
-              ? 'Alt+클릭으로 책장을 선택하세요 · E로 선택 해제'
+              ? '책장 면을 Alt+클릭으로 선택하면 아래에 좌표·섹터 0~9가 나타납니다 · E로 선택 해제'
               : '영역선택 모드에서 Alt+클릭으로 포인트를 기록하면 구역 안 책장이 선택됩니다'}
           </div>
+          {editTool === 'bookshelfEdit' && unassignedSectorCount > 0 && (
+            <div className="editPanelHint" style={{ color: '#ffb870' }}>
+              섹터 미배정 책장: {unassignedSectorCount}개 (회색으로 표시)
+            </div>
+          )}
         </div>
       )}
       {editTool === 'bookshelfEdit' && (
@@ -134,6 +185,13 @@ export function BookshelfEditPanel({
             <button type="button" onClick={onCopyChanged}>변경분 복사</button>
             <button type="button" onClick={onCopyAll}>전체 복사</button>
           </div>
+          {onExportSectorAssignments && (
+            <div className="editPanelActions">
+              <button type="button" onClick={onExportSectorAssignments}>
+                섹터 매핑 내보내기 (JSON → 클립보드)
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

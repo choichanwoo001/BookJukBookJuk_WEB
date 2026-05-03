@@ -449,6 +449,38 @@
   background: rgba(58, 86, 141, 0.35);
 }
 
+.sectorButtonGrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.35rem;
+  padding: 0.35rem 0 0.25rem;
+}
+
+.sectorChip {
+  border: 1px solid rgba(127, 166, 255, 0.45);
+  background: rgba(24, 36, 58, 0.85);
+  color: #dbe8ff;
+  border-radius: 6px;
+  padding: 0.32rem 0.2rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.sectorChip[data-active='true'] {
+  border-color: #9ec5ff;
+  background: rgba(79, 124, 214, 0.95);
+  color: #fff;
+}
+
+.sectorChip:hover {
+  background: rgba(79, 124, 214, 0.65);
+}
+
+.editPanelActions.sectorActionsRow {
+  border-top: none;
+  padding-top: 0.25rem;
+}
+
 @media (max-width: 1080px) {
   .appShell {
     grid-template-columns: 1fr;

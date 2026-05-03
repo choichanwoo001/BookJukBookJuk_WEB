@@ -116,6 +116,25 @@ npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --debug-dir scri
 npm run fixtures:convert -- --input scripts/samples/detected_fixtures.sample.json --dry-run
 ```
 
+### 책장 ↔ 섹터 ↔ DB `books.shelf_id`
+
+- 맵 책장 안정 ID: `shelf_001` … `shelf_041` (`src/data/floorPlan.ts`에서 지리 순 정렬 기준 부여).
+- 섹터( KDC 0–9 ) 태그·내보내기: 편집 모드 → **책장 편집** 패널에서 섹터 선택 후 **섹터 매핑 내보내기**로 JSON 클립보드 복사 → `src/data/shelfSectorAssignments.ts` 의 행과 맞춰 갱신.
+- Supabase 마이그레이션: `db/migrations/20260501120000_books_shelf_id.sql` 적용 후 시드:
+
+```bash
+npm run seed:book-shelf
+```
+
+- 네비: `useNavigationRoute` 에 `missionShelfIds` 를 넘기면 `missionIndices` 대신 해당 `shelf_*` 책장 목표로 경로 계산 (`src/utils/shelfNavAdapter.ts`).
+
+데이터 점검용 SQL 예시:
+
+```sql
+select sector, count(*) from public.books where shelf_id is null group by sector;
+select shelf_id, count(*) from public.books group by 1 order by 2 desc;
+```
+
 ---
 
 ## 5) 향후 정리 예정 항목

@@ -23,4 +23,8 @@ export type FixtureRenderInstance = {
   d: number
   yaw: number
   h: number
+  /** Stable map shelf id, e.g. shelf_001 … shelf_041 (bookshelf kind only). */
+  shelfId?: string
+  /** KDC 대분류 0–9; bookshelf edit / 네비 연동용 */
+  sector?: number | null
 }

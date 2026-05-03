@@ -16,6 +16,7 @@ import {
   type WorldBounds,
 } from '../utils/gridPathfinding'
 import { pickBookshelfGoalWorld } from '../utils/navBookshelfGoals'
+import { missionIndicesFromShelfIds } from '../utils/shelfNavAdapter'
 import type { WalkabilityContext } from '../utils/walkability'
 
 export type NavigationRouteVisual = {
@@ -30,6 +31,8 @@ export type NavigationRouteVisual = {
 
 export function useNavigationRoute(args: {
   missionIndices: number[]
+  /** 비어 있지 않으면 `missionIndices` 대신 shelf id 순서로 목표 책장을 해석 */
+  missionShelfIds?: string[]
   /** 새 미션 버튼 등으로 바뀔 때마다 경로 상태를 반드시 초기화하기 위해 포함 */
   missionVersion: number
   bookshelfInstances: FixtureRenderInstance[]
@@ -38,20 +41,31 @@ export function useNavigationRoute(args: {
   ctx: WalkabilityContext
   bounds: WorldBounds
   cellSize?: number
+  enabled?: boolean
 }): NavigationRouteVisual | null {
-  const { missionIndices, missionVersion, bookshelfInstances, playerXzRef, ctx, bounds } = args
+  const { missionIndices, missionShelfIds, missionVersion, bookshelfInstances, playerXzRef, ctx, bounds } = args
   const cellSize = args.cellSize ?? NAV_GRID_CELL_M
+  const enabled = args.enabled ?? true
+
+  const resolvedMissionIndices = useMemo(() => {
+    if (!enabled) return []
+    if (missionShelfIds && missionShelfIds.length > 0) {
+      return missionIndicesFromShelfIds(missionShelfIds, bookshelfInstances)
+    }
+    return missionIndices
+  }, [enabled, missionShelfIds, missionIndices, bookshelfInstances])
 
   const goals = useMemo(() => {
+    if (!enabled) return [] as Point2[]
     const out: Point2[] = []
-    for (const idx of missionIndices) {
+    for (const idx of resolvedMissionIndices) {
       const inst = bookshelfInstances[idx]
       if (!inst || inst.kind !== 'bookshelf') continue
       const g = pickBookshelfGoalWorld(inst, ctx, bounds, cellSize, NAV_GOAL_MARGIN_M)
       if (g) out.push(g)
     }
     return out
-  }, [missionIndices, bookshelfInstances, ctx, bounds, cellSize])
+  }, [enabled, resolvedMissionIndices, bookshelfInstances, ctx, bounds, cellSize])
 
   const interShelfPaths = useMemo(() => {
     if (goals.length < 2) return [] as Point2[][]
@@ -94,7 +108,7 @@ export function useNavigationRoute(args: {
   const activeLegRef = useRef(activeLeg)
   const goalsRef = useRef(goals)
 
-  const missionKey = `${missionVersion}:${missionIndices.join(',')}`
+  const missionKey = `${enabled ? 1 : 0}:${missionVersion}:${resolvedMissionIndices.join(',')}:${(missionShelfIds ?? []).join('|')}`
 
   useEffect(() => {
     activeLegRef.current = activeLeg
@@ -105,6 +119,7 @@ export function useNavigationRoute(args: {
   }, [goals])
 
   useEffect(() => {
+    if (!enabled) return
     startTransition(() => {
       setActiveLeg(0)
       setLeg0Path([])
@@ -115,19 +130,21 @@ export function useNavigationRoute(args: {
     leg0FindingDoneRef.current = false
     lastHighlightDistRef.current = null
     startTransition(() => setHighlightDistanceToGoalM(null))
-  }, [missionKey])
+  }, [enabled, missionKey])
 
   useEffect(() => {
+    if (!enabled) return
     if (leg0LockedRef.current) return
     leg0StartRef.current = null
     leg0FindingDoneRef.current = false
-  }, [ctx, bounds, cellSize])
+  }, [enabled, ctx, bounds, cellSize])
 
   useEffect(() => {
     leg0PathRef.current = leg0Path
   }, [leg0Path])
 
   useEffect(() => {
+    if (!enabled) return
     if (goals.length === 0 || activeLeg !== 0) return
     if (leg0LockedRef.current) return
     if (leg0FindingDoneRef.current) return
@@ -158,9 +175,10 @@ export function useNavigationRoute(args: {
       cancelled = true
       cancelAnimationFrame(raf)
     }
-  }, [goals, activeLeg, ctx, bounds, cellSize, missionKey, playerXzRef])
+  }, [enabled, goals, activeLeg, ctx, bounds, cellSize, missionKey, playerXzRef])
 
   useEffect(() => {
+    if (!enabled) return
     let cancelled = false
     let raf = 0
     const tick = () => {
@@ -201,7 +219,7 @@ export function useNavigationRoute(args: {
       cancelled = true
       cancelAnimationFrame(raf)
     }
-  }, [playerXzRef, missionKey])
+  }, [enabled, playerXzRef, missionKey])
 
   useEffect(() => {
     lastHighlightDistRef.current = null
@@ -225,6 +243,7 @@ export function useNavigationRoute(args: {
   }, [activeLeg, goals.length, leg0Path, masterTail, frozenLeg0])
 
   return useMemo(() => {
+    if (!enabled) return null
     if (goals.length === 0) return null
     const cg = activeLeg < goals.length ? goals[activeLeg] : null
     return {
@@ -235,5 +254,5 @@ export function useNavigationRoute(args: {
       activeLeg,
       goals,
     }
-  }, [dimPath, highlightPath, highlightDistanceToGoalM, activeLeg, goals])
+  }, [enabled, dimPath, highlightPath, highlightDistanceToGoalM, activeLeg, goals])
 }

@@ -11,7 +11,8 @@
     "fixtures:convert": "node scripts/convertDetectedFixtures.mjs",
     "fixtures:delta": "node scripts/detectDeltaFixtures.mjs",
     "map:diff-overlay": "node scripts/diffMapOverlay.mjs --base ver0_1.png --target ver2_1.png --write-web",
-    "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts"
+    "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts",
+    "seed:book-shelf": "tsx scripts/seedBookShelfId.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

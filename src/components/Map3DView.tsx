@@ -175,9 +175,11 @@ function Map3DView() {
 
   const {
     instances,
+    instancesWithSectors,
+    sectorByIndex,
     selectedIndex,
     setSelectedIndex,
-    initialInstances,
+    initialInstancesWithSectors,
     handleUpdateInstance,
     addInstance,
     handleAddBookshelf,
@@ -187,7 +189,31 @@ function Map3DView() {
     handleSnapYawToWallPerpendicular,
     handleUpdateW,
     handleUpdateD,
+    handleSetSector,
   } = useBookshelfInstances()
+
+  const unassignedSectorCount = useMemo(
+    () => instances.filter((i, index) => i.kind === 'bookshelf' && typeof sectorByIndex[index] !== 'number').length,
+    [instances, sectorByIndex],
+  )
+
+  const handleExportSectorAssignments = useCallback(() => {
+    const payload = instances
+      .flatMap((i, index) => {
+        if (i.kind !== 'bookshelf') return []
+        return [{
+          id: i.shelfId ?? 'MISSING_ID',
+          sector: typeof sectorByIndex[index] === 'number' ? sectorByIndex[index] : null,
+          cx: +i.cx.toFixed(6),
+          cz: +i.cz.toFixed(6),
+          w: +i.w.toFixed(6),
+          d: +i.d.toFixed(6),
+          yaw: +i.yaw.toFixed(6),
+        }]
+      })
+      .sort((a, b) => a.id.localeCompare(b.id))
+    void navigator.clipboard.writeText(JSON.stringify(payload, null, 2))
+  }, [instances, sectorByIndex])
 
   const missionIndices = useMemo(() => {
     const pool = instances.map((_, i) => i)
@@ -197,6 +223,10 @@ function Map3DView() {
   const handleNewMission = useCallback(() => {
     setMissionVersion((v) => v + 1)
   }, [])
+
+  const isEdit = mode === 'edit'
+  const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
+  const shouldComputeNavigationRoute = !isEdit && (SHOW_NAVIGATION_ROUTE_VISUAL || SHOW_MINIMAP)
 
   const navBounds = useMemo(() => {
     const b = getMinimapWorldBounds()
@@ -225,10 +255,8 @@ function Map3DView() {
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
     bounds: navBounds,
+    enabled: shouldComputeNavigationRoute,
   })
-
-  const isEdit = mode === 'edit'
-  const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
 
   const clampWalkFov = useCallback((v: number) => Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, v)), [])
 
@@ -251,9 +279,9 @@ function Map3DView() {
   }, [handleAddSelection])
 
   const { copySelectedToClipboard, handlePaste, handleCopyAll, handleCopyChanged } = useBookshelfClipboard({
-    instances,
+    instances: instancesWithSectors,
     selectedIndex,
-    initialInstances,
+    initialInstances: initialInstancesWithSectors,
     isEnabled: isBookshelfEdit,
     onPasteNew: addInstance,
   })
@@ -277,7 +305,7 @@ function Map3DView() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mode, editTool, setSelectedIndex])
 
-  const selected = selectedIndex !== null ? instances[selectedIndex] : null
+  const selected = selectedIndex !== null ? instancesWithSectors[selectedIndex] : null
 
   return (
     <div className="map3DContainer">
@@ -286,6 +314,7 @@ function Map3DView() {
           mode={mode}
           editTool={editTool}
           bookshelfRenderInstances={instances}
+          bookshelfSectorValues={sectorByIndex}
           deltaBookshelfRenderInstances={[]}
           staticFixtureInstances={staticInstances}
           selections={selections}
@@ -388,6 +417,13 @@ function Map3DView() {
           selected={selected}
           selectedIndex={selectedIndex}
           setSelectedIndex={setSelectedIndex}
+          unassignedSectorCount={unassignedSectorCount}
+          onSetSector={
+            selectedIndex === null
+              ? undefined
+              : (sector) => handleSetSector(selectedIndex, sector)
+          }
+          onExportSectorAssignments={handleExportSectorAssignments}
           onAdd={handleAddBookshelf}
           onDelete={handleDeleteBookshelf}
           onUpdateW={handleUpdateW}

@@ -8,8 +8,10 @@ import {
   bookshelfPolygons as rawBookshelfPolygons,
   mapWidth, mapDepth, MAP_RESOLUTION,
 } from './mapData'
-import type { WallRect, BookshelfInstance } from './mapData'
+import type { WallRect, BookshelfInstance as MapBookshelfInstance } from './mapData'
 import { detectedFixtures } from './detectedFixtures'
+import { nearestShelfId } from './shelfIdRegistry'
+import { getSectorByShelfId } from './shelfSectorAssignments'
 import { axisAlignedBoundsForRotatedBookshelf } from '../utils/bookshelfCollision'
 import { pointInAnyRect } from '../utils/rectUtils'
 
@@ -29,7 +31,12 @@ export type ManualFixtureInstance = {
   d: number
   yaw: number
   h: number
+  shelfId?: string
+  sector?: number | null
 }
+
+/** Map bookshelf + stable shelf id + sector (from shelfSectorAssignments). */
+export type BookshelfInstance = MapBookshelfInstance & { shelfId: string; sector?: number }
 
 export type RuntimeFixtureInstance = ManualFixtureInstance
 
@@ -156,13 +163,48 @@ export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(
 export const bookshelfInstanceModels = fixtureInstances.filter(v => v.kind === 'bookshelf')
 export const counterInstances = fixtureInstances.filter(v => v.kind === 'counter')
 export const displayLowInstances = fixtureInstances.filter(v => v.kind === 'displayLow')
-export const bookshelfInstances: BookshelfInstance[] = bookshelfInstanceModels.map((s) => ({
-  cx: s.cx,
-  cz: s.cz,
-  w: s.w,
-  d: s.d,
-  yaw: s.yaw,
-}))
+
+const GEOM_EPS = 1e-4
+
+function fixtureGeomEqual(
+  a: Pick<ManualFixtureInstance, 'cx' | 'cz' | 'w' | 'd' | 'yaw'>,
+  b: Pick<ManualFixtureInstance, 'cx' | 'cz' | 'w' | 'd' | 'yaw'>,
+): boolean {
+  return (
+    Math.abs(a.cx - b.cx) < GEOM_EPS
+    && Math.abs(a.cz - b.cz) < GEOM_EPS
+    && Math.abs(a.yaw - b.yaw) < GEOM_EPS
+    && Math.abs(a.w - b.w) < GEOM_EPS
+    && Math.abs(a.d - b.d) < GEOM_EPS
+  )
+}
+
+const sortedBookshelfModelsForIds = [...bookshelfInstanceModels].sort((a, b) => a.cz - b.cz || a.cx - b.cx)
+
+function shelfIdForBookshelfModel(
+  model: Pick<ManualFixtureInstance, 'cx' | 'cz' | 'w' | 'd' | 'yaw'>,
+): string {
+  const idx = sortedBookshelfModelsForIds.findIndex((s) => fixtureGeomEqual(s, model))
+  if (idx >= 0) return `shelf_${String(idx + 1).padStart(3, '0')}`
+  const guess = nearestShelfId(model.cx, model.cz)
+  if (guess) return guess
+  console.warn('[floorPlan] Bookshelf could not be matched to shelf_001–041:', model)
+  return `shelf_unknown_${model.cx.toFixed(2)}_${model.cz.toFixed(2)}`
+}
+
+export const bookshelfInstances: BookshelfInstance[] = bookshelfInstanceModels.map((s) => {
+  const shelfId = shelfIdForBookshelfModel(s)
+  const sector = getSectorByShelfId(shelfId)
+  return {
+    cx: s.cx,
+    cz: s.cz,
+    w: s.w,
+    d: s.d,
+    yaw: s.yaw,
+    shelfId,
+    ...(sector !== undefined ? { sector } : {}),
+  }
+})
 export const bookshelfRects: WallRect[] = bookshelfInstances.map((s) => ({
   cx: s.cx,
   cz: s.cz,
@@ -178,7 +220,7 @@ export const allBookshelfCollisionRects: WallRect[] = [
 ]
 
 export { mapWidth, mapDepth, MAP_RESOLUTION }
-export type { WallRect, BookshelfInstance }
+export type { WallRect }
 
 export function computeFloorCenter(): Point2 {
   if (floorRects.length === 0) return [0, 0]

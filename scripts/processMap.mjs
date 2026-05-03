@@ -34,6 +34,35 @@ const FORCED_UNKNOWN_ISOLATED_AREAS = [
   { surface: 'floor', cx: -5.560, cz: -4.861, radius: 0.350 },
   { surface: 'wall', cx: -15.810, cz: -1.820, radius: 0.350 },
 ]
+/** Sync with `src/data/excludedMapBookshelfIds.ts` — keepout 장애물만 두고 bookshelf 배열에서는 제외 */
+const KEEPOUT_EXCLUDE_BOOKSHELF_IDS = new Set(['shelf_018', 'shelf_022'])
+
+const KEEPOUT_BOOKSHELF_WALL_TARGETS = [
+  { shelfId: 'shelf_013', surface: 'floor', cx: 10.123, cz: -7.212, radius: 0.350 },
+  { shelfId: 'shelf_014', surface: 'floor', cx: 13.065, cz: -5.885, radius: 0.350 },
+  { shelfId: 'shelf_015', surface: 'floor', cx: 19.309, cz: -5.737, radius: 0.350 },
+  { shelfId: 'shelf_018', surface: 'floor', cx: -6.689, cz: -4.449, radius: 0.350 },
+  { shelfId: 'shelf_019', surface: 'floor', cx: -12.978, cz: -4.429, radius: 0.350 },
+  { shelfId: 'shelf_020', surface: 'floor', cx: 17.508, cz: -4.002, radius: 0.350 },
+  { shelfId: 'shelf_021', surface: 'floor', cx: -8.763, cz: -2.962, radius: 0.350 },
+  { shelfId: 'shelf_022', surface: 'floor', cx: -14.371, cz: -2.930, radius: 0.350 },
+  { shelfId: 'shelf_023', surface: 'floor', cx: 20.989, cz: -2.461, radius: 0.350 },
+  { shelfId: 'shelf_024', surface: 'floor', cx: 29.006, cz: -1.479, radius: 0.350 },
+  { shelfId: 'shelf_025', surface: 'floor', cx: 25.932, cz: -0.387, radius: 0.350 },
+  { shelfId: 'shelf_026', surface: 'floor', cx: -18.656, cz: 1.366, radius: 0.350 },
+  { shelfId: 'shelf_027', surface: 'floor', cx: 30.537, cz: 1.607, radius: 0.350 },
+  { shelfId: 'shelf_028', surface: 'floor', cx: 38.550, cz: 2.677, radius: 0.350 },
+  { shelfId: 'shelf_033', surface: 'floor', cx: 43.620, cz: 4.814, radius: 0.350 },
+  { shelfId: 'shelf_034', surface: 'floor', cx: 39.645, cz: 5.575, radius: 0.350 },
+]
+const KEEPOUT_BACKSPACE_UNKNOWN_AREAS = [
+  { surface: 'floor', cx: -15.213, cz: -1.067, radius: 0.350 },
+  { surface: 'floor', cx: -6.329, cz: -6.295, radius: 0.350 },
+  { surface: 'floor', cx: 40.366, cz: 4.740, radius: 0.350 },
+  { surface: 'floor', cx: 28.451, cz: -0.324, radius: 0.350 },
+  { surface: 'floor', cx: 19.567, cz: -4.396, radius: 0.350 },
+  { surface: 'floor', cx: 10.365, cz: -8.448, radius: 0.350 },
+]
 const DELTA_TARGET_WALL_AREAS = [
   { surface: 'floor', cx: -6.892, cz: -4.451, radius: 0.350 },
   { surface: 'floor', cx: -14.457, cz: -2.989, radius: 0.350 },
@@ -1302,7 +1331,7 @@ function componentToMask(component, width, height) {
   return mask
 }
 
-function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ) {
+function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ, wallTargets = []) {
   const keepoutPath = resolve(ROOT, keepoutImageName)
   const keepoutExt = extname(keepoutImageName).toLowerCase()
   if (keepoutExt !== '.pgm' && keepoutExt !== '.pnm') {
@@ -1320,10 +1349,24 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
   }
 
   const { components } = extractComponents(keepoutGrid, width, height, WALL)
+  const selectedWallComponents = selectDeltaWallComponentsNearAreas(
+    components,
+    width,
+    height,
+    offsetX,
+    offsetZ,
+    wallTargets,
+  )
+  const excludeBookshelfLabels = new Set()
+  for (const sel of selectedWallComponents) {
+    const id = sel.area.shelfId
+    if (id && KEEPOUT_EXCLUDE_BOOKSHELF_IDS.has(id)) excludeBookshelfLabels.add(sel.component.label)
+  }
   const bookshelfPolygons = []
   const bookshelfInstances = []
   const bookshelfRects = []
   for (const component of components) {
+    if (excludeBookshelfLabels.has(component.label)) continue
     if (component.size < 8) continue
     const mask = componentToMask(component, width, height)
     const loops = extractBoundaryLoops(mask, width, height, WALL)
@@ -1338,6 +1381,15 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
     loops.sort((a, b) => Math.abs(loopSignedArea(b)) - Math.abs(loopSignedArea(a)))
     const outer = loops[0]
     const instance = componentOrientedBookshelfInstance(component, width, height, offsetX, offsetZ)
+    let coordExclude = false
+    for (const t of KEEPOUT_BOOKSHELF_WALL_TARGETS) {
+      if (!KEEPOUT_EXCLUDE_BOOKSHELF_IDS.has(t.shelfId)) continue
+      if (Math.hypot(instance.cx - t.cx, instance.cz - t.cz) <= 0.45) {
+        coordExclude = true
+        break
+      }
+    }
+    if (coordExclude) continue
     const [x1, z1] = pxToWorld(component.minX, component.minY, height)
     const [x2, z2] = pxToWorld(component.maxX + 1, component.maxY + 1, height)
     const rect = {
@@ -1358,6 +1410,7 @@ function extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, off
   return {
     source: keepoutImageName,
     components: components.length,
+    wallComponents: selectedWallComponents,
     bookshelfPolygons: order.map(i => bookshelfPolygons[i]),
     bookshelfInstances: order.map(i => bookshelfInstances[i]),
     bookshelfRects: order.map(i => bookshelfRects[i]),
@@ -1550,6 +1603,8 @@ async function main() {
   const deltaShelfRectsFromDiff = []
   const deltaShelfComponentsFromDiff = []
   const deltaWallComponentsForBase = []
+  let gridChangedAfterFloorMesh = false
+  let keepoutExtraction = null
   if (deltaImageName) {
     console.log(`\nDelta mode: classifying added components from ${deltaImageName}`)
     const deltaPath = resolve(ROOT, deltaImageName)
@@ -1669,6 +1724,7 @@ async function main() {
     for (const c of deltaWallComponentsForBase) {
       for (const idx of c.indices) grid[idx] = WALL
     }
+    gridChangedAfterFloorMesh = true
     const backspaceUnknown = markBlockedBackspaceUnknownNearAreas(
       grid,
       width,
@@ -1683,6 +1739,45 @@ async function main() {
         `    area @(${item.area.cx.toFixed(3)}, ${item.area.cz.toFixed(3)}) changed=${item.changed}, reason=${item.reason}`,
       )
     }
+  }
+
+  if (keepoutImageName) {
+    console.log(`\nKeepout mode: extracting bookshelf footprints from ${keepoutImageName}`)
+    keepoutExtraction = extractKeepoutBookshelves(
+      keepoutImageName,
+      width,
+      height,
+      offsetX,
+      offsetZ,
+      KEEPOUT_BOOKSHELF_WALL_TARGETS,
+    )
+    if (keepoutExtraction.wallComponents.length > 0) {
+      for (const sel of keepoutExtraction.wallComponents) {
+        for (const idx of sel.component.indices) grid[idx] = WALL
+        console.log(
+          `  keepout bookshelf promoted to wall: ${sel.area.shelfId ?? 'unknown'} center=(${sel.area.cx.toFixed(3)}, ${sel.area.cz.toFixed(3)}), label=${sel.component.label}, dist=${sel.distance.toFixed(3)}, size=${sel.component.size}`,
+        )
+      }
+      gridChangedAfterFloorMesh = true
+      const backspaceUnknown = markBlockedBackspaceUnknownNearAreas(
+        grid,
+        width,
+        height,
+        offsetX,
+        offsetZ,
+        KEEPOUT_BACKSPACE_UNKNOWN_AREAS,
+      )
+      console.log(`  keepout backspace unknown by promoted walls: ${backspaceUnknown.totalChanged}`)
+      for (const item of backspaceUnknown.changedByArea) {
+        console.log(
+          `    area @(${item.area.cx.toFixed(3)}, ${item.area.cz.toFixed(3)}) changed=${item.changed}, reason=${item.reason}`,
+        )
+      }
+    }
+  }
+
+  if (gridChangedAfterFloorMesh) {
+    rawFloorRects = greedyMesh(grid, width, height, FREE)
   }
 
   const rawLoops = extractFreeBoundaryLoops(grid, width, height)
@@ -1887,13 +1982,12 @@ async function main() {
   let finalBookshelfPolygons = []
   let keepoutSourceLabel = null
   if (keepoutImageName) {
-    console.log(`\nKeepout mode: extracting bookshelf footprints from ${keepoutImageName}`)
-    const keepout = extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ)
+    const keepout = keepoutExtraction ?? extractKeepoutBookshelves(keepoutImageName, width, height, offsetX, offsetZ)
     finalBookshelfRects = keepout.bookshelfRects
     finalBookshelfInstances = keepout.bookshelfInstances
     finalBookshelfPolygons = keepout.bookshelfPolygons
     keepoutSourceLabel = keepout.source
-    console.log(`  keepout components: ${keepout.components}, bookshelf footprints: ${finalBookshelfPolygons.length}`)
+    console.log(`  keepout components: ${keepout.components}, bookshelf footprints: ${finalBookshelfPolygons.length}, promoted walls: ${keepout.wallComponents.length}`)
   }
   const deltaShelfLayerInstances = deltaShelfRectsFromDiff.map((r, i) => {
     const comp = deltaShelfComponentsFromDiff[i]

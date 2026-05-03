@@ -6,14 +6,31 @@ import {
   wallHolePolylines as rawWallHolePolylines,
   floorRects as rawFloorRects,
   bookshelfPolygons as rawBookshelfPolygons,
-  mapWidth, mapDepth, MAP_RESOLUTION,
+  mapWidth,
+  mapDepth,
+  MAP_RESOLUTION,
+  MAP_IMAGE_ORIGIN_X,
+  MAP_IMAGE_ORIGIN_Z,
+  mapImageOffsetX,
+  mapImageOffsetZ,
 } from './mapData'
 import type { WallRect, BookshelfInstance as MapBookshelfInstance } from './mapData'
 import { detectedFixtures } from './detectedFixtures'
+import { isExcludedMapBookshelfPosition } from './excludedMapBookshelfIds'
 import { nearestShelfId } from './shelfIdRegistry'
 import { getSectorByShelfId } from './shelfSectorAssignments'
 import { axisAlignedBoundsForRotatedBookshelf } from '../utils/bookshelfCollision'
 import { pointInAnyRect } from '../utils/rectUtils'
+
+const keptMapBookshelfIndices = rawBookshelfInstances
+  .map((m, i) => {
+    if (isExcludedMapBookshelfPosition(m.cx, m.cz, nearestShelfId(m.cx, m.cz))) return -1
+    return i
+  })
+  .filter((i): i is number => i >= 0)
+
+const filteredRawBookshelfInstances = keptMapBookshelfIndices.map((i) => rawBookshelfInstances[i])
+const filteredRawBookshelfPolygons = keptMapBookshelfIndices.map((i) => rawBookshelfPolygons[i])
 
 export type Point2 = [number, number]
 
@@ -40,28 +57,16 @@ export type BookshelfInstance = MapBookshelfInstance & { shelfId: string; sector
 
 export type RuntimeFixtureInstance = ManualFixtureInstance
 
-/** 입구(스폰 기준) 월드 xz (m). */
-export const ENTRANCE_SPAWN: Point2 = [1.46, -1.71]
-
 /**
- * 벽 표면에 얹는 문 장식(맵 폴리라인·내부 구조 미수정).
- * circle-area | surface=wall | center=(1.729, 0.017, -1.407) | radius=0.35 기준으로
- * 중심을 맞추고, 인접 벽 모서리 `[1.256,-2.737]`→`[5.081,7.338]` 접선에 정렬한다.
+ * 스폰 시드: `map_info/b2floor_edited.yaml`의 `origin`이 맵 격자 (0,0)에 대응.
+ * `mapData`는 `node scripts/processMap.mjs`가 YAML에서 읽은 origin·centroid offset을 반영해 생성.
+ * 런타임 xz = `pxToWorld(0,0)` − `mapImageOffset` = `MAP_IMAGE_ORIGIN_*` − `mapImageOffset*`.
+ * `useWorldMovement`의 `findSpawnPosition`이 이 점이 막혀 있으면 주변을 탐색.
  */
-export const ENTRANCE_DOORWAY = {
-  centerX: 1.729,
-  centerZ: -1.407,
-  tangentX: 3.825,
-  tangentZ: 10.075,
-  /** 원 지름(0.7m)에 맞춘 개구 폭. */
-  openingWidthM: 0.72,
-  frameHeightM: 2.38,
-  jambThicknessM: 0.09,
-  frameDepthM: 0.14,
-  lintelHeightM: 0.11,
-  doorPanelWidthM: 0.66,
-  doorOpenRad: 0.4,
-} as const
+export const SPAWN_POINT_WORLD: Point2 = [
+  MAP_IMAGE_ORIGIN_X - mapImageOffsetX,
+  MAP_IMAGE_ORIGIN_Z - mapImageOffsetZ,
+]
 
 /**
  * Runtime-only floor quads merged into `floorRects` for walk mesh / spawn overlap.
@@ -94,7 +99,7 @@ export const wallPolylines = [
   ...MANUAL_WALL_PATCH_LOOPS,
 ]
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
-export const bookshelfPolygons = rawBookshelfPolygons.filter(loop => loop.length >= 3)
+export const bookshelfPolygons = filteredRawBookshelfPolygons.filter(loop => loop.length >= 3)
 
 // Photo / measured placements (persist here; merged with detected fixtures).
 // yaw radians; w,d meters; h shelf height.
@@ -146,7 +151,7 @@ const detectedFixtureInstances: RuntimeFixtureInstance[] = detectedFixtures.map(
   }
 })
 
-const mapBookshelfInstances: RuntimeFixtureInstance[] = rawBookshelfInstances.map((fixture) => ({
+const mapBookshelfInstances: RuntimeFixtureInstance[] = filteredRawBookshelfInstances.map((fixture) => ({
   kind: 'bookshelf',
   cx: fixture.cx,
   cz: fixture.cz,
@@ -184,11 +189,11 @@ const sortedBookshelfModelsForIds = [...bookshelfInstanceModels].sort((a, b) => 
 function shelfIdForBookshelfModel(
   model: Pick<ManualFixtureInstance, 'cx' | 'cz' | 'w' | 'd' | 'yaw'>,
 ): string {
-  const idx = sortedBookshelfModelsForIds.findIndex((s) => fixtureGeomEqual(s, model))
-  if (idx >= 0) return `shelf_${String(idx + 1).padStart(3, '0')}`
   const guess = nearestShelfId(model.cx, model.cz)
   if (guess) return guess
-  console.warn('[floorPlan] Bookshelf could not be matched to shelf_001–041:', model)
+  const idx = sortedBookshelfModelsForIds.findIndex((s) => fixtureGeomEqual(s, model))
+  if (idx >= 0) return `shelf_${String(idx + 1).padStart(3, '0')}`
+  console.warn('[floorPlan] Bookshelf could not be matched to a registry shelf id:', model)
   return `shelf_unknown_${model.cx.toFixed(2)}_${model.cz.toFixed(2)}`
 }
 
@@ -238,4 +243,3 @@ export function isOnFloor(x: number, z: number): boolean {
   return pointInAnyRect(floorRects, x, z)
 }
 
-export const SPAWN_POINT_WORLD: Point2 = ENTRANCE_SPAWN

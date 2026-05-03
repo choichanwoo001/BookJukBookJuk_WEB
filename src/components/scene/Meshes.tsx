@@ -23,7 +23,6 @@ import type { ThreeEvent } from '@react-three/fiber'
 import {
   wallPolylines,
   FLOOR_HEIGHT_M,
-  ENTRANCE_DOORWAY,
   type Point2,
   type WallRect,
 } from '../../data/floorPlan'
@@ -47,8 +46,6 @@ import {
   counterMonitorBezelMaterial,
   counterScannerGreyMaterial,
   counterCashDrawerMaterial,
-  entranceDoorFrameMaterial,
-  entranceDoorLeafMaterial,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
 import { SECTOR_TINT_HEX } from '../../data/shelfSectorAssignments'
@@ -150,62 +147,6 @@ export function WallRibbonMesh({
       onClick={onClick}
       onPointerDown={onPointerDown}
     />
-  )
-}
-
-/** 맵 벽 폴리곤은 건드리지 않고, `ENTRANCE_DOORWAY` 위치에 문틀·문패널만 겹쳐 둔다 (충돌 없음). */
-export function EntranceDoorwayDecor() {
-  const quat = useMemo(() => {
-    const e = new Vector3(ENTRANCE_DOORWAY.tangentX, 0, ENTRANCE_DOORWAY.tangentZ).normalize()
-    const o = new Object3D()
-    o.quaternion.setFromUnitVectors(new Vector3(1, 0, 0), e)
-    return o.quaternion.clone()
-  }, [])
-
-  const {
-    centerX,
-    centerZ,
-    openingWidthM,
-    frameHeightM,
-    jambThicknessM,
-    frameDepthM,
-    lintelHeightM,
-    doorPanelWidthM,
-    doorOpenRad,
-  } = ENTRANCE_DOORWAY
-
-  const W = openingWidthM
-  const H = frameHeightM
-  const T = jambThicknessM
-  const D = frameDepthM
-  const L = lintelHeightM
-  const panelH = Math.max(0.35, H - L - 0.12)
-
-  return (
-    <group
-      position={[centerX, 0, centerZ]}
-      quaternion={quat}
-      userData={{ excludeCameraCollision: true }}
-    >
-      <mesh position={[-W * 0.5 - T * 0.5, H * 0.5, 0]}>
-        <boxGeometry args={[T, H, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <mesh position={[W * 0.5 + T * 0.5, H * 0.5, 0]}>
-        <boxGeometry args={[T, H, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <mesh position={[0, H - L * 0.5, 0]}>
-        <boxGeometry args={[W + T * 2, L, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <group position={[-W * 0.5 + T * 0.55, panelH * 0.5 + 0.06, D * 0.06]} rotation={[0, doorOpenRad, 0]}>
-        <mesh>
-          <boxGeometry args={[doorPanelWidthM, panelH, 0.045]} />
-          <primitive object={entranceDoorLeafMaterial} attach="material" />
-        </mesh>
-      </group>
-    </group>
   )
 }
 

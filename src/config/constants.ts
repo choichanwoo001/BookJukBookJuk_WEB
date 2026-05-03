@@ -114,20 +114,6 @@ export const GAIT_MOVE_THRESHOLD = 0.03
 
 // --- Materials ---
 export const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 })
-/** 입구 문틀 (벽보다 어두운 목재톤). */
-export const entranceDoorFrameMaterial = new MeshStandardMaterial({
-  color: '#4A4238',
-  roughness: 0.82,
-  metalness: 0.04,
-  side: 2,
-})
-/** 입구 문패널. */
-export const entranceDoorLeafMaterial = new MeshStandardMaterial({
-  color: '#5C4030',
-  roughness: 0.76,
-  metalness: 0.05,
-  side: 2,
-})
 export const bookshelfMaterial = new MeshStandardMaterial({ color: '#8E5C42', roughness: 0.78, metalness: 0.02, side: 2 })
 
 /** 맵 차이와 같이 토글되는 후보 책장 오버레이 (본편 책장과 구분). */

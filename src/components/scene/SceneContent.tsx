@@ -41,7 +41,6 @@ import type { ViewMode, SurfaceKind, PickPoint, CircleSelection, FixtureRenderIn
 import type { Point2 } from '../../data/floorPlan'
 import {
   WallRibbonMesh,
-  EntranceDoorwayDecor,
   FloorPolygonMesh,
   PillarCylinderInstances,
   RotatedFixtureInstances,
@@ -519,7 +518,6 @@ export function SceneContent({
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
-        <EntranceDoorwayDecor />
         {hasBookshelfPolygons ? (
           <BookshelfPolygonInstances
             polygons={bookshelfPolygons}

@@ -2,6 +2,7 @@
  * DB books.shelf_id 시드: SHELF_SECTOR_ASSIGNMENTS 기준으로 섹터별 책장에 라운드로빈 배치.
  *
  * 사용: 프로젝트 루트에서 `npx tsx scripts/seedBookShelfId.ts`
+ * 미리보기만: `npx tsx scripts/seedBookShelfId.ts --dry-run` (PATCH 없이 통계·매핑 출력)
  * 필요: .env 의 VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY (service_role 가능)
  */
 
@@ -35,7 +36,7 @@ function loadDotEnv(): Record<string, string> {
   return out
 }
 
-type BookRow = { id: string; sector: number }
+type BookRow = { id: string; sector: number | null }
 
 async function fetchAllBooks(baseUrl: string, key: string): Promise<BookRow[]> {
   const url = `${baseUrl.replace(/\/$/, '')}/rest/v1/books?select=id,sector&order=id.asc`
@@ -73,6 +74,7 @@ async function patchBookShelfId(baseUrl: string, key: string, bookId: string, sh
 }
 
 async function main() {
+  const dryRun = process.argv.includes('--dry-run')
   const envFile = loadDotEnv()
   const baseUrl = process.env.VITE_SUPABASE_URL ?? envFile.VITE_SUPABASE_URL
   const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? envFile.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -102,8 +104,14 @@ async function main() {
   }
 
   const books = await fetchAllBooks(baseUrl, key)
+  const noSector = books.filter((b) => b.sector == null || Number.isNaN(b.sector as number))
+  if (noSector.length) {
+    console.warn(`Warning: ${noSector.length} books with null/invalid sector (shelf_id will not be assigned here)`)
+  }
+
   const bySector = new Map<number, string[]>()
   for (const b of books) {
+    if (b.sector == null || typeof b.sector !== 'number') continue
     const sec = b.sector
     const arr = bySector.get(sec) ?? []
     arr.push(b.id)
@@ -125,6 +133,31 @@ async function main() {
     if (!bookIds?.length || !shelfIds?.length) continue
     const m = assignBooksToShelvesRoundRobin(bookIds, shelfIds)
     for (const [bid, sid] of m) shelfByBook.set(bid, sid)
+  }
+
+  if (dryRun) {
+    console.log('\n=== dry-run: shelf assignment preview (no DB writes) ===\n')
+    console.log('Books per sector (assigned):')
+    for (let s = 0; s <= 9; s++) {
+      const n = bySector.get(s)?.length ?? 0
+      const shelfCount = shelvesBySector.get(s)?.length ?? 0
+      console.log(`  sector ${s}: ${n} books → ${shelfCount} shelves (round-robin)`)
+    }
+    const perShelf = new Map<string, number>()
+    for (const sid of shelfByBook.values()) {
+      perShelf.set(sid, (perShelf.get(sid) ?? 0) + 1)
+    }
+    console.log('\nTarget shelf_id counts after assignment:')
+    for (const sid of [...perShelf.keys()].sort()) {
+      console.log(`  ${sid}: ${perShelf.get(sid)} books`)
+    }
+    console.log('\nFull mapping (book id → shelf_id):')
+    const lines = [...shelfByBook.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+    for (const [bid, sid] of lines) {
+      console.log(`  ${bid} → ${sid}`)
+    }
+    console.log(`\nTotal with shelf assignment: ${shelfByBook.size} / DB rows fetched: ${books.length}`)
+    return
   }
 
   console.log(`Updating ${shelfByBook.size} books...`)

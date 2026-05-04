@@ -41,6 +41,7 @@ import type {
   AgentIntentSource,
   ChatActionCard,
   AgentMessage,
+  RecommendationToolData,
   ToolCall,
   ToolExecutionContext,
   ToolResult,
@@ -60,12 +61,45 @@ import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
 import { isRedundantFallbackAssistantText } from './chatAgent/assistantMessageDedupe'
 
+const RECENT_RECOMMENDED_CAP = 24
+
+function recommendationContextPatch(
+  toolCall: ToolCall,
+  result: ToolResult,
+  snapshot: AgentContext,
+  recentCap: number,
+): Partial<AgentContext> {
+  if (!result.ok || result.toolName !== 'recommendationTool') return {}
+  const data = result.data as RecommendationToolData | undefined
+  const ids =
+    data?.candidates
+      ?.map((c) => (typeof c.booksId === 'string' ? c.booksId.trim() : ''))
+      .filter((id) => id.length > 0) ?? []
+  const patch: Partial<AgentContext> = {}
+  if (ids.length > 0) {
+    const prev = snapshot.recentlyRecommendedBookIds ?? []
+    const merged: string[] = [...prev]
+    for (const id of ids) {
+      if (!merged.includes(id)) merged.push(id)
+    }
+    patch.recentlyRecommendedBookIds = merged.slice(-recentCap)
+  }
+  const modeArg = toolCall.args?.mode
+  const mode = modeArg === 'location' || modeArg === 'rating' ? modeArg : 'taste'
+  if (mode === 'taste') {
+    patch.recommendationDiversityRound = (snapshot.recommendationDiversityRound ?? 0) + 1
+  }
+  return patch
+}
+
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
   mobilityPaused: false,
   listType: '쇼핑리스트',
   activeUsersId: undefined,
   shoppingList: [],
+  recentlyRecommendedBookIds: [],
+  recommendationDiversityRound: 0,
   pendingConfirmation: null,
   lastToolResult: null,
 })
@@ -372,6 +406,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
 
       setContext({
         ...(extraContextPatch ?? {}),
+        ...recommendationContextPatch(toolCall, result, contextRef.current, RECENT_RECOMMENDED_CAP),
         lastToolResult: result,
         state: transitionStateFromTool(contextRef.current.state, result),
       })
@@ -470,9 +505,15 @@ export function useChatAgent(options: { startMode: StartMode }) {
 
   const loadCandidatesForTheme = useCallback(
     async (theme: ThemeOption, refreshCount: number): Promise<RecommendationCandidate[]> => {
-      const rec = await executeTool({ name: 'recommendationTool', args: { mode: 'taste' } }, toolExecutionContext)
+      const toolCall: ToolCall = { name: 'recommendationTool', args: { mode: 'taste' } }
+      const rec = await executeTool(toolCall, toolExecutionContext)
       if (!rec.ok) return []
-      const data = rec.data as { candidates?: { title: string; authors: string }[]; recommendations?: string[] } | undefined
+      const recoPatch = recommendationContextPatch(toolCall, rec, contextRef.current, RECENT_RECOMMENDED_CAP)
+      if (Object.keys(recoPatch).length > 0) setContext(recoPatch)
+      const data = rec.data as {
+        candidates?: { title: string; authors: string; booksId?: string }[]
+        recommendations?: string[]
+      } | undefined
       let pool = data?.candidates ?? []
       if (pool.length === 0 && Array.isArray(data?.recommendations)) {
         pool = data.recommendations
@@ -500,7 +541,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
         reviewKeywords: reviewKeywords.length > 0 ? reviewKeywords : ['공감', '가독성'],
       }))
     },
-    [toolExecutionContext],
+    [setContext, toolExecutionContext],
   )
 
   const loadThemesForAnswers = useCallback(

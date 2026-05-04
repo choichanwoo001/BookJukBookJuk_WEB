@@ -3,6 +3,23 @@ import type { ToolCall } from '../../agent/types'
 import { mergePlannedToolCall } from './toolCallMerge'
 
 describe('mergePlannedToolCall', () => {
+  it('prefers planner title hint over full user utterance when planner gives a concrete title', () => {
+    const deterministic: ToolCall = {
+      name: 'shoppingListTool',
+      args: {
+        action: 'remove',
+        hint: '리스트에 당신의 모든 순간 두 권 다 삭제해줘',
+      },
+    }
+    const planned: ToolCall = {
+      name: 'shoppingListTool',
+      args: { action: 'remove', hint: '당신의 모든 순간' },
+    }
+
+    const merged = mergePlannedToolCall(deterministic, planned, 'remove_book')
+    expect(merged?.args.hint).toBe('당신의 모든 순간')
+  })
+
   it('keeps deterministic remove hint when planner sends command-only hint', () => {
     const deterministic: ToolCall = {
       name: 'shoppingListTool',

@@ -20,4 +20,23 @@ describe('isRedundantFallbackAssistantText', () => {
     const b = '입력한 제목이 여러 책과 비슷해요. 제목을 조금 더 길게 입력하거나 번호로 선택해 주세요.'
     expect(isRedundantFallbackAssistantText(a, b)).toBe(true)
   })
+
+  it('treats punctuation-only variants as redundant', () => {
+    const a = '해당 책은 서점에 없습니다.'
+    const b = '해당 책은 서점에 없습니다'
+    expect(isRedundantFallbackAssistantText(a, b)).toBe(true)
+  })
+
+  it('treats short fallback as redundant when its tokens are contained in a longer primary', () => {
+    const primary =
+      '죄송해요. 해당 책은 서점에 없습니다. 다른 제목으로 검색하거나 직원에게 문의해 주세요.'
+    const fallback = '해당 책은 서점에 없습니다.'
+    expect(isRedundantFallbackAssistantText(primary, fallback)).toBe(true)
+  })
+
+  it('does not merge distinct failure explanations', () => {
+    const primary = '현재 리스트에서 해당 책을 찾지 못했어요. 제목을 확인해 주세요.'
+    const fallback = '해당 책은 서점에 없습니다.'
+    expect(isRedundantFallbackAssistantText(primary, fallback)).toBe(false)
+  })
 })

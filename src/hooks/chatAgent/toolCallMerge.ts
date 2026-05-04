@@ -60,10 +60,13 @@ export function mergePlannedToolCall(
       typeof deterministicToolCall.args.hint === 'string' ? deterministicToolCall.args.hint : ''
     const llmHint = typeof toolCall.args.hint === 'string' ? toolCall.args.hint : ''
     const role = intentType === 'add_book' ? 'add' : 'remove'
-    const llmHasConcreteTitle = llmHint.length > 0 && normalizeListHint(llmHint, role).length > 0
+    const normalizedPlannerHint = normalizeListHint(llmHint, role)
+    // Require a minimum normalized length so command-only planner hints ("삭제해줘") stay deterministic.
+    const plannerHintLooksLikeTitle =
+      llmHint.length > 0 && normalizedPlannerHint.length >= 3
     // Keep list-edit action deterministic to avoid planner synonyms like "delete".
     if (deterministicAction) mergedArgs.action = deterministicAction
-    mergedArgs.hint = deterministicHint || (llmHasConcreteTitle ? llmHint : '')
+    mergedArgs.hint = plannerHintLooksLikeTitle ? llmHint : deterministicHint
   }
 
   return {

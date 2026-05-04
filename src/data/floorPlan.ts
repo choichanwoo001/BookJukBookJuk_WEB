@@ -16,6 +16,7 @@ import {
 } from './mapData'
 import type { WallRect, BookshelfInstance as MapBookshelfInstance } from './mapData'
 import { detectedFixtures } from './detectedFixtures'
+import { getDisplayShelfHeightById, isDisplayShelfId } from './displayShelfOverrides'
 import { isExcludedMapBookshelfPosition } from './excludedMapBookshelfIds'
 import { nearestShelfId } from './shelfIdRegistry'
 import { getSectorByShelfId } from './shelfSectorAssignments'
@@ -38,7 +39,7 @@ export const FLOOR_HEIGHT_M = 3
 export const WALL_THICKNESS_M = 0.16
 export const PLAYER_RADIUS_M = 0.24
 
-export type FixtureKind = 'bookshelf' | 'counter' | 'displayLow'
+export type FixtureKind = 'bookshelf' | 'counter' | 'displayLow' | 'displayShelf'
 
 export type ManualFixtureInstance = {
   kind: FixtureKind
@@ -124,11 +125,13 @@ export const BOOKSHELF_POLYGON_RENDER_IDS = ['shelf_037', 'shelf_041'] as const
 const MANUAL_BOOKSHELF_H = FLOOR_HEIGHT_M * 0.78
 export const COUNTER_H = 1.1
 const DISPLAY_LOW_H = 0.9
+const DISPLAY_SHELF_H = 1.02
 
 const DEFAULT_HEIGHT_BY_KIND: Record<FixtureKind, number> = {
   bookshelf: MANUAL_BOOKSHELF_H,
   counter: COUNTER_H,
   displayLow: DISPLAY_LOW_H,
+  displayShelf: DISPLAY_SHELF_H,
 }
 
 // 계산대는 기본 맵 레이어가 아니라 bookshelves overlay 레이어에서 관리한다.
@@ -169,15 +172,31 @@ const detectedFixtureInstances: RuntimeFixtureInstance[] = detectedFixtures.map(
   }
 })
 
-const mapBookshelfInstances: RuntimeFixtureInstance[] = filteredRawBookshelfInstances.map((fixture) => ({
-  kind: 'bookshelf',
-  cx: fixture.cx,
-  cz: fixture.cz,
-  w: fixture.w,
-  d: fixture.d,
-  yaw: fixture.yaw,
-  h: MANUAL_BOOKSHELF_H,
-}))
+const mapBookshelfInstances: RuntimeFixtureInstance[] = filteredRawBookshelfInstances.map((fixture) => {
+  const shelfId = nearestShelfId(fixture.cx, fixture.cz)
+  if (isDisplayShelfId(shelfId)) {
+    return {
+      kind: 'displayShelf',
+      cx: fixture.cx,
+      cz: fixture.cz,
+      w: fixture.w,
+      d: fixture.d,
+      yaw: fixture.yaw,
+      h: getDisplayShelfHeightById(shelfId) ?? DISPLAY_SHELF_H,
+      ...(shelfId ? { shelfId } : {}),
+    }
+  }
+  return {
+    kind: 'bookshelf',
+    cx: fixture.cx,
+    cz: fixture.cz,
+    w: fixture.w,
+    d: fixture.d,
+    yaw: fixture.yaw,
+    h: MANUAL_BOOKSHELF_H,
+    ...(shelfId ? { shelfId } : {}),
+  }
+})
 
 export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(
   mergeFixtures(mapBookshelfInstances, detectedFixtureInstances),
@@ -186,6 +205,7 @@ export const fixtureInstances: RuntimeFixtureInstance[] = mergeFixtures(
 export const bookshelfInstanceModels = fixtureInstances.filter(v => v.kind === 'bookshelf')
 export const counterInstances = fixtureInstances.filter(v => v.kind === 'counter')
 export const displayLowInstances = fixtureInstances.filter(v => v.kind === 'displayLow')
+export const displayShelfInstances = fixtureInstances.filter(v => v.kind === 'displayShelf')
 
 const GEOM_EPS = 1e-4
 

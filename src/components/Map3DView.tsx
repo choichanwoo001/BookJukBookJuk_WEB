@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import {
   counterInstances,
+  displayShelfInstances,
   displayLowInstances,
   floorRects,
   bookshelfPolygons,
@@ -53,7 +54,17 @@ function buildStaticInstances(): FixtureRenderInstance[] {
     yaw: item.yaw,
     h: item.h,
   }))
-  return [...counters, ...displays]
+  const displayShelves = displayShelfInstances.map<FixtureRenderInstance>((item) => ({
+    kind: 'displayShelf',
+    cx: item.cx,
+    cz: item.cz,
+    w: item.w,
+    d: item.d,
+    yaw: item.yaw,
+    h: item.h,
+    shelfId: item.shelfId,
+  }))
+  return [...counters, ...displays, ...displayShelves]
 }
 
 function selectionToText(selection: CircleSelection) {

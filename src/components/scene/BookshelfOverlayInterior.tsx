@@ -2,6 +2,7 @@ import React, { useLayoutEffect, useMemo, useRef } from 'react'
 import { Color, Group, InstancedMesh, Mesh, Object3D } from 'three'
 import type { MeshStandardMaterial as MeshStandardMaterialType } from 'three'
 import type { FixtureRenderInstance } from '../../types/scene'
+import { getShelfLevelsById } from '../../data/shelfSectorAssignments'
 import { nearestWallInfo } from '../../utils/wallAlignment'
 import { mulberry32, hashSeed, bookColorHex } from '../../utils/bookGeometryUtils'
 
@@ -57,14 +58,14 @@ type WallLayout = {
 }
 
 function computeIslandLayout(
-  cx: number, cz: number, w: number, h: number, d: number, hInner: number,
+  cx: number, cz: number, w: number, h: number, d: number, hInner: number, shelfTierCount: number,
 ): IslandLayout {
   const margin = PANEL_T
   const innerW = Math.max(0.06, w - 2 * margin)
   const innerD = Math.max(0.06, d - 2 * margin)
   const nBaysX = Math.max(1, Math.min(8, Math.floor(w / 0.35)))
   const nBaysZ = Math.max(1, Math.min(6, Math.floor(d / 0.35)))
-  const mShelves = Math.max(2, Math.min(7, Math.floor(h / 0.38)))
+  const mShelves = Math.max(2, Math.min(7, shelfTierCount))
   const bayW = innerW / nBaysX
   const bayD = innerD / nBaysZ
   const depthZ = innerD
@@ -127,10 +128,10 @@ function computeIslandLayout(
 }
 
 function computeWallLayout(
-  cx: number, cz: number, w: number, h: number, d: number, wInner: number, hInner: number,
+  cx: number, cz: number, w: number, h: number, d: number, wInner: number, hInner: number, shelfTierCount: number,
 ): WallLayout {
   const nBays = Math.max(1, Math.min(8, Math.floor(w / 0.35)))
-  const mShelves = Math.max(2, Math.min(7, Math.floor(h / 0.38)))
+  const mShelves = Math.max(2, Math.min(7, shelfTierCount))
   const bayW = wInner / nBays
   const zBackInner = -d * 0.5 + PANEL_T
   const zFrontInner = OPEN_AT_POS_Z ? d * 0.5 - 0.03 : -d * 0.5 + PANEL_T
@@ -338,10 +339,15 @@ const DetailedShelf = React.memo(function DetailedShelf({
   const hInner = h - 2 * PANEL_T
   const booksRef = useRef<InstancedMesh>(null)
 
+  const shelfTierCount = useMemo(
+    () => Math.max(2, Math.min(7, getShelfLevelsById(instance.shelfId))),
+    [instance.shelfId],
+  )
+
   const layout = useMemo<IslandLayout | WallLayout>(() => {
-    if (mode === 'island') return computeIslandLayout(cx, cz, w, h, d, hInner)
-    return computeWallLayout(cx, cz, w, h, d, wInner, hInner)
-  }, [cx, cz, w, h, d, wInner, hInner, mode])
+    if (mode === 'island') return computeIslandLayout(cx, cz, w, h, d, hInner, shelfTierCount)
+    return computeWallLayout(cx, cz, w, h, d, wInner, hInner, shelfTierCount)
+  }, [cx, cz, w, h, d, wInner, hInner, mode, shelfTierCount])
 
   useLayoutEffect(() => {
     const mesh = booksRef.current

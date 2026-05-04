@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { PerspectiveCamera } from '@react-three/drei'
+import { Html, PerspectiveCamera } from '@react-three/drei'
 import { Group, Vector3 } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -29,6 +29,8 @@ import {
   floorMaterial,
   ceilingMaterial,
   bookshelfMaterial,
+  bookshelfOverlayLayerMaterial,
+  bookshelfOverlayInteriorWoodMaterial,
   displayLowMaterial,
   pillarMaterial,
   markerMaterial,
@@ -48,6 +50,7 @@ import {
   RotatedFixtureInstances,
   BookshelfPolygonInstances,
   SupermarketCounterInstances,
+  DisplayShelfInstances,
   SelectedBookshelfOverlay,
   BookstoreLights,
 } from './Meshes'
@@ -60,12 +63,19 @@ import {
   OverviewPanController,
 } from './CameraControllers'
 import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
+import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
 import { StickmanPlayer } from './StickmanPlayer'
 import { MinimapViewportReporter } from './MinimapViewportReporter'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
 import { worldXzToMinimapUv } from '../../utils/minimapBounds'
 import { NavigationRouteMesh } from './NavigationRouteMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
+import {
+  orderedHighlightKindsForShelf,
+  SHELF_HIGHLIGHT_META,
+  type ShelfHighlightKind,
+} from '../../data/shelfHighlights'
+import { useShelfHighlightFlags } from '../../hooks/useShelfHighlightFlags'
 
 export type MinimapPlayerPos = { u: number; v: number; yaw: number }
 
@@ -224,6 +234,10 @@ export function SceneContent({
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = true
+  const shelfHighlightFlags = useShelfHighlightFlags()
+  /** 책장 편집 시 선택/드래그와 겹치지 않도록 추천 뱃지 비표시 */
+  const showShelfHighlightBadges = !isBookshelfEdit
+
   const counterRenderInstances = useMemo(() => {
     return staticFixtureInstances.filter((inst) => inst.kind === 'counter')
   }, [staticFixtureInstances])
@@ -231,6 +245,40 @@ export function SceneContent({
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
   )
+  const displayShelfRenderInstances = useMemo(
+    () => staticFixtureInstances.filter((inst) => inst.kind === 'displayShelf'),
+    [staticFixtureInstances],
+  )
+
+  /** 전체 보기·1·3인칭 공통: 하이라이트가 있는 선반 위에 항상 뱃지 표시 */
+  const shelfHighlightBadgeItems = useMemo(() => {
+    if (!showShelfHighlightBadges) return []
+    type Item = { key: string; cx: number; cz: number; h: number; kinds: ShelfHighlightKind[] }
+    const items: Item[] = []
+    const pushFrom = (list: FixtureRenderInstance[], prefix: string) => {
+      list.forEach((inst, i) => {
+        const kinds = orderedHighlightKindsForShelf(shelfHighlightFlags, inst.shelfId)
+        if (kinds.length === 0) return
+        items.push({
+          key: `${prefix}-${inst.shelfId ?? `noid-${i}`}-${inst.cx.toFixed(3)}-${inst.cz.toFixed(3)}`,
+          cx: inst.cx,
+          cz: inst.cz,
+          h: inst.h,
+          kinds,
+        })
+      })
+    }
+    pushFrom(bookshelfRenderInstances, 'main')
+    pushFrom(deltaBookshelfRenderInstances, 'delta')
+    pushFrom(displayShelfRenderInstances, 'display')
+    return items
+  }, [
+    showShelfHighlightBadges,
+    shelfHighlightFlags,
+    bookshelfRenderInstances,
+    deltaBookshelfRenderInstances,
+    displayShelfRenderInstances,
+  ])
 
   /** ㄱ/ㄴ형 등 맵 폴리곤으로만 그릴 shelf id (나머지는 OBB). */
   const specialBookshelfRenderPolygons = useMemo(() => {
@@ -252,6 +300,35 @@ export function SceneContent({
       if (bookshelfPolygonByShelfId[inst.shelfId]) s.add(i)
     })
     return s
+  }, [bookshelfRenderInstances])
+
+  /** 폴리곤이 아닌 서가: 내부 상세 메쉬가 외피를 그리므로 박스는 비표시(피킹 유지) */
+  const bookshelfBoxHiddenForInteriorIndices = useMemo(() => {
+    const ids = BOOKSHELF_POLYGON_RENDER_IDS as readonly string[]
+    const s = new Set<number>()
+    if (isBookshelfEdit) return s
+    bookshelfRenderInstances.forEach((inst, i) => {
+      if (inst.kind !== 'bookshelf' || !inst.shelfId) return
+      if (ids.includes(inst.shelfId)) return
+      s.add(i)
+    })
+    return s
+  }, [bookshelfRenderInstances, isBookshelfEdit])
+
+  const mergedTransparentBookshelfInstanceIndices = useMemo(() => {
+    const out = new Set(transparentBookshelfInstanceIndices)
+    for (const i of bookshelfBoxHiddenForInteriorIndices) out.add(i)
+    return out
+  }, [transparentBookshelfInstanceIndices, bookshelfBoxHiddenForInteriorIndices])
+
+  const bookshelfInteriorDetailInstances = useMemo(() => {
+    const ids = BOOKSHELF_POLYGON_RENDER_IDS as readonly string[]
+    return bookshelfRenderInstances.filter(
+      (inst) =>
+        inst.kind === 'bookshelf'
+        && inst.shelfId
+        && !ids.includes(inst.shelfId),
+    )
   }, [bookshelfRenderInstances])
 
   const bookshelfCollisionRects = useMemo(
@@ -557,13 +634,20 @@ export function SceneContent({
           sectorValues={bookshelfSectorValues}
           material={bookshelfMaterial}
           tintSectors={isBookshelfEdit}
-          transparentInstanceIndices={transparentBookshelfInstanceIndices}
+          transparentInstanceIndices={mergedTransparentBookshelfInstanceIndices}
           onPointerDown={
             isBookshelfEdit
               ? handleBookshelfPointerDown
               : bookshelfPickHandler
           }
         />
+        {!isBookshelfEdit && bookshelfInteriorDetailInstances.length > 0 && (
+          <BookshelfOverlayInterior
+            instances={bookshelfInteriorDetailInstances}
+            shellMaterial={bookshelfOverlayLayerMaterial}
+            woodMaterial={bookshelfOverlayInteriorWoodMaterial}
+          />
+        )}
         <RotatedFixtureInstances
           instances={deltaBookshelfRenderInstances}
           material={bookshelfMaterial}
@@ -580,6 +664,40 @@ export function SceneContent({
             onPointerDown={bookshelfPickHandler}
           />
         )}
+        <DisplayShelfInstances
+          instances={displayShelfRenderInstances}
+          onPointerDown={bookshelfPickHandler}
+        />
+        {shelfHighlightBadgeItems.map((item) => (
+          <Html
+            key={item.key}
+            position={[item.cx, item.h + 0.22, item.cz]}
+            center
+            distanceFactor={5.5}
+            style={{ pointerEvents: 'none' }}
+            zIndexRange={[200, 0]}
+          >
+            <div
+              style={{
+                display: 'flex',
+                gap: 4,
+                padding: '4px 8px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.92)',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+                fontSize: 'clamp(14px, 2.5vw, 20px)',
+                lineHeight: 1,
+              }}
+              aria-label={item.kinds.map((k) => SHELF_HIGHLIGHT_META[k].labelKo).join(', ')}
+            >
+              {item.kinds.map((k) => (
+                <span key={k} title={SHELF_HIGHLIGHT_META[k].labelKo} role="img">
+                  {SHELF_HIGHLIGHT_META[k].emoji}
+                </span>
+              ))}
+            </div>
+          </Html>
+        ))}
         {isBookshelfEdit && selectedInst && (
           <group userData={{ excludeCameraCollision: true }}>
             <SelectedBookshelfOverlay instance={selectedInst} />

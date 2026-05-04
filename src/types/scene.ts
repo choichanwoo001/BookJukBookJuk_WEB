@@ -13,7 +13,7 @@ export type CircleSelection = {
   center: PickPoint
 }
 
-export type FixtureRenderKind = 'bookshelf' | 'counter' | 'displayLow'
+export type FixtureRenderKind = 'bookshelf' | 'counter' | 'displayLow' | 'displayShelf'
 
 export type FixtureRenderInstance = {
   kind: FixtureRenderKind

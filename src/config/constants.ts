@@ -50,6 +50,7 @@ export const MAP_VIEW_YAW_OFFSET_RAD = 0
 export const PLAYER_SCALE = 0.7
 export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.12
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
+export const DISPLAY_SHELF_DEFAULT_HEIGHT_M = 1.02
 
 /** Min/max for editable fixture width & depth (m) in edit mode. */
 export const MIN_FIXTURE_PLAN_M = 0.05
@@ -61,8 +62,10 @@ export const EDIT_YAW_WHEEL_SENSITIVITY = 0.001
 
 // --- Movement ---
 export const WALK_SPEED_MPS = 2.8
-export const SPAWN_SEARCH_MAX_RADIUS = 5
+export const SPAWN_SEARCH_MAX_RADIUS = 10
 export const SPAWN_SEARCH_STEP = 0.3
+/** floorRects 격자 fallback에서 후보 점 간격 (m). */
+export const SPAWN_GRID_FALLBACK_STEP = 0.3
 
 // --- Navigation route (책장 순회) ---
 /** A* 그리드 셀 크기 (m). */
@@ -217,6 +220,24 @@ export const counterCashDrawerMaterial = new MeshStandardMaterial({
   side: 2,
 })
 export const displayLowMaterial = new MeshStandardMaterial({ color: '#A1887F', roughness: 0.8, metalness: 0.02, side: 2 })
+export const displayShelfFrameMaterial = new MeshStandardMaterial({
+  color: '#6B4A35',
+  roughness: 0.78,
+  metalness: 0.03,
+  side: 2,
+})
+export const displayShelfTopMaterial = new MeshStandardMaterial({
+  color: '#8E6650',
+  roughness: 0.7,
+  metalness: 0.04,
+  side: 2,
+})
+export const displayShelfBookMaterial = new MeshStandardMaterial({
+  color: '#D7C7A2',
+  roughness: 0.86,
+  metalness: 0.01,
+  side: 2,
+})
 export const pillarMaterial = new MeshStandardMaterial({ color: '#D9D0C3', roughness: 0.86, metalness: 0.0, side: 2 })
 export const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
 export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roughness: 0.88, metalness: 0.0, side: 2 })

@@ -46,10 +46,14 @@ import {
   counterMonitorBezelMaterial,
   counterScannerGreyMaterial,
   counterCashDrawerMaterial,
+  displayShelfFrameMaterial,
+  displayShelfTopMaterial,
+  displayShelfBookMaterial,
 } from '../../config/constants'
 import type { FixtureRenderInstance } from '../../types/scene'
 import { SECTOR_TINT_HEX } from '../../data/shelfSectorAssignments'
 import { createPerInstanceOpacityMaterial } from '../../utils/perInstanceOpacityMaterial'
+import { buildVirtualTopBooks } from '../../utils/virtualDisplayBooks'
 
 const _dummy = new Object3D()
 const _unitX = new Vector3(1, 0, 0)
@@ -611,6 +615,93 @@ function SupermarketCounterSingle({
         <boxGeometry args={[0.04, 0.05, 0.06]} />
         <primitive object={counterScannerGreyMaterial} attach="material" />
       </mesh>
+    </group>
+  )
+}
+
+export function DisplayShelfInstances({
+  instances,
+  onPointerDown,
+}: {
+  instances: FixtureRenderInstance[]
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
+}) {
+  return (
+    <>
+      {instances.map((inst) => (
+        <DisplayShelfSingle
+          key={`${inst.shelfId ?? 'display'}-${inst.cx}-${inst.cz}-${inst.yaw}-${inst.w}-${inst.d}`}
+          inst={inst}
+          onPointerDown={onPointerDown}
+        />
+      ))}
+    </>
+  )
+}
+
+function DisplayShelfSingle({
+  inst,
+  onPointerDown,
+}: {
+  inst: FixtureRenderInstance
+  onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
+}) {
+  const { cx, cz, w, d, h, yaw } = inst
+  const legW = Math.max(0.07, Math.min(0.16, w * 0.08))
+  const topTh = Math.max(0.05, Math.min(0.08, h * 0.09))
+  const apronH = Math.max(0.1, Math.min(0.16, h * 0.15))
+  const legH = Math.max(0.65, h - topTh - 0.02)
+  const legY = legH * 0.5
+  const topY = h - topTh * 0.5
+  const apronY = h - topTh - apronH * 0.5
+  const legX = w * 0.5 - legW * 0.5 - 0.03
+  const legZ = d * 0.5 - legW * 0.5 - 0.03
+  const books = useMemo(() => buildVirtualTopBooks(inst), [inst])
+
+  return (
+    <group
+      position={[cx, 0, cz]}
+      rotation={[0, yaw, 0]}
+      onPointerDown={onPointerDown}
+    >
+      {/* 상판 */}
+      <mesh position={[0, topY, 0]}>
+        <boxGeometry args={[w, topTh, d]} />
+        <primitive object={displayShelfTopMaterial} attach="material" />
+      </mesh>
+      {/* 상판 하부 프레임 */}
+      <mesh position={[0, apronY, 0]}>
+        <boxGeometry args={[Math.max(0.2, w - 0.06), apronH, Math.max(0.18, d - 0.08)]} />
+        <primitive object={displayShelfFrameMaterial} attach="material" />
+      </mesh>
+      {/* 코너 다리 */}
+      <mesh position={[-legX, legY, -legZ]}>
+        <boxGeometry args={[legW, legH, legW]} />
+        <primitive object={displayShelfFrameMaterial} attach="material" />
+      </mesh>
+      <mesh position={[legX, legY, -legZ]}>
+        <boxGeometry args={[legW, legH, legW]} />
+        <primitive object={displayShelfFrameMaterial} attach="material" />
+      </mesh>
+      <mesh position={[-legX, legY, legZ]}>
+        <boxGeometry args={[legW, legH, legW]} />
+        <primitive object={displayShelfFrameMaterial} attach="material" />
+      </mesh>
+      <mesh position={[legX, legY, legZ]}>
+        <boxGeometry args={[legW, legH, legW]} />
+        <primitive object={displayShelfFrameMaterial} attach="material" />
+      </mesh>
+      {/* 상판 위 가상 진열 책 */}
+      {books.map((book, idx) => (
+        <mesh
+          key={`${inst.shelfId ?? 'display'}-book-${idx}`}
+          position={[book.x, book.y, book.z]}
+          rotation={[0, book.yaw, 0]}
+        >
+          <boxGeometry args={[book.w, book.h, book.d]} />
+          <primitive object={displayShelfBookMaterial} attach="material" />
+        </mesh>
+      ))}
     </group>
   )
 }

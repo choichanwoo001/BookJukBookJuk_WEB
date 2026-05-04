@@ -13,6 +13,8 @@ export type ShelfSectorAssignmentRow = {
   w: number
   d: number
   yaw: number
+  /** `bookshelves.levels`와 동기; 생략 시 시드 기본값과 동일 */
+  levels?: number
 }
 
 export const SHELF_SECTOR_ASSIGNMENTS: ShelfSectorAssignmentRow[] = [
@@ -33,31 +35,35 @@ export const SHELF_SECTOR_ASSIGNMENTS: ShelfSectorAssignmentRow[] = [
   { id: 'shelf_015', sector: 2, cx: 19.309, cz: -5.737, w: 6.773, d: 0.726, yaw: -0.3999 },
   { id: 'shelf_016', sector: 5, cx: -2.012, cz: -5.461, w: 1.695, d: 0.63, yaw: 1.2202 },
   { id: 'shelf_017', sector: 5, cx: -0.862, cz: -5.111, w: 1.695, d: 0.63, yaw: 1.2202 },
-  { id: 'shelf_019', sector: 4, cx: -12.978, cz: -4.429, w: 3.416, d: 1.25, yaw: -0.3182 },
   { id: 'shelf_020', sector: 2, cx: 17.508, cz: -4.002, w: 1.726, d: 0.727, yaw: -0.4254 },
-  { id: 'shelf_021', sector: 5, cx: -8.763, cz: -2.962, w: 3.067, d: 1.3, yaw: -0.31 },
   { id: 'shelf_023', sector: 2, cx: 20.989, cz: -2.461, w: 1.766, d: 0.8, yaw: -0.4161 },
   { id: 'shelf_024', sector: 1, cx: 29.006, cz: -1.479, w: 7.05, d: 0.599, yaw: -0.4127 },
   { id: 'shelf_025', sector: 1, cx: 25.932, cz: -0.387, w: 2.637, d: 0.731, yaw: -0.4082 },
   { id: 'shelf_026', sector: 8, cx: -18.656, cz: 1.366, w: 3.989, d: 0.674, yaw: 1.2405 },
   { id: 'shelf_027', sector: 1, cx: 30.537, cz: 1.607, w: 2.618, d: 0.702, yaw: -0.4151 },
   { id: 'shelf_028', sector: 0, cx: 38.55, cz: 2.677, w: 5.916, d: 0.604, yaw: -0.4112 },
-  { id: 'shelf_029', sector: 7, cx: -5.155, cz: 2.896, w: 1.463, d: 1.424, yaw: 1.1707 },
   { id: 'shelf_030', sector: 7, cx: -3.941, cz: 4.166, w: 3.337, d: 0.619, yaw: 1.2377 },
   { id: 'shelf_031', sector: 8, cx: -21.898, cz: 4.187, w: 4.843, d: 0.679, yaw: 1.2147 },
-  { id: 'shelf_032', sector: 7, cx: -5.855, cz: 4.746, w: 1.463, d: 1.424, yaw: 1.1707 },
   { id: 'shelf_033', sector: 0, cx: 43.62, cz: 4.814, w: 2.63, d: 0.865, yaw: -0.4051 },
   { id: 'shelf_034', sector: 0, cx: 39.645, cz: 5.575, w: 8.193, d: 0.561, yaw: -0.4198 },
-  { id: 'shelf_035', sector: 8, cx: -6.869, cz: 9.916, w: 2.394, d: 2.327, yaw: -0.4348 },
-  { id: 'shelf_036', sector: 8, cx: -9.419, cz: 12.016, w: 2.394, d: 2.327, yaw: -0.4348 },
   { id: 'shelf_037', sector: 9, cx: 3.477, cz: 12.599, w: 3.416, d: 1.952, yaw: -1.2068 },
-  { id: 'shelf_038', sector: 9, cx: -6.419, cz: 13.116, w: 2.394, d: 2.327, yaw: -0.4348 },
-  { id: 'shelf_039', sector: 9, cx: 1.884, cz: 13.581, w: 1.579, d: 1.522, yaw: 1.3171 },
-  { id: 'shelf_040', sector: 9, cx: 0.96, cz: 15.792, w: 1.532, d: 1.369, yaw: -0.4174 },
   { id: 'shelf_041', sector: 9, cx: 1.544, cz: 18.009, w: 3.427, d: 2.068, yaw: 0.4753 },
 ]
 
 const byId = new Map(SHELF_SECTOR_ASSIGNMENTS.map((r) => [r.id, r]))
+
+/** `scripts/seedBookShelfId.ts` DEFAULT_LEVELS / DB `bookshelves.levels` 기본과 동일 */
+export const DEFAULT_BOOKSHELF_LEVELS = 5
+
+/**
+ * 내비·3D 선반 단 수. DB `bookshelves.levels`(1–20)와 맞추고, 미등록 id는 기본값.
+ */
+export function getShelfLevelsById(id: string | null | undefined): number {
+  if (!id) return DEFAULT_BOOKSHELF_LEVELS
+  const row = byId.get(id)
+  const raw = row?.levels ?? DEFAULT_BOOKSHELF_LEVELS
+  return Math.max(1, Math.min(20, Math.round(raw)))
+}
 
 export function getShelfRowById(id: string): ShelfSectorAssignmentRow | undefined {
   return byId.get(id)

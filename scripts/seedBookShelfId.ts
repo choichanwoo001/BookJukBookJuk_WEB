@@ -17,6 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { DISPLAY_SHELF_IDS } from '../src/data/displayShelfOverrides'
 import { SHELF_SECTOR_ASSIGNMENTS } from '../src/data/shelfSectorAssignments'
 import { assignBooksToShelvesRoundRobin, assignLevelsRoundRobin } from '../src/utils/bookShelfDistribution'
 
@@ -24,6 +25,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 
 const DEFAULT_LEVELS = 5
+const ACTIVE_SHELF_SECTOR_ASSIGNMENTS = SHELF_SECTOR_ASSIGNMENTS.filter(
+  (row) => !DISPLAY_SHELF_IDS.has(row.id),
+)
 
 function loadDotEnv(): Record<string, string> {
   const envPath = path.join(root, '.env')
@@ -84,7 +88,7 @@ async function fetchBookshelvesLevels(baseUrl: string, key: string): Promise<Map
 }
 
 async function upsertBookshelves(baseUrl: string, key: string): Promise<void> {
-  const rows = SHELF_SECTOR_ASSIGNMENTS.map((r) => ({
+  const rows = ACTIVE_SHELF_SECTOR_ASSIGNMENTS.map((r) => ({
     id: r.id,
     sector: r.sector,
     cx: r.cx,
@@ -138,7 +142,7 @@ async function patchBookShelfPlacement(
 
 function defaultLevelsByShelfId(): Map<string, number> {
   const m = new Map<string, number>()
-  for (const r of SHELF_SECTOR_ASSIGNMENTS) {
+  for (const r of ACTIVE_SHELF_SECTOR_ASSIGNMENTS) {
     m.set(r.id, DEFAULT_LEVELS)
   }
   return m
@@ -181,7 +185,7 @@ async function main() {
   const key = dryRun ? keyDryRun! : serviceRoleKey!
 
   const shelvesBySector = new Map<number, string[]>()
-  for (const row of SHELF_SECTOR_ASSIGNMENTS) {
+  for (const row of ACTIVE_SHELF_SECTOR_ASSIGNMENTS) {
     const sec = row.sector
     if (typeof sec !== 'number' || sec < 0 || sec > 9) {
       console.error(`Invalid sector for ${row.id}: ${sec}`)
@@ -205,7 +209,7 @@ async function main() {
     console.log('Upserting bookshelves...')
     await upsertBookshelves(baseUrl, key)
     levelsByShelf = await fetchBookshelvesLevels(baseUrl, key)
-    for (const r of SHELF_SECTOR_ASSIGNMENTS) {
+    for (const r of ACTIVE_SHELF_SECTOR_ASSIGNMENTS) {
       if (!levelsByShelf.has(r.id)) {
         levelsByShelf.set(r.id, DEFAULT_LEVELS)
       }

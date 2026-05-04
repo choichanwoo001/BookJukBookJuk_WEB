@@ -71,7 +71,7 @@ export const SPAWN_POINT_WORLD: Point2 = [
 /**
  * Runtime-only floor quads merged into `floorRects` for walk mesh / spawn overlap.
  * They are not produced from the occupancy PGM; exclude when validating “map file only” geometry.
- * Regenerate base rects with `node scripts/processMap.mjs` (optional `--raw-map`, `--dump-classified-pgm`).
+ * Regenerate base rects with `node scripts/processMap.mjs` (optional `--dump-classified-pgm`).
  */
 const MANUAL_FLOOR_FILL_RECTS: WallRect[] = []
 
@@ -100,6 +100,24 @@ export const wallPolylines = [
 ]
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
 export const bookshelfPolygons = filteredRawBookshelfPolygons.filter(loop => loop.length >= 3)
+
+/** Map-derived footprint per shelf id (parallel to filtered raw instances). L-shape shelves use this for mesh; nav still uses `bookshelfPolygons`. */
+export const bookshelfPolygonByShelfId: Record<string, Point2[]> = (() => {
+  const out: Record<string, Point2[]> = {}
+  for (let i = 0; i < filteredRawBookshelfInstances.length; i++) {
+    const row = filteredRawBookshelfInstances[i]
+    const shelfId = nearestShelfId(row.cx, row.cz)
+    if (!shelfId) continue
+    const poly = filteredRawBookshelfPolygons[i]
+    if (poly && poly.length >= 3) {
+      out[shelfId] = poly.map((p) => [p[0], p[1]] as Point2)
+    }
+  }
+  return out
+})()
+
+/** Render as extruded map polygon (ㄱ/ㄴ형); main mass uses OBB — see SceneContent. */
+export const BOOKSHELF_POLYGON_RENDER_IDS = ['shelf_037', 'shelf_041'] as const
 
 // Photo / measured placements (persist here; merged with detected fixtures).
 // yaw radians; w,d meters; h shelf height.

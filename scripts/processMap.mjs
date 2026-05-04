@@ -13,22 +13,24 @@ const DEFAULT_IMAGE = 'map_info/b2floor_edited.pgm'
 const YAML_PATH = resolve(ROOT, 'map_info/b2floor_edited.yaml')
 /**
  * CLI: `--image <path>`, `--delta <path>`, `--map-offset-only`
- * - `--raw-map` — skip wall-noise removal, morphClose, pruneWallsNotAdjacentToFree
  * - `--classify-mode trinary|scale` — PGM only; overrides YAML `mode`
  * - `--dump-classified-pgm <path>` — write classified grid (0/127/255) after the above steps
  */
 
-const MIN_CLUSTER_SIZE = 28
-/** Looser snap reduces stair-stepping along diagonals vs strict Manhattan alignment. */
-const AXIS_SNAP_DEG = 22
 const CENTER_LOOP_SIMPLIFY_M = 0.15
-const RENDER_LOOP_SIMPLIFY_M = 0.38
+const RENDER_LOOP_SIMPLIFY_M = 0.06
 const HOLE_LOOP_SIMPLIFY_M = 0.08
 const KEEPOUT_LOOP_SIMPLIFY_M = 0.04
 const CENTER_LOOP_MIN_SEGMENT_M = 0.12
-const RENDER_LOOP_MIN_SEGMENT_M = 0.28
+const RENDER_LOOP_MIN_SEGMENT_M = 0.08
 const HOLE_LOOP_MIN_SEGMENT_M = 0.08
 const KEEPOUT_LOOP_MIN_SEGMENT_M = 0.04
+/** Chaikin corner-cutting iterations on closed loops (wall vs hole). */
+const RENDER_LOOP_CHAIKIN_ITER = 2
+const HOLE_LOOP_CHAIKIN_ITER = 1
+/** Max distance (m) from wall vertex to nearest bookshelf edge to snap onto that edge. */
+/** Outside shelf: set 0 to only correct vertices that lie inside a shelf footprint (Chaikin bulge). */
+const SHELF_WALL_SNAP_OUTSIDE_M = 0
 
 const FORCED_UNKNOWN_ISOLATED_AREAS = [
   { surface: 'floor', cx: -5.560, cz: -4.861, radius: 0.350 },
@@ -90,7 +92,6 @@ const FORCED_UNKNOWN_ROOM_MAX_ASPECT = 20.0
 let RESOLUTION = 0.05
 let ORIGIN_X = -53.4
 let ORIGIN_Y = -19.1
-let PIXEL_MODE = false
 
 function parseSimpleYaml(path) {
   const text = readFileSync(path, 'utf-8')
@@ -380,50 +381,6 @@ function isLikelyPillar(component) {
     component.fillRatio >= 0.1
   )
   return regularPillar || tinyPillar
-}
-
-function removeWallNoisePreservingPillars(grid, width, height) {
-  const { components } = extractComponents(grid, width, height, WALL)
-  let removed = 0
-  let pillarLike = 0
-  for (const c of components) {
-    const keep = c.size >= MIN_CLUSTER_SIZE || isLikelyPillar(c)
-    if (isLikelyPillar(c)) pillarLike++
-    if (keep) continue
-    for (const idx of c.indices) {
-      grid[idx] = 0
-      removed++
-    }
-  }
-  return { removed, pillarLike }
-}
-
-function dilate(src, width, height, val) {
-  const dst = new Uint8Array(src)
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x
-      if (src[i] === val) continue
-      if (src[i - 1] === val || src[i + 1] === val || src[i - width] === val || src[i + width] === val) dst[i] = val
-    }
-  }
-  return dst
-}
-
-function erode(src, width, height, val) {
-  const dst = new Uint8Array(src)
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x
-      if (src[i] !== val) continue
-      if (src[i - 1] !== val || src[i + 1] !== val || src[i - width] !== val || src[i + width] !== val) dst[i] = 0
-    }
-  }
-  return dst
-}
-
-function morphClose(grid, width, height) {
-  return erode(dilate(grid, width, height, WALL), width, height, WALL)
 }
 
 function resolveEnclosedRegions(grid, width, height) {
@@ -841,41 +798,6 @@ function markBlockedBackspaceUnknownNearAreas(grid, width, height, offsetX, offs
   return { totalChanged, changedByArea }
 }
 
-function pruneWallsNotAdjacentToFree(grid, width, height) {
-  const { components } = extractComponents(grid, width, height, WALL)
-  let removed = 0
-  let kept = 0
-  for (const c of components) {
-    let touchesFree = false
-    for (const idx of c.indices) {
-      const x = idx % width
-      const y = (idx - x) / width
-      for (let dy = -1; dy <= 1 && !touchesFree; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (dx === 0 && dy === 0) continue
-          const nx = x + dx
-          const ny = y + dy
-          if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
-          if (grid[ny * width + nx] === FREE) {
-            touchesFree = true
-            break
-          }
-        }
-      }
-      if (touchesFree) break
-    }
-    if (touchesFree || isLikelyPillar(c)) {
-      kept++
-      continue
-    }
-    for (const idx of c.indices) {
-      grid[idx] = UNKNOWN
-      removed++
-    }
-  }
-  return { kept, removed }
-}
-
 function greedyMesh(grid, width, height, targetValue) {
   const used = new Uint8Array(width * height)
   const rects = []
@@ -1008,6 +930,74 @@ function distToSegment(p, a, b) {
   return Math.hypot(p[0] - px, p[1] - pz)
 }
 
+/** Closest point on segment AB to P in XZ; dist is perpendicular distance. */
+function projectPointOntoSegment(p, a, b) {
+  const vx = b[0] - a[0]
+  const vz = b[1] - a[1]
+  const wx = p[0] - a[0]
+  const wz = p[1] - a[1]
+  const len2 = vx * vx + vz * vz
+  if (len2 <= 1e-10) {
+    return { qx: a[0], qz: a[1], dist: Math.hypot(wx, wz) }
+  }
+  let t = (wx * vx + wz * vz) / len2
+  t = Math.max(0, Math.min(1, t))
+  const qx = a[0] + vx * t
+  const qz = a[1] + vz * t
+  return { qx, qz, dist: Math.hypot(p[0] - qx, p[1] - qz) }
+}
+
+function vertexInsideAnyBookshelfFootprint(p, shelfPolygons) {
+  for (const poly of shelfPolygons) {
+    if (!poly || poly.length < 3) continue
+    if (pointInPolygonXZ(p[0], p[1], poly)) return true
+  }
+  return false
+}
+
+/**
+ * Snap wall vertices onto the nearest bookshelf edge:
+ * - If vertex is inside a shelf footprint, always project to boundary (fixes Chaikin bulge into shelf).
+ * - If outside, only snap when within snapOutsideM of an edge (tangential contact, not whole wall).
+ * Bookshelf polygons unchanged (render-only).
+ */
+function snapWallLoopVerticesToShelves(loop, shelfPolygons, snapOutsideM) {
+  if (!loop || loop.length < 2 || !shelfPolygons?.length) {
+    return { loop: loop ? dedupeLoop(loop) : [], snappedCount: 0 }
+  }
+  let snappedCount = 0
+  const out = loop.map((p) => {
+    const inside = vertexInsideAnyBookshelfFootprint(p, shelfPolygons)
+    let bestDist = Infinity
+    let bestQx = p[0]
+    let bestQz = p[1]
+    for (const poly of shelfPolygons) {
+      if (!poly || poly.length < 2) continue
+      const m = poly.length
+      for (let i = 0; i < m; i++) {
+        const a = poly[i]
+        const b = poly[(i + 1) % m]
+        const { qx, qz, dist } = projectPointOntoSegment(p, a, b)
+        if (dist < bestDist) {
+          bestDist = dist
+          bestQx = qx
+          bestQz = qz
+        }
+      }
+    }
+    if (bestDist >= Infinity) return [p[0], p[1]]
+    const shouldSnap = inside
+      ? bestDist > 1e-6
+      : snapOutsideM > 0 && bestDist <= snapOutsideM
+    if (shouldSnap) {
+      snappedCount++
+      return [bestQx, bestQz]
+    }
+    return [p[0], p[1]]
+  })
+  return { loop: dedupeLoop(out), snappedCount }
+}
+
 function rdpOpen(points, tolerance) {
   if (points.length <= 2) return points
   let maxDist = 0
@@ -1043,23 +1033,6 @@ function simplifyLoop(points, tolerance) {
   const s2 = rdpOpen(half2, tolerance)
   const combined = [...s1.slice(0, -1), ...s2.slice(0, -1)]
   return combined.length >= 3 ? combined : points
-}
-
-function snapLoopToAxis(points, snapDeg) {
-  if (points.length <= 2) return points
-  const rad = (snapDeg * Math.PI) / 180
-  const tanT = Math.tan(rad)
-  const result = points.map(p => [p[0], p[1]])
-  for (let i = 0; i < result.length; i++) {
-    const cur = result[i]
-    const next = result[(i + 1) % result.length]
-    const dx = next[0] - cur[0]
-    const dz = next[1] - cur[1]
-    if (Math.abs(dx) < 1e-9 && Math.abs(dz) < 1e-9) continue
-    if (Math.abs(dz) <= Math.abs(dx) * tanT) next[1] = cur[1]
-    else if (Math.abs(dx) <= Math.abs(dz) * tanT) next[0] = cur[0]
-  }
-  return result
 }
 
 function loopSignedArea(points) {
@@ -1119,16 +1092,41 @@ function pruneShortSegments(loop, minLength) {
   return points
 }
 
-function finalizeLoop(loop, imgHeight, offsetX, offsetZ, simplifyTolerance, minSegmentLength) {
-  const world = gridLoopToWorld(loop, imgHeight, offsetX, offsetZ)
-  if (PIXEL_MODE) {
-    // Pixel mode: keep the polyline as-is (no axis snapping / RDP simplification / short segment pruning).
-    return dedupeLoop(world)
+/** Chaikin corner-cutting on a closed polygon (offset-world XZ). */
+function chaikinSmoothClosedLoop(points, iterations) {
+  if (points.length < 3 || iterations <= 0) return points
+  let cur = points.map(p => [p[0], p[1]])
+  for (let k = 0; k < iterations; k++) {
+    const n = cur.length
+    if (n < 3) break
+    const next = new Array(n * 2)
+    for (let i = 0; i < n; i++) {
+      const a = cur[i]
+      const b = cur[(i + 1) % n]
+      next[2 * i] = [a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]
+      next[2 * i + 1] = [a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]
+    }
+    cur = next
   }
-  const snapped1 = snapLoopToAxis(world, AXIS_SNAP_DEG)
-  const simplified = simplifyLoop(snapped1, simplifyTolerance)
-  const snapped2 = snapLoopToAxis(simplified, AXIS_SNAP_DEG)
-  return dedupeLoop(pruneShortSegments(snapped2, minSegmentLength))
+  return cur
+}
+
+function finalizeLoop(
+  loop,
+  imgHeight,
+  offsetX,
+  offsetZ,
+  simplifyTolerance,
+  minSegmentLength,
+  chaikinIter = 0,
+) {
+  const world = gridLoopToWorld(loop, imgHeight, offsetX, offsetZ)
+  let f = world
+  if (simplifyTolerance > 0) f = simplifyLoop(f, simplifyTolerance)
+  if (minSegmentLength > 0) f = pruneShortSegments(f, minSegmentLength)
+  if (chaikinIter > 0) f = chaikinSmoothClosedLoop(f, chaikinIter)
+  f = dedupeLoop(f)
+  return f.length >= 3 ? f : dedupeLoop(world)
 }
 
 function pixelRectsToWorld(rawRects, imgHeight, offsetX, offsetZ) {
@@ -1655,9 +1653,6 @@ async function main() {
   const imageArg = process.argv.indexOf('--image')
   const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
   const mapOffsetOnly = process.argv.includes('--map-offset-only')
-  const smoothMap = process.argv.includes('--smooth-map')
-  const rawMap = process.argv.includes('--raw-map') || !smoothMap
-  PIXEL_MODE = process.argv.includes('--pixel-mode') || rawMap
   const classifyModeArgIdx = process.argv.indexOf('--classify-mode')
   const classifyModeCli =
     classifyModeArgIdx >= 0 ? String(process.argv[classifyModeArgIdx + 1] || '').toLowerCase() : null
@@ -1700,9 +1695,6 @@ async function main() {
     }
     classifyMode = classifyModeCli
   }
-  if (rawMap) {
-    console.log('  raw-minimal mode: enabled (default). pass --smooth-map for full smoothing pipeline.')
-  }
   console.log(`  Dimensions: ${width}x${height}, resolution: ${RESOLUTION}`)
   console.log(`  mode: ${classifyMode}, thresholds -> wall <= ${wallThreshold}, free >= ${freeThreshold}`)
 
@@ -1719,31 +1711,11 @@ async function main() {
     console.log(`  raster background(gray): ${raster.backgroundValue}, raster free cutoff: ${Math.max(freeThreshold, 245)}`)
   }
 
-  if (rawMap) {
-    console.log('  --raw-map: skipped wall noise removal and morphClose')
-  } else {
-    console.log('Removing wall noise while preserving pillar-like components...')
-    const firstCleanup = removeWallNoisePreservingPillars(grid, width, height)
-    console.log(`  removed: ${firstCleanup.removed}, pillar-like kept: ${firstCleanup.pillarLike}`)
-
-    grid = morphClose(grid, width, height)
-    const secondCleanup = removeWallNoisePreservingPillars(grid, width, height)
-    console.log(`  post-close removed: ${secondCleanup.removed}, pillar-like kept: ${secondCleanup.pillarLike}`)
-  }
-
   const enclosedResolve = resolveEnclosedRegions(grid, width, height)
   const freeSelection = keepSignificantFreeComponents(grid, width, height)
   console.log(
     `  enclosed regions: ${enclosedResolve.enclosedCount}, free-assigned: ${enclosedResolve.freeAssigned}, wall-assigned: ${enclosedResolve.wallAssigned}, unknown-assigned: ${enclosedResolve.unknownAssigned}, largest-enclosed: ${enclosedResolve.largestEnclosedSize}, kept free: ${freeSelection.totalKeptSize} (${freeSelection.keptCount} components), interior-priority: ${freeSelection.usedInterior}, candidates: ${freeSelection.candidateCount}`,
   )
-  let wallFilter = { kept: 0, removed: 0 }
-  if (rawMap) {
-    console.log('  --raw-map: skipped pruneWallsNotAdjacentToFree')
-  } else {
-    wallFilter = pruneWallsNotAdjacentToFree(grid, width, height)
-    console.log(`  wall components kept near interior: ${wallFilter.kept}, wall pixels removed: ${wallFilter.removed}`)
-  }
-
   if (dumpClassifiedRelPath) {
     const dumpAbs = resolve(ROOT, dumpClassifiedRelPath)
     writeClassifiedGridPGM(dumpAbs, grid, width, height)
@@ -1878,16 +1850,9 @@ async function main() {
       throw new Error(`Delta image size must match base map size: delta=${dw}x${dh}, base=${width}x${height}`)
     }
 
-    let deltaGrid = deltaIsPgm
+    const deltaGrid = deltaIsPgm
       ? classify(deltaPixels, wallThreshold, freeThreshold, classifyMode)
       : classifyRaster(deltaPixels, wallThreshold, Math.max(freeThreshold, 245), deltaBackground, 30)
-    if (rawMap) {
-      console.log('  delta raw-minimal: skipped wall noise removal and morphClose')
-    } else {
-      removeWallNoisePreservingPillars(deltaGrid, dw, dh)
-      deltaGrid = morphClose(deltaGrid, dw, dh)
-      removeWallNoisePreservingPillars(deltaGrid, dw, dh)
-    }
 
     const deltaWallGrid = new Uint8Array(dw * dh)
     let deltaCount = 0
@@ -1910,7 +1875,7 @@ async function main() {
     const baseWorldMinZ = ORIGIN_Y - offsetZ
     const baseWorldMaxZ = ORIGIN_Y + (height - 1) * RESOLUTION - offsetZ
 
-    const deltaForComponents = rawMap ? deltaWallGrid : morphClose(deltaWallGrid, dw, dh)
+    const deltaForComponents = deltaWallGrid
     const { components: deltaComponents } = extractComponents(deltaForComponents, dw, dh, WALL)
     const selectedDeltaWalls = selectDeltaWallComponentsNearAreas(
       deltaComponents,
@@ -2221,14 +2186,30 @@ async function main() {
 
   const classifiedLoops = []
   for (const { rawLoop, isRoom } of classifiedRaw) {
-    const renderFinalized = finalizeLoop(rawLoop, height, offsetX, offsetZ, RENDER_LOOP_SIMPLIFY_M, RENDER_LOOP_MIN_SEGMENT_M)
+    const renderFinalized = finalizeLoop(
+      rawLoop,
+      height,
+      offsetX,
+      offsetZ,
+      RENDER_LOOP_SIMPLIFY_M,
+      RENDER_LOOP_MIN_SEGMENT_M,
+      RENDER_LOOP_CHAIKIN_ITER,
+    )
     if (renderFinalized.length < 3) continue
     const renderArea = Math.abs(loopSignedArea(renderFinalized))
     if (renderArea < MIN_LOOP_AREA_M2) continue
 
     const holeFinalized = isRoom
       ? renderFinalized
-      : finalizeLoop(rawLoop, height, offsetX, offsetZ, HOLE_LOOP_SIMPLIFY_M, HOLE_LOOP_MIN_SEGMENT_M)
+      : finalizeLoop(
+        rawLoop,
+        height,
+        offsetX,
+        offsetZ,
+        HOLE_LOOP_SIMPLIFY_M,
+        HOLE_LOOP_MIN_SEGMENT_M,
+        HOLE_LOOP_CHAIKIN_ITER,
+      )
 
     classifiedLoops.push({
       renderLoop: renderFinalized,
@@ -2246,6 +2227,45 @@ async function main() {
       outerLoopIdx = i
     }
   }
+
+  let shelfWallSnapVertices = 0
+  let insideShelfWallSegmentsBeforeSnap = -1
+  if (keepoutExtraction?.bookshelfPolygons?.length) {
+    const shelfPolys = keepoutExtraction.bookshelfPolygons
+    const wallPolylinesBeforeShelfSnap = classifiedLoops.map(c => c.renderLoop)
+    insideShelfWallSegmentsBeforeSnap = countWallSegmentsInsideBookshelfPolygons(
+      wallPolylinesBeforeShelfSnap,
+      shelfPolys,
+    )
+    console.log(
+      `  shelf overlap diagnostic (before shelf snap): insideShelfWallSegments=${insideShelfWallSegmentsBeforeSnap}`,
+    )
+    for (const c of classifiedLoops) {
+      const holeSharesRenderRef = c.holeLoop === c.renderLoop
+      const rRender = snapWallLoopVerticesToShelves(
+        c.renderLoop,
+        shelfPolys,
+        SHELF_WALL_SNAP_OUTSIDE_M,
+      )
+      c.renderLoop = rRender.loop
+      shelfWallSnapVertices += rRender.snappedCount
+      if (holeSharesRenderRef) {
+        c.holeLoop = c.renderLoop
+      } else {
+        const rHole = snapWallLoopVerticesToShelves(
+          c.holeLoop,
+          shelfPolys,
+          SHELF_WALL_SNAP_OUTSIDE_M,
+        )
+        c.holeLoop = rHole.loop
+        shelfWallSnapVertices += rHole.snappedCount
+      }
+    }
+    console.log(
+      `  shelf-wall snap: vertices moved=${shelfWallSnapVertices}, outsideMax=${SHELF_WALL_SNAP_OUTSIDE_M.toFixed(3)}m, inside=always`,
+    )
+  }
+
   const wallPolylines = classifiedLoops.map(c => c.renderLoop)
   const wallHolePolylines = classifiedLoops
     .filter((c, i) => i !== outerLoopIdx && !c.isRoom)
@@ -2256,7 +2276,9 @@ async function main() {
       wallPolylines,
       keepoutExtraction.bookshelfPolygons,
     )
-    console.log(`  shelf overlap diagnostic: insideShelfWallSegments=${insideShelfWallSegments}`)
+    console.log(
+      `  shelf overlap diagnostic (after snap): insideShelfWallSegments=${insideShelfWallSegments} (before=${insideShelfWallSegmentsBeforeSnap >= 0 ? insideShelfWallSegmentsBeforeSnap : 'n/a'})`,
+    )
   }
   const fallbackPolylines = wallPolylines.length > 0 ? wallPolylines : centerLoops
   const principalAxes = computePrincipalAxes(fallbackPolylines)

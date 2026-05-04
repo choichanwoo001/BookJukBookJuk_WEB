@@ -51,6 +51,20 @@ describe('intent → tool mapping', () => {
     expect(mapped?.args.mode).toBe('taste')
   })
 
+  it('maps location-flavored recommendation request to mode location', () => {
+    const intent = parseIntent('가까운 서가 추천해줘', 'chat')
+    const mapped = mapIntentToTool(intent)
+    expect(mapped?.name).toBe('recommendationTool')
+    expect(mapped?.args.mode).toBe('location')
+  })
+
+  it('maps rating-flavored recommendation request to mode rating', () => {
+    const intent = parseIntent('평점 높은 책 추천해줘', 'chat')
+    const mapped = mapIntentToTool(intent)
+    expect(mapped?.name).toBe('recommendationTool')
+    expect(mapped?.args.mode).toBe('rating')
+  })
+
   it('maps "최단경로 재계산" to routePlannerTool', () => {
     const intent = parseIntent('최단경로 재계산', 'chat')
     expect(mapIntentToTool(intent)?.name).toBe('routePlannerTool')

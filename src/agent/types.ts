@@ -46,7 +46,7 @@ export type ShoppingListToolData = {
 export type RecommendationToolData = {
   recommendations: string[]
   source: string
-  candidates?: { title: string; authors: string }[]
+  candidates?: { booksId: string; title: string; authors: string }[]
   tasteMeta?: {
     richness: number
     computedAt: string
@@ -109,6 +109,10 @@ export type AgentContext = {
   listType: string
   activeUsersId?: string
   shoppingList: ShoppingListEntry[]
+  /** 세션 내 최근 추천에 노출된 책 id (연속 추천 다양화용, 쇼핑리스트와 별도). */
+  recentlyRecommendedBookIds: string[]
+  /** 취향 추천 상위 창 슬라이스 로테이션 카운터. */
+  recommendationDiversityRound: number
   pendingConfirmation: PendingConfirmation | null
   lastToolResult: ToolResult | null
 }

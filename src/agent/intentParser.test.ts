@@ -6,6 +6,14 @@ describe('parseIntent', () => {
     expect(parseIntent('취소', 'chat').type).toBe('cancel')
   })
 
+  it('does not treat correction "아니 … 기분" as cancel', () => {
+    expect(parseIntent('아니 내가 말한 건 기분이야', 'chat').type).not.toBe('cancel')
+  })
+
+  it('still parses 아니 취소 as cancel', () => {
+    expect(parseIntent('아니, 취소할게', 'chat').type).toBe('cancel')
+  })
+
   it('prioritizes pause over add when both match', () => {
     const i = parseIntent('멈춰', 'chat')
     expect(i.type).toBe('pause_mobility')

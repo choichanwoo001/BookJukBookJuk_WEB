@@ -48,13 +48,21 @@ export function normalizeListHint(raw: string, role: 'add' | 'remove'): string {
   return s.trim()
 }
 
+/** Avoid reverse match when the title is too short (likely noise inside a long hint). */
+const MIN_TITLE_LEN_FOR_HINT_CONTAINS_TITLE = 3
+
 export function matchShoppingListByTitleHint(
   shoppingList: { booksId: string; title: string }[],
   hint: string,
 ): { booksId: string; title: string }[] {
-  const h = hint.trim().toLowerCase()
+  const h = hint.trim().toLowerCase().replace(/\s+/g, ' ')
   if (!h) return []
-  return shoppingList.filter((b) => b.title.toLowerCase().includes(h))
+  return shoppingList.filter((b) => {
+    const t = b.title.toLowerCase().replace(/\s+/g, ' ')
+    if (t.includes(h)) return true
+    if (t.length >= MIN_TITLE_LEN_FOR_HINT_CONTAINS_TITLE && h.includes(t)) return true
+    return false
+  })
 }
 
 function levenshtein(a: string, b: string): number {

@@ -14,8 +14,16 @@ export function mapIntentToTool(intent: AgentIntent): ToolCall | null {
       return { name: 'shoppingListTool', args: { action: 'remove', hint: intent.rawText } }
     case 'route_replan_shortest':
       return { name: 'routePlannerTool', args: { mode: 'shortest' } }
-    case 'request_recommendation':
+    case 'request_recommendation': {
+      const t = intent.rawText.toLowerCase()
+      if (/(가까운|근처|동선|위치|서가\s*근처|가까이|지금\s*위치)/.test(t)) {
+        return { name: 'recommendationTool', args: { mode: 'location' } }
+      }
+      if (/(평점|인기|베스트|높은\s*점|별점)/.test(t)) {
+        return { name: 'recommendationTool', args: { mode: 'rating' } }
+      }
       return { name: 'recommendationTool', args: { mode: 'taste' } }
+    }
     case 'search_books':
       return { name: 'bookSearchTool', args: { query, limit: 5 } }
     default:

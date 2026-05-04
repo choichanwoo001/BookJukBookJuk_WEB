@@ -7,6 +7,8 @@ const baseContext: AgentContext = {
   mobilityPaused: false,
   listType: '쇼핑리스트',
   shoppingList: [],
+  recentlyRecommendedBookIds: [],
+  recommendationDiversityRound: 0,
   pendingConfirmation: null,
   lastToolResult: null,
 }

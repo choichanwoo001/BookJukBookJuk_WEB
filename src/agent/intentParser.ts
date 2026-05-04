@@ -10,7 +10,18 @@ type Rule = {
 }
 
 const rules: Rule[] = [
-  { type: 'cancel', keywords: ['취소', '아니', '됐어', '그만', 'cancel', 'no thanks'], priority: 110, confidence: 0.94 },
+  {
+    type: 'cancel',
+    keywords: ['취소', '됐어', '그만', 'cancel', 'no thanks'],
+    priority: 110,
+    confidence: 0.94,
+  },
+  {
+    type: 'cancel',
+    regex: /아니\s*,?\s*(취소|그만|됐어)/,
+    priority: 109,
+    confidence: 0.93,
+  },
   { type: 'cancel', regex: /^\s*(no|nope)\s*$/i, priority: 109, confidence: 0.92 },
   { type: 'confirm', keywords: ['오케이', 'okay', 'ok', '맞아', '찬성'], priority: 108, confidence: 0.93 },
   { type: 'resume_mobility', regex: /^\s*\/\s*(?:로봇\s*)?진행(?:해)?\s*$/i, priority: 107, confidence: 0.94 },

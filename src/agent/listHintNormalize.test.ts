@@ -55,6 +55,13 @@ describe('matchShoppingListByTitleHint', () => {
   it('returns empty for blank hint', () => {
     expect(matchShoppingListByTitleHint(list, '   ')).toEqual([])
   })
+
+  it('matches when the hint contains the shelf title (long utterance)', () => {
+    const row = { booksId: 'x', title: '당신의 모든 순간' }
+    const hint =
+      '리스트에 당신의 모든 순간 책이 두 개가 있는데 이거 둘 다 삭제해 줘 그냥'
+    expect(matchShoppingListByTitleHint([row], hint)).toEqual([row])
+  })
 })
 
 describe('findBestFuzzyShoppingListMatch', () => {

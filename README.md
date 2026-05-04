@@ -116,14 +116,23 @@ npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --debug-dir scri
 npm run fixtures:convert -- --input scripts/samples/detected_fixtures.sample.json --dry-run
 ```
 
-### 책장 ↔ 섹터 ↔ DB `books.shelf_id`
+### 책장 ↔ 섹터 ↔ DB (`bookshelves`, `books.shelf_id`, `books.shelf_level`)
 
 - 맵 책장 안정 ID: `shelf_001` … `shelf_041` (`src/data/floorPlan.ts`에서 지리 순 정렬 기준 부여).
-- 섹터( KDC 0–9 ) 태그·내보내기: 편집 모드 → **책장 편집** 패널에서 섹터 선택 후 **섹터 매핑 내보내기**로 JSON 클립보드 복사 → `src/data/shelfSectorAssignments.ts` 의 행과 맞춰 갱신.
-- Supabase 마이그레이션: `db/migrations/20260501120000_books_shelf_id.sql` 적용 후 시드:
+- 섹터(KDC 0–9) 태그·내보내기: 편집 모드 → **책장 편집** 패널에서 섹터 선택 후 **섹터 매핑 내보내기**로 JSON 클립보드 복사 → `src/data/shelfSectorAssignments.ts` 의 행과 맞춰 갱신.
+- **책장 좌표·yaw·단 수**: `public.bookshelves`(마이그레이션 `db/migrations/20260504000001_*.sql` ~ `20260504000002_*.sql`). 경로 탐색용으로 한 번에 읽으려면 뷰 `public.v_book_locations`( `20260504000003_*.sql` ).
+- **책 위치**: `public.books.shelf_id`(어느 책장) + `shelf_level`(몇 번째 줄, 1=최하단). 마이그레이션 순서: `20260501120000_books_shelf_id.sql` → `20260504000001` → `20260504000002` → `20260504000003`.
+- 시드 스크립트는 `bookshelves`를 upsert한 뒤, 섹터별 라운드로빈으로 `shelf_id`를 채우고, 같은 책장 안에서는 `levels`만큼 단으로 라운드로빈하여 `shelf_level`을 채운다.
+- **실제 반영 시** `.env`에 `SUPABASE_SERVICE_ROLE_KEY` 필요(`bookshelves`·`books` 쓰기는 RLS 때문에 발행용 anon 키로 실패함).
 
 ```bash
 npm run seed:book-shelf
+```
+
+미리보기만(`bookshelves` upsert·`books` PATCH 없음):
+
+```bash
+npx tsx scripts/seedBookShelfId.ts --dry-run
 ```
 
 - 네비: `useNavigationRoute` 에 `missionShelfIds` 를 넘기면 `missionIndices` 대신 해당 `shelf_*` 책장 목표로 경로 계산 (`src/utils/shelfNavAdapter.ts`).
@@ -132,7 +141,8 @@ npm run seed:book-shelf
 
 ```sql
 select sector, count(*) from public.books where shelf_id is null group by sector;
-select shelf_id, count(*) from public.books group by 1 order by 2 desc;
+select shelf_id, shelf_level, count(*) from public.books group by 1, 2 order by 1, 2;
+select * from public.v_book_locations limit 20;
 ```
 
 ---

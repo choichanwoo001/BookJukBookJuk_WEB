@@ -30,6 +30,16 @@ function catalogMissResult(): ToolResult {
   }
 }
 
+function listRemoveUnmatchedResult(): ToolResult {
+  return {
+    ok: false,
+    toolName: TOOL_NAME,
+    message:
+      '현재 리스트에서 해당 책을 찾지 못했어요. 제목을 확인하거나 리스트에 있는 표기와 같이 적어 주세요.',
+    errorCode: 'LIST_REMOVE_UNMATCHED',
+  }
+}
+
 function canonicalizeAction(action: unknown): string {
   if (typeof action !== 'string') return ''
   const normalized = action.trim().toLowerCase()
@@ -149,6 +159,46 @@ async function finishRemoveWithBook(
   }
 }
 
+async function finishRemoveMany(
+  entries: { booksId: string; title: string }[],
+  displayTitle: string,
+  ctx: ToolExecutionContext,
+): Promise<ToolResult> {
+  const userId = getDefaultUserId()
+  const shelfType = mapListTypeToShelfType(ctx.getContext().listType)
+  const ids = [...new Set(entries.map((e) => e.booksId))]
+
+  for (const booksId of ids) {
+    const rmRes = await removeBookFromShelf({ usersId: userId, booksId, shelfType })
+    if (!rmRes.ok && rmRes.errorCode !== SUPABASE_NOT_CONFIGURED) {
+      return {
+        ok: false,
+        toolName: TOOL_NAME,
+        message: rmRes.message ?? '서가에서 제거하지 못했어요.',
+        errorCode: rmRes.errorCode,
+      }
+    }
+  }
+
+  const idSet = new Set(ids)
+  const list = ctx.getContext().shoppingList
+  const nextList = list.filter((b) => !idSet.has(b.booksId))
+  ctx.setContext({ shoppingList: nextList })
+
+  const n = ids.length
+  const message =
+    n === 1
+      ? `리스트에서 "${displayTitle}"을(를) 제거했어요.`
+      : `리스트에서 "${displayTitle}" ${n}권을 제거했어요.`
+
+  return {
+    ok: true,
+    toolName: TOOL_NAME,
+    message,
+    data: { shoppingList: toShoppingListData(nextList) },
+  }
+}
+
 function previewFromShelfEntry(entry: {
   booksId: string
   title: string
@@ -235,12 +285,16 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
   const list = ctx.getContext().shoppingList
   const visMatches = matchShoppingListByTitleHint(list, hint)
   if (visMatches.length > 1) {
-    return {
-      ok: false,
-      toolName: TOOL_NAME,
-      message: '목록에서 여러 권이 맞아요. 더 구체적인 제목을 적어 주세요.',
-      errorCode: 'AMBIGUOUS_REMOVE',
+    const distinctTitles = new Set(visMatches.map((m) => m.title))
+    if (distinctTitles.size > 1) {
+      return {
+        ok: false,
+        toolName: TOOL_NAME,
+        message: '목록에서 여러 권이 맞아요. 더 구체적인 제목을 적어 주세요.',
+        errorCode: 'AMBIGUOUS_REMOVE',
+      }
     }
+    return finishRemoveMany(visMatches, visMatches[0]!.title, ctx)
   }
   if (visMatches.length === 1) {
     const matched = previewFromShelfEntry(visMatches[0])
@@ -289,6 +343,9 @@ async function handleRemove(args: Record<string, unknown>, ctx: ToolExecutionCon
     }
   }
 
+  if (list.length > 0) {
+    return listRemoveUnmatchedResult()
+  }
   return catalogMissResult()
 }
 

@@ -64,6 +64,13 @@ export const fallbackTool: ToolDefinition = {
         message: '책 제목을 함께 입력해 주세요. 예: "책 추가 데미안", "데미안 삭제해줘"',
       }
     }
+    if (reason === 'LIST_REMOVE_UNMATCHED') {
+      return {
+        ok: true,
+        toolName: 'fallbackTool',
+        message: '현재 리스트에서 해당 책을 찾지 못했어요. 제목을 확인하거나 리스트에 있는 표기와 같이 적어 주세요.',
+      }
+    }
     if (reason === 'BOOK_NOT_IN_CATALOG') {
       return {
         ok: true,

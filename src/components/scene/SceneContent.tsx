@@ -11,6 +11,8 @@ import {
   floorRects,
   floorFillRects,
   bookshelfPolygons,
+  BOOKSHELF_POLYGON_RENDER_IDS,
+  bookshelfPolygonByShelfId,
   FLOOR_HEIGHT_M,
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
@@ -217,7 +219,6 @@ export function SceneContent({
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
-  const hasBookshelfPolygons = bookshelfPolygons.length > 0
   /** 저전시대(displayLow)는 바닥 밖에 떠 보이기 쉬워 1인칭에서만 표시. */
   const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
@@ -230,6 +231,29 @@ export function SceneContent({
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
   )
+
+  /** ㄱ/ㄴ형 등 맵 폴리곤으로만 그릴 shelf id (나머지는 OBB). */
+  const specialBookshelfRenderPolygons = useMemo(() => {
+    const out: Point2[][] = []
+    for (const id of BOOKSHELF_POLYGON_RENDER_IDS) {
+      const p = bookshelfPolygonByShelfId[id]
+      if (p && p.length >= 3) out.push(p)
+    }
+    return out
+  }, [])
+
+  /** 폴리곤 메쉬가 있는 특수 책장은 OBB를 투명 처리하고 피킹만 유지 */
+  const transparentBookshelfInstanceIndices = useMemo(() => {
+    const ids = BOOKSHELF_POLYGON_RENDER_IDS as readonly string[]
+    const s = new Set<number>()
+    bookshelfRenderInstances.forEach((inst, i) => {
+      if (inst.kind !== 'bookshelf' || !inst.shelfId) return
+      if (!ids.includes(inst.shelfId)) return
+      if (bookshelfPolygonByShelfId[inst.shelfId]) s.add(i)
+    })
+    return s
+  }, [bookshelfRenderInstances])
+
   const bookshelfCollisionRects = useMemo(
     () =>
       bookshelfRenderInstances.map(inst =>
@@ -518,28 +542,28 @@ export function SceneContent({
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
-        {hasBookshelfPolygons ? (
+        {specialBookshelfRenderPolygons.length > 0 && (
           <BookshelfPolygonInstances
-            polygons={bookshelfPolygons}
+            polygons={specialBookshelfRenderPolygons}
             height={FLOOR_HEIGHT_M * 0.78}
             material={bookshelfMaterial}
             onPointerDown={
               isBookshelfEdit ? handleBookshelfPolygonEditPointerDown : bookshelfPickHandler
             }
           />
-        ) : (
-          <RotatedFixtureInstances
-            instances={bookshelfRenderInstances}
-            sectorValues={bookshelfSectorValues}
-            material={bookshelfMaterial}
-            tintSectors={isBookshelfEdit}
-            onPointerDown={
-              isBookshelfEdit
-                ? handleBookshelfPointerDown
-                : bookshelfPickHandler
-            }
-          />
         )}
+        <RotatedFixtureInstances
+          instances={bookshelfRenderInstances}
+          sectorValues={bookshelfSectorValues}
+          material={bookshelfMaterial}
+          tintSectors={isBookshelfEdit}
+          transparentInstanceIndices={transparentBookshelfInstanceIndices}
+          onPointerDown={
+            isBookshelfEdit
+              ? handleBookshelfPointerDown
+              : bookshelfPickHandler
+          }
+        />
         <RotatedFixtureInstances
           instances={deltaBookshelfRenderInstances}
           material={bookshelfMaterial}

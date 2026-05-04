@@ -291,6 +291,7 @@ export function RotatedFixtureInstances({
   sectorValues,
   material,
   tintSectors = false,
+  transparentInstanceIndices,
   disableRaycast,
   onDoubleClick,
   onClick,
@@ -301,6 +302,8 @@ export function RotatedFixtureInstances({
   material: MeshStandardMaterial
   /** 편집 모드: sector(0–9)별 인스턴스 색. 미배정은 회색. */
   tintSectors?: boolean
+  /** 알파 0: 폴리곤 등 아래에 다른 메쉬를 두고 피킹만 유지할 때 사용 */
+  transparentInstanceIndices?: ReadonlySet<number>
   disableRaycast?: boolean
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
@@ -309,10 +312,7 @@ export function RotatedFixtureInstances({
   const meshRef = useRef<ThreeInstancedMesh>(null)
   const materialWithOpacity = useMemo(() => {
     if (tintSectors) {
-      const m = material.clone()
-      m.transparent = false
-      m.depthWrite = true
-      return m
+      return createPerInstanceOpacityMaterial(material.clone())
     }
     return createPerInstanceOpacityMaterial(material)
   }, [material, tintSectors])
@@ -363,10 +363,10 @@ export function RotatedFixtureInstances({
       geo.setAttribute('instanceOpacity', attr)
     }
     for (let i = 0; i < n; i++) {
-      attr.setX(i, 1)
+      attr.setX(i, transparentInstanceIndices?.has(i) ? 0 : 1)
     }
     attr.needsUpdate = true
-  }, [instances.length])
+  }, [instances.length, transparentInstanceIndices])
 
   useLayoutEffect(() => {
     const mesh = meshRef.current

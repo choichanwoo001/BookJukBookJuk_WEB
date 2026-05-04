@@ -14,3 +14,21 @@ export function assignBooksToShelvesRoundRobin(
   }
   return out
 }
+
+/**
+ * 결정론적 분배: 같은 책장에 놓인 책 id 목록(정렬됨)을 단(levels)에 라운드로빈.
+ * `shelf_level`은 1부터 levelCount까지 (1 = 최하단).
+ */
+export function assignLevelsRoundRobin(
+  bookIdsSorted: readonly string[],
+  levelCount: number,
+): Map<string, number> {
+  const out = new Map<string, number>()
+  const n = levelCount
+  if (n < 1) throw new Error('assignLevelsRoundRobin: levelCount must be >= 1')
+  if (n > 20) throw new Error('assignLevelsRoundRobin: levelCount must be <= 20')
+  for (let i = 0; i < bookIdsSorted.length; i++) {
+    out.set(bookIdsSorted[i], (i % n) + 1)
+  }
+  return out
+}

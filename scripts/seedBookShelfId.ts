@@ -1,9 +1,16 @@
 /**
- * DB books.shelf_id 시드: SHELF_SECTOR_ASSIGNMENTS 기준으로 섹터별 책장에 라운드로빈 배치.
+ * DB 시드: `bookshelves` upsert + `books.shelf_id` / `books.shelf_level` 배치.
+ * - 섹터별 책 → 해당 섹터 책장들에 라운드로빈(shelf_id).
+ * - 같은 책장에 배정된 책들 → 그 책장의 levels(기본 5)에 라운드로빈(shelf_level, 1=최하단).
  *
- * 사용: 프로젝트 루트에서 `npx tsx scripts/seedBookShelfId.ts`
- * 미리보기만: `npx tsx scripts/seedBookShelfId.ts --dry-run` (PATCH 없이 통계·매핑 출력)
- * 필요: .env 의 VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY (service_role 가능)
+ * 사용: 프로젝트 루트에서 `npm run seed:book-shelf` 또는 `npx tsx scripts/seedBookShelfId.ts`
+ * 미리보기만: `--dry-run` (PATCH/bookshelves upsert 없이 통계·매핑 출력; 단수는 로컬 기본 5)
+ * 필요:
+ * - VITE_SUPABASE_URL
+ * - 실제 DB 반영(기본): SUPABASE_SERVICE_ROLE_KEY — `bookshelves` upsert·`books` PATCH 는 RLS 때문에 anon 키 불가
+ * - 미리보기(--dry-run): VITE_SUPABASE_PUBLISHABLE_KEY 로 books 조회 가능하면 충분
+ *
+ * DB 마이그레이션 (`db/migrations/202605040000*.sql`) 적용 후 실행하는 것을 권장한다.
  */
 
 import fs from 'node:fs'
@@ -11,10 +18,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { SHELF_SECTOR_ASSIGNMENTS } from '../src/data/shelfSectorAssignments'
-import { assignBooksToShelvesRoundRobin } from '../src/utils/bookShelfDistribution'
+import { assignBooksToShelvesRoundRobin, assignLevelsRoundRobin } from '../src/utils/bookShelfDistribution'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
+
+const DEFAULT_LEVELS = 5
 
 function loadDotEnv(): Record<string, string> {
   const envPath = path.join(root, '.env')
@@ -38,6 +47,8 @@ function loadDotEnv(): Record<string, string> {
 
 type BookRow = { id: string; sector: number | null }
 
+type BookshelfLevelsRow = { id: string; levels: number }
+
 async function fetchAllBooks(baseUrl: string, key: string): Promise<BookRow[]> {
   const url = `${baseUrl.replace(/\/$/, '')}/rest/v1/books?select=id,sector&order=id.asc`
   const res = await fetch(url, {
@@ -55,7 +66,59 @@ async function fetchAllBooks(baseUrl: string, key: string): Promise<BookRow[]> {
   return data
 }
 
-async function patchBookShelfId(baseUrl: string, key: string, bookId: string, shelfId: string): Promise<void> {
+async function fetchBookshelvesLevels(baseUrl: string, key: string): Promise<Map<string, number>> {
+  const url = `${baseUrl.replace(/\/$/, '')}/rest/v1/bookshelves?select=id,levels`
+  const res = await fetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`bookshelves fetch failed ${res.status}: ${t}`)
+  }
+  const data = (await res.json()) as BookshelfLevelsRow[]
+  return new Map(data.map((r) => [r.id, r.levels]))
+}
+
+async function upsertBookshelves(baseUrl: string, key: string): Promise<void> {
+  const rows = SHELF_SECTOR_ASSIGNMENTS.map((r) => ({
+    id: r.id,
+    sector: r.sector,
+    cx: r.cx,
+    cy: 0,
+    cz: r.cz,
+    w: r.w,
+    d: r.d,
+    yaw: r.yaw,
+    levels: DEFAULT_LEVELS,
+  }))
+  const url = `${baseUrl.replace(/\/$/, '')}/rest/v1/bookshelves`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify(rows),
+  })
+  if (!res.ok) {
+    const t = await res.text()
+    throw new Error(`bookshelves upsert failed ${res.status}: ${t}`)
+  }
+}
+
+async function patchBookShelfPlacement(
+  baseUrl: string,
+  key: string,
+  bookId: string,
+  shelfId: string,
+  shelfLevel: number,
+): Promise<void> {
   const url = `${baseUrl.replace(/\/$/, '')}/rest/v1/books?id=eq.${encodeURIComponent(bookId)}`
   const res = await fetch(url, {
     method: 'PATCH',
@@ -65,7 +128,7 @@ async function patchBookShelfId(baseUrl: string, key: string, bookId: string, sh
       'Content-Type': 'application/json',
       Prefer: 'return=minimal',
     },
-    body: JSON.stringify({ shelf_id: shelfId }),
+    body: JSON.stringify({ shelf_id: shelfId, shelf_level: shelfLevel }),
   })
   if (!res.ok) {
     const t = await res.text()
@@ -73,15 +136,49 @@ async function patchBookShelfId(baseUrl: string, key: string, bookId: string, sh
   }
 }
 
+function defaultLevelsByShelfId(): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const r of SHELF_SECTOR_ASSIGNMENTS) {
+    m.set(r.id, DEFAULT_LEVELS)
+  }
+  return m
+}
+
 async function main() {
   const dryRun = process.argv.includes('--dry-run')
   const envFile = loadDotEnv()
   const baseUrl = process.env.VITE_SUPABASE_URL ?? envFile.VITE_SUPABASE_URL
-  const key = process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? envFile.VITE_SUPABASE_PUBLISHABLE_KEY
-  if (!baseUrl || !key) {
-    console.error('Missing VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY (.env 또는 환경변수)')
+  const serviceRoleKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ?? envFile.SUPABASE_SERVICE_ROLE_KEY
+  const publishableKey =
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? envFile.VITE_SUPABASE_PUBLISHABLE_KEY
+
+  if (!baseUrl) {
+    console.error('Missing VITE_SUPABASE_URL (.env 또는 환경변수)')
     process.exit(1)
   }
+
+  const keyDryRun = publishableKey ?? serviceRoleKey
+
+  if (dryRun) {
+    if (!keyDryRun) {
+      console.error(
+        'Missing key: set VITE_SUPABASE_PUBLISHABLE_KEY or SUPABASE_SERVICE_ROLE_KEY for --dry-run',
+      )
+      process.exit(1)
+    }
+  } else if (!serviceRoleKey) {
+    console.error(
+      [
+        'SUPABASE_SERVICE_ROLE_KEY 가 필요합니다.',
+        'bookshelves upsert / books PATCH 는 Row Level Security 때문에 anon(발행용) 키로는 실패합니다.',
+        'Supabase Dashboard → Settings → API → service_role 키를 .env 에 넣은 뒤 다시 실행하세요.',
+      ].join('\n'),
+    )
+    process.exit(1)
+  }
+
+  const key = dryRun ? keyDryRun! : serviceRoleKey!
 
   const shelvesBySector = new Map<number, string[]>()
   for (const row of SHELF_SECTOR_ASSIGNMENTS) {
@@ -103,10 +200,22 @@ async function main() {
     arr.sort((a, b) => a.localeCompare(b))
   }
 
+  let levelsByShelf = defaultLevelsByShelfId()
+  if (!dryRun) {
+    console.log('Upserting bookshelves...')
+    await upsertBookshelves(baseUrl, key)
+    levelsByShelf = await fetchBookshelvesLevels(baseUrl, key)
+    for (const r of SHELF_SECTOR_ASSIGNMENTS) {
+      if (!levelsByShelf.has(r.id)) {
+        levelsByShelf.set(r.id, DEFAULT_LEVELS)
+      }
+    }
+  }
+
   const books = await fetchAllBooks(baseUrl, key)
   const noSector = books.filter((b) => b.sector == null || Number.isNaN(b.sector as number))
   if (noSector.length) {
-    console.warn(`Warning: ${noSector.length} books with null/invalid sector (shelf_id will not be assigned here)`)
+    console.warn(`Warning: ${noSector.length} books with null/invalid sector (placement will not be assigned here)`)
   }
 
   const bySector = new Map<number, string[]>()
@@ -135,8 +244,25 @@ async function main() {
     for (const [bid, sid] of m) shelfByBook.set(bid, sid)
   }
 
+  const booksByShelf = new Map<string, string[]>()
+  for (const [bid, sid] of shelfByBook) {
+    const arr = booksByShelf.get(sid) ?? []
+    arr.push(bid)
+    booksByShelf.set(sid, arr)
+  }
+  for (const arr of booksByShelf.values()) {
+    arr.sort((a, b) => a.localeCompare(b))
+  }
+
+  const levelByBook = new Map<string, number>()
+  for (const [sid, bookIds] of booksByShelf) {
+    const levels = levelsByShelf.get(sid) ?? DEFAULT_LEVELS
+    const m = assignLevelsRoundRobin(bookIds, levels)
+    for (const [bid, lvl] of m) levelByBook.set(bid, lvl)
+  }
+
   if (dryRun) {
-    console.log('\n=== dry-run: shelf assignment preview (no DB writes) ===\n')
+    console.log('\n=== dry-run: shelf + shelf_level preview (no DB writes) ===\n')
     console.log('Books per sector (assigned):')
     for (let s = 0; s <= 9; s++) {
       const n = bySector.get(s)?.length ?? 0
@@ -151,19 +277,55 @@ async function main() {
     for (const sid of [...perShelf.keys()].sort()) {
       console.log(`  ${sid}: ${perShelf.get(sid)} books`)
     }
-    console.log('\nFull mapping (book id → shelf_id):')
+
+    const perLevel = new Map<number, number>()
+    for (const lvl of levelByBook.values()) {
+      perLevel.set(lvl, (perLevel.get(lvl) ?? 0) + 1)
+    }
+    console.log('\nTarget shelf_level counts (1 = lowest tier):')
+    for (const lvl of [...perLevel.keys()].sort((a, b) => a - b)) {
+      console.log(`  level ${lvl}: ${perLevel.get(lvl)} books`)
+    }
+
+    const perShelfLevel = new Map<string, Map<number, number>>()
+    for (const [bid, sid] of shelfByBook) {
+      const lvl = levelByBook.get(bid)
+      if (lvl == null) continue
+      let inner = perShelfLevel.get(sid)
+      if (!inner) {
+        inner = new Map()
+        perShelfLevel.set(sid, inner)
+      }
+      inner.set(lvl, (inner.get(lvl) ?? 0) + 1)
+    }
+    console.log('\nPer shelf × level (book counts):')
+    for (const sid of [...perShelfLevel.keys()].sort()) {
+      const inner = perShelfLevel.get(sid)!
+      const parts = [...inner.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([lv, c]) => `L${lv}:${c}`)
+      console.log(`  ${sid}: ${parts.join(', ')}`)
+    }
+
+    console.log('\nFull mapping (book id → shelf_id, shelf_level):')
     const lines = [...shelfByBook.entries()].sort((a, b) => a[0].localeCompare(b[0]))
     for (const [bid, sid] of lines) {
-      console.log(`  ${bid} → ${sid}`)
+      const lv = levelByBook.get(bid) ?? '?'
+      console.log(`  ${bid} → ${sid}, level ${lv}`)
     }
-    console.log(`\nTotal with shelf assignment: ${shelfByBook.size} / DB rows fetched: ${books.length}`)
+    console.log(`\nTotal with placement: ${shelfByBook.size} / DB rows fetched: ${books.length}`)
     return
   }
 
-  console.log(`Updating ${shelfByBook.size} books...`)
+  console.log(`Updating ${shelfByBook.size} books (shelf_id + shelf_level)...`)
   let ok = 0
   for (const [bookId, shelfId] of shelfByBook) {
-    await patchBookShelfId(baseUrl, key, bookId, shelfId)
+    const shelfLevel = levelByBook.get(bookId)
+    if (shelfLevel == null) {
+      console.warn(`Skip ${bookId}: missing shelf_level`)
+      continue
+    }
+    await patchBookShelfPlacement(baseUrl, key, bookId, shelfId, shelfLevel)
     ok++
     if (ok % 50 === 0) console.log(`  ... ${ok}`)
   }

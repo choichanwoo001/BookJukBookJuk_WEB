@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useChatAgent } from '../hooks/useChatAgent'
-import { useTts } from '../hooks/useTts'
-import { useSpeechInput } from '../hooks/useSpeechInput'
-import { ConfirmationCard } from './ConfirmationCard'
 import { ChatActionCard } from './ChatActionCard'
+import { ConfirmationCard } from './ConfirmationCard'
+import { useChatAgent } from '../hooks/useChatAgent'
+import { useSpeechInput } from '../hooks/useSpeechInput'
+import { useTts } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
 import type { StartMode } from '../types/startMode'
 
@@ -38,28 +38,23 @@ function ChatPanel({
 
   const handleSpeechResult = useCallback((transcript: string) => {
     setDraft((prev) => {
-      const t = prev.trim()
-      return t ? `${t} ${transcript}` : transcript
+      const trimmed = prev.trim()
+      return trimmed ? `${trimmed} ${transcript}` : transcript
     })
   }, [])
 
   const speech = useSpeechInput({ onResult: handleSpeechResult })
-
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
-  const shelfTitle = '내 리스트'
   const isBuildMode = startMode === 'build_list_chat'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!draft.trim() || busy) {
-      return
-    }
+    if (!draft.trim() || busy) return
     await submitUserText(draft)
     setDraft('')
   }
 
-  // 새 assistant 메시지 자동 발화
   const prevMsgCountRef = useRef(0)
   useEffect(() => {
     const last = messages[messages.length - 1]
@@ -83,9 +78,9 @@ function ChatPanel({
       onFocusCapture={onActivateChat}
     >
       <div className="chatPanel">
-        <section className="chatShelfList" aria-label="불러온 서가 리스트">
+        <section className="chatShelfList" aria-label="불러온 책 리스트">
           <div className="chatShelfListHead">
-            <span className="chatShelfListTitle">{shelfTitle}</span>
+            <span className="chatShelfListTitle">오늘의 책 리스트</span>
             <span className="chatShelfListMeta">
               {shelfKind}
               {context.listType !== shelfKind ? ` · 표시: ${context.listType}` : ''} · {context.shoppingList.length}권
@@ -102,31 +97,33 @@ function ChatPanel({
             )}
           </div>
           {listLoadStatus === 'loading' ? (
-            <p className="chatShelfListEmpty chatShelfListLoading">리스트를 불러오는 중이에요…</p>
+            <p className="chatShelfListEmpty chatShelfListLoading">리스트를 불러오는 중이에요.</p>
           ) : listLoadStatus === 'error' ? (
-            <p className="chatShelfListEmpty chatShelfListError">{listLoadMessage ?? '리스트를 불러오지 못했어요.'}</p>
+            <p className="chatShelfListEmpty chatShelfListError">
+              {listLoadMessage ?? '리스트를 불러오지 못했어요.'}
+            </p>
           ) : context.shoppingList.length === 0 ? (
             <p className="chatShelfListEmpty">
               {startMode === 'build_list_chat'
-                ? '새 리스트로 시작했어요. 채팅으로 책을 추가하거나 기존 리스트를 불러올 수 있어요.'
+                ? '빈 리스트로 시작했어요. 채팅으로 책을 추가하거나 기존 리스트를 불러올 수 있어요.'
                 : startMode === 'browse_no_list'
-                  ? '현재는 비어 있어요. 탐색 중 추천을 선택하면 쇼핑리스트에 쌓여요.'
-                  : '서가에 담긴 책이 없어요.'}
+                  ? '아직 담긴 책이 없어요. 추천 중 마음에 드는 책을 리스트에 담아보세요.'
+                  : '저장된 책이 아직 없어요.'}
             </p>
           ) : (
             <ul className="chatShelfListItems">
-              {context.shoppingList.map((b) => (
-                <li key={b.booksId} className="chatShelfListItem" title={b.booksId}>
+              {context.shoppingList.map((book) => (
+                <li key={book.booksId} className="chatShelfListItem" title={book.booksId}>
                   <div className="chatShelfBookThumbWrap" aria-hidden>
-                    {b.coverImageUrl ? (
-                      <img className="chatShelfBookThumb" src={b.coverImageUrl} alt="" loading="lazy" />
+                    {book.coverImageUrl ? (
+                      <img className="chatShelfBookThumb" src={book.coverImageUrl} alt="" loading="lazy" />
                     ) : (
                       <div className="chatShelfBookThumb chatShelfBookThumbPlaceholder">NO IMAGE</div>
                     )}
                   </div>
                   <div className="chatShelfBookText">
-                    <p className="chatShelfBookTitle">{b.title}</p>
-                    <p className="chatShelfBookAuthor">{b.authors?.trim() || '작가 정보 없음'}</p>
+                    <p className="chatShelfBookTitle">{book.title}</p>
+                    <p className="chatShelfBookAuthor">{book.authors?.trim() || '작가 정보 없음'}</p>
                   </div>
                 </li>
               ))}
@@ -145,7 +142,7 @@ function ChatPanel({
         {busy && (
           <div className="chatBusyRow" aria-live="polite">
             <span className="chatSpinner" aria-hidden />
-            처리 중…
+            처리 중
           </div>
         )}
 
@@ -153,15 +150,12 @@ function ChatPanel({
 
         <div ref={messageListRef} className="chatMessages">
           {messages.map((message) => (
-            <article
-              key={message.id}
-              className={`chatBubble ${message.role === 'user' ? 'user' : 'assistant'}`}
-            >
+            <article key={message.id} className={`chatBubble ${message.role === 'user' ? 'user' : 'assistant'}`}>
               <div>{message.text}</div>
               {message.attachments && message.attachments.length > 0 && (
                 <ul className="chatBubbleAttachments">
-                  {message.attachments.map((line, i) => (
-                    <li key={`${message.id}-a-${i}`}>{line}</li>
+                  {message.attachments.map((line, index) => (
+                    <li key={`${message.id}-a-${index}`}>{line}</li>
                   ))}
                 </ul>
               )}
@@ -174,7 +168,7 @@ function ChatPanel({
             <div className="chatRetryRow">
               <span>마지막 요청이 실패했어요.</span>
               <button type="button" onClick={() => retryLastFailed()}>
-                재시도
+                다시 시도
               </button>
             </div>
           </div>
@@ -193,7 +187,7 @@ function ChatPanel({
           </button>
           {tts.speaking && (
             <span className="chatTtsSpeaking" aria-live="polite">
-              읽는 중…
+              읽는 중
             </span>
           )}
         </div>
@@ -248,21 +242,13 @@ function ChatPanel({
                 className="chatMicButton"
                 data-listening={speech.isListening}
                 onClick={() => (speech.isListening ? speech.stopListening() : speech.startListening())}
-                aria-label={
-                  speech.isListening ? '음성 인식 끝내고 입력란에 넣기' : '음성으로 말하기 시작'
-                }
+                aria-label={speech.isListening ? '음성 인식 끝내고 입력에 넣기' : '음성으로 말하기 시작'}
                 aria-pressed={speech.isListening}
                 disabled={busy}
               >
                 <span className="chatMicButtonInner">
                   {speech.isListening ? (
-                    <svg
-                      className="chatMicIcon"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      aria-hidden
-                    >
+                    <svg className="chatMicIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
                       <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
                     </svg>
                   ) : (
@@ -281,7 +267,7 @@ function ChatPanel({
                       <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" />
                     </svg>
                   )}
-                  <span className="chatMicButtonLabel">{speech.isListening ? '입력란에 넣기' : '말하기'}</span>
+                  <span className="chatMicButtonLabel">{speech.isListening ? '입력에 넣기' : '말하기'}</span>
                 </span>
               </button>
             )}

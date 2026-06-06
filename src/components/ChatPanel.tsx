@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
+import { QRCodeSVG } from 'qrcode.react'
 import { ChatActionCard } from './ChatActionCard'
 import { ConfirmationCard } from './ConfirmationCard'
+import { BookRecognitionPanel } from './BookRecognitionPanel'
 import { useChatAgent } from '../hooks/useChatAgent'
 import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useTts } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
+import type { ShoppingListEntry } from '../agent/types'
 import type { StartMode } from '../types/startMode'
 
 function ChatPanel({
   activePane,
   onActivateChat,
   startMode,
+  initialShoppingList,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
   startMode: StartMode
+  initialShoppingList?: ShoppingListEntry[]
 }) {
   const [draft, setDraft] = useState('')
   const messageListRef = useRef<HTMLDivElement | null>(null)
@@ -32,7 +37,8 @@ function ChatPanel({
     listLoadMessage,
     loadExistingListOnDemand,
     actionCard,
-  } = useChatAgent({ startMode })
+    applyBookRecognitionCapture,
+  } = useChatAgent({ startMode, initialShoppingList })
 
   const tts = useTts()
 
@@ -46,6 +52,7 @@ function ChatPanel({
   const speech = useSpeechInput({ onResult: handleSpeechResult })
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
+  const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
   const isBuildMode = startMode === 'build_list_chat'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -78,13 +85,21 @@ function ChatPanel({
       onFocusCapture={onActivateChat}
     >
       <div className="chatPanel">
-        <section className="chatShelfList" aria-label="불러온 책 리스트">
+        <section className="chatShelfList" aria-label="오늘의 장바구니">
           <div className="chatShelfListHead">
-            <span className="chatShelfListTitle">오늘의 책 리스트</span>
+            <span className="chatShelfListTitle">오늘의 장바구니</span>
             <span className="chatShelfListMeta">
               {shelfKind}
-              {context.listType !== shelfKind ? ` · 표시: ${context.listType}` : ''} · {context.shoppingList.length}권
+              {context.listType !== shelfKind ? ` · 표시: ${context.listType}` : ''} · {cartItems.length}권
             </span>
+            <button
+              type="button"
+              className="chatShelfLoadButton"
+              onClick={() => void submitUserText('계산하러 가자')}
+              disabled={busy || cartItems.length === 0 || context.checkoutStatus === 'going_to_counter'}
+            >
+              계산하러 가기
+            </button>
             {isBuildMode && (
               <button
                 type="button"
@@ -102,7 +117,7 @@ function ChatPanel({
             <p className="chatShelfListEmpty chatShelfListError">
               {listLoadMessage ?? '리스트를 불러오지 못했어요.'}
             </p>
-          ) : context.shoppingList.length === 0 ? (
+          ) : cartItems.length === 0 ? (
             <p className="chatShelfListEmpty">
               {startMode === 'build_list_chat'
                 ? '빈 리스트로 시작했어요. 채팅으로 책을 추가하거나 기존 리스트를 불러올 수 있어요.'
@@ -112,7 +127,7 @@ function ChatPanel({
             </p>
           ) : (
             <ul className="chatShelfListItems">
-              {context.shoppingList.map((book) => (
+              {cartItems.map((book) => (
                 <li key={book.booksId} className="chatShelfListItem" title={book.booksId}>
                   <div className="chatShelfBookThumbWrap" aria-hidden>
                     {book.coverImageUrl ? (
@@ -128,6 +143,24 @@ function ChatPanel({
                 </li>
               ))}
             </ul>
+          )}
+          {context.receipt && (
+            <div className="chatReceiptCard" aria-label="전자 영수증">
+              <div className="chatReceiptHead">
+                <span>전자 영수증</span>
+                <strong>{context.receipt.items.length}권</strong>
+              </div>
+              <div className="chatReceiptQr" aria-label="보관함 추가 QR">
+                <QRCodeSVG
+                  value={context.receipt.qrPayload}
+                  size={96}
+                  marginSize={1}
+                  bgColor="#ffffff"
+                  fgColor="#111827"
+                />
+              </div>
+              <code className="chatReceiptPayload">{context.receipt.qrPayload}</code>
+            </div>
           )}
         </section>
 
@@ -175,6 +208,10 @@ function ChatPanel({
         )}
 
         <div className="chatVoiceBar">
+          <BookRecognitionPanel
+            busy={busy}
+            onCapture={applyBookRecognitionCapture}
+          />
           <button
             type="button"
             className="chatTtsToggle"

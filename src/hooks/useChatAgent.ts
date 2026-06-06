@@ -19,7 +19,13 @@ import {
   recordThemeLlmLatency,
   recordToolLatency,
 } from '../agent/telemetry'
-import { subscribeMapSnapshot, type AgentMapSnapshot } from '../agent/runtime/agentEventBus'
+import {
+  AGENT_MAP_EVENT_VERSION,
+  dispatchDwellEvent,
+  subscribeDwellEvent,
+  subscribeMapSnapshot,
+  type AgentMapSnapshot,
+} from '../agent/runtime/agentEventBus'
 import { planWithLlm } from '../agent/runtime/llmPlanner'
 import { rewriteAssistantMessage } from '../agent/runtime/llmRewriter'
 import { generateThemesWithLlm } from '../agent/runtime/llmThemeGenerator'
@@ -39,9 +45,9 @@ import type {
   AgentIntent,
   AgentIntentType,
   AgentIntentSource,
-  ChatActionCard,
   AgentMessage,
-  RecommendationToolData,
+  DwellBookCandidate,
+  ShoppingListEntry,
   ToolCall,
   ToolExecutionContext,
   ToolResult,
@@ -60,37 +66,9 @@ import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
 import { isRedundantFallbackAssistantText } from './chatAgent/assistantMessageDedupe'
-
-const RECENT_RECOMMENDED_CAP = 24
-
-function recommendationContextPatch(
-  toolCall: ToolCall,
-  result: ToolResult,
-  snapshot: AgentContext,
-  recentCap: number,
-): Partial<AgentContext> {
-  if (!result.ok || result.toolName !== 'recommendationTool') return {}
-  const data = result.data as RecommendationToolData | undefined
-  const ids =
-    data?.candidates
-      ?.map((c) => (typeof c.booksId === 'string' ? c.booksId.trim() : ''))
-      .filter((id) => id.length > 0) ?? []
-  const patch: Partial<AgentContext> = {}
-  if (ids.length > 0) {
-    const prev = snapshot.recentlyRecommendedBookIds ?? []
-    const merged: string[] = [...prev]
-    for (const id of ids) {
-      if (!merged.includes(id)) merged.push(id)
-    }
-    patch.recentlyRecommendedBookIds = merged.slice(-recentCap)
-  }
-  const modeArg = toolCall.args?.mode
-  const mode = modeArg === 'location' || modeArg === 'rating' ? modeArg : 'taste'
-  if (mode === 'taste') {
-    patch.recommendationDiversityRound = (snapshot.recommendationDiversityRound ?? 0) + 1
-  }
-  return patch
-}
+import { buildChatActionCard } from './chatAgent/actionCard'
+import { RECENT_RECOMMENDED_CAP, recommendationContextPatch } from './chatAgent/recommendationContext'
+import { CHAT_AGENT_MESSAGES } from './chatAgent/messages'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -98,6 +76,11 @@ const initialContextValue = (): AgentContext => ({
   listType: '쇼핑리스트',
   activeUsersId: undefined,
   shoppingList: [],
+  cartItems: [],
+  pendingDwellBook: null,
+  awaitingDwellFeedback: false,
+  checkoutStatus: 'idle',
+  receipt: null,
   recentlyRecommendedBookIds: [],
   recommendationDiversityRound: 0,
   pendingConfirmation: null,
@@ -129,6 +112,27 @@ function extractRecommendationTitles(result: ToolResult | null): string[] {
     .filter((title) => title.length > 0)
 }
 
+function extractRecommendationCandidates(result: ToolResult | null): ShoppingListEntry[] {
+  if (!result?.ok || result.toolName !== 'recommendationTool') return []
+  const candidates = (result.data as { candidates?: unknown } | undefined)?.candidates
+  if (!Array.isArray(candidates)) return []
+  const rows: Array<ShoppingListEntry | null> = candidates
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const row = item as { booksId?: unknown; title?: unknown; authors?: unknown; coverImageUrl?: unknown }
+      const booksId = String(row.booksId ?? '').trim()
+      const title = String(row.title ?? '').trim()
+      if (!booksId || !title) return null
+      return {
+        booksId,
+        title,
+        authors: typeof row.authors === 'string' ? row.authors : '',
+        coverImageUrl: typeof row.coverImageUrl === 'string' ? row.coverImageUrl : '',
+      }
+    })
+  return rows.filter((item): item is ShoppingListEntry => item !== null)
+}
+
 function parseRecommendationPickIndex(text: string): number | null {
   const numeric = text.match(/(\d+)\s*번/)
   if (numeric) return Number.parseInt(numeric[1], 10) - 1
@@ -156,6 +160,7 @@ const VALID_INTENT_TYPES: AgentIntentType[] = [
   'search_books',
   'pause_mobility',
   'resume_mobility',
+  'checkout',
   'add_book',
   'remove_book',
   'route_replan_shortest',
@@ -170,7 +175,7 @@ function asIntentType(input: string): AgentIntentType {
 }
 
 
-export function useChatAgent(options: { startMode: StartMode }) {
+export function useChatAgent(options: { startMode: StartMode; initialShoppingList?: ShoppingListEntry[] }) {
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages)
   const messagesRef = useRef<AgentMessage[]>(messages)
   const [context, setContextState] = useState<AgentContext>(initialContextValue)
@@ -180,6 +185,8 @@ export function useChatAgent(options: { startMode: StartMode }) {
   const [lastFailedUserText, setLastFailedUserText] = useState<string | null>(null)
   const intentBufferRef = useRef<AgentIntent | null>(null)
   const conversationIdRef = useRef<string | null>(null)
+  const dwellTimerRef = useRef<number | null>(null)
+  const dwellKeyRef = useRef<string | null>(null)
   const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
   const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
   const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
@@ -211,6 +218,45 @@ export function useChatAgent(options: { startMode: StartMode }) {
   }, [])
 
   useEffect(() => subscribeMapSnapshot(setLatestMapSnapshot), [])
+
+  useEffect(() => {
+    return subscribeDwellEvent((event) => {
+      if (event.type === 'DWELL_BOOK_DETECTED') {
+        setContext({ pendingDwellBook: event.book })
+      }
+    })
+  }, [setContext])
+
+  useEffect(() => {
+    const activeLeg = latestMapSnapshot?.activeLeg
+    const candidates = extractRecommendationCandidates(context.lastToolResult)
+    if (activeLeg === null || activeLeg === undefined || candidates.length === 0) {
+      if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
+      dwellTimerRef.current = null
+      dwellKeyRef.current = null
+      return
+    }
+
+    const candidate = candidates[Math.abs(activeLeg) % candidates.length]
+    if (!candidate) return
+    const key = `${latestMapSnapshot?.missionVersion ?? 0}:${activeLeg}:${candidate.booksId}`
+    if (dwellKeyRef.current === key) return
+
+    if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
+    dwellKeyRef.current = key
+    dwellTimerRef.current = window.setTimeout(() => {
+      const book: DwellBookCandidate = {
+        ...candidate,
+        detectedAt: Date.now(),
+        source: 'route',
+      }
+      dispatchDwellEvent({ type: 'DWELL_BOOK_DETECTED', version: AGENT_MAP_EVENT_VERSION, book })
+    }, 30000)
+
+    return () => {
+      if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
+    }
+  }, [context.lastToolResult, latestMapSnapshot])
 
   useEffect(() => {
     let disposed = false
@@ -255,9 +301,12 @@ export function useChatAgent(options: { startMode: StartMode }) {
 
   useEffect(() => {
     if (!activeUsersId || shouldAutoLoadShelf) return
+    if (options.initialShoppingList && options.initialShoppingList.length > 0) {
+      setContext({ shoppingList: options.initialShoppingList, cartItems: options.initialShoppingList })
+    }
     setListLoadStatus('ok')
     setListLoadMessage(null)
-  }, [activeUsersId, shouldAutoLoadShelf])
+  }, [activeUsersId, options.initialShoppingList, setContext, shouldAutoLoadShelf])
 
   useEffect(() => {
     if (!activeUsersId || !shouldAutoLoadShelf) return
@@ -273,7 +322,8 @@ export function useChatAgent(options: { startMode: StartMode }) {
         setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
         return
       }
-      setContext({ shoppingList: toContextShoppingList(res.data) })
+      const loaded = toContextShoppingList(res.data)
+      setContext({ shoppingList: loaded, cartItems: loaded })
       setListLoadStatus('ok')
       setListLoadMessage(null)
     }
@@ -317,7 +367,8 @@ export function useChatAgent(options: { startMode: StartMode }) {
       setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
       return false
     }
-    setContext({ shoppingList: toContextShoppingList(res.data) })
+    const loaded = toContextShoppingList(res.data)
+    setContext({ shoppingList: loaded, cartItems: loaded })
     setListLoadStatus('ok')
     setListLoadMessage(null)
     return true
@@ -463,45 +514,13 @@ export function useChatAgent(options: { startMode: StartMode }) {
     )
   }, [appendAssistantAndStore, runToolWithFallback])
 
-  const actionCard = useMemo<ChatActionCard | null>(() => {
-    if (options.startMode !== 'build_list_chat') return null
-    if (buildFlow.step === 'step2_theme_select') {
-      const optionsList = buildFlow.themes.map((theme, index) => ({
-        id: theme.id,
-        label: `${index + 1}. ${theme.name}`,
-        inputText: `${index + 1}번`,
-      }))
-      optionsList.push({ id: 'theme_regen', label: '다시 추천', inputText: '다시 추천' })
-      return {
-        title: '어울리는 테마를 골라 주세요',
-        description: '답변 기반으로 고른 3가지입니다.',
-        options: optionsList,
-      }
-    }
-    if (buildFlow.step === 'step3_ab_pick' && buildFlow.candidates.length >= 2) {
-      return {
-        title: '어떤 책을 리스트에 담을까요?',
-        description: 'A/B 중 선택하거나 다른 2권을 볼 수 있어요.',
-        options: [
-          { id: 'add_a', label: 'A 담기', inputText: 'A 담기' },
-          { id: 'add_b', label: 'B 담기', inputText: 'B 담기' },
-          { id: 'add_both', label: '둘 다 담기', inputText: '둘 다 담기' },
-          { id: 'refresh_ab', label: '다른 2권 보기', inputText: '다른 2권 보기' },
-        ],
-      }
-    }
-    if (buildFlow.step === 'step4_review_confirm') {
-      return {
-        title: '리스트를 확정할까요?',
-        description: `현재 ${context.shoppingList.length}권이 담겨 있어요.`,
-        options: [
-          { id: 'confirm', label: '이 리스트로 확정', inputText: '리스트 확정' },
-          { id: 'more', label: '한 권 더 고르기', inputText: '한 권 더 고르기' },
-        ],
-      }
-    }
-    return null
-  }, [buildFlow, context.shoppingList.length, options.startMode])
+  const actionCard = useMemo(
+    () => {
+      const cart = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
+      return buildChatActionCard(options.startMode, buildFlow, cart)
+    },
+    [buildFlow, context.cartItems, context.shoppingList, options.startMode],
+  )
 
   const loadCandidatesForTheme = useCallback(
     async (theme: ThemeOption, refreshCount: number): Promise<RecommendationCandidate[]> => {
@@ -600,7 +619,7 @@ export function useChatAgent(options: { startMode: StartMode }) {
             loadThemesForAnswers,
             loadCandidatesForTheme,
             runToolWithFallback,
-            getShoppingListCount: () => contextRef.current.shoppingList.length,
+            getShoppingListCount: () => contextRef.current.cartItems.length,
           })
           if (handled) {
             return
@@ -654,6 +673,30 @@ export function useChatAgent(options: { startMode: StartMode }) {
           }
         }
 
+        if (contextRef.current.awaitingDwellFeedback && contextRef.current.pendingDwellBook) {
+          const dwellBook = contextRef.current.pendingDwellBook
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'request_recommendation',
+            setMessages,
+          })
+          setContext({ awaitingDwellFeedback: false })
+          await runToolWithFallback(
+            {
+              name: 'recommendationTool',
+              args: {
+                mode: 'book_alternative',
+                seedBookId: dwellBook.booksId,
+                negativeReason: intentText,
+              },
+            },
+            'request_recommendation',
+            { pendingDwellBook: null },
+          )
+          return
+        }
+
         const llmPlan = await planWithLlm({
           text: intentText,
           source,
@@ -704,6 +747,19 @@ export function useChatAgent(options: { startMode: StartMode }) {
         if (mergedIntent.type === 'confirm') {
           await handleConfirmIntent()
           return
+        }
+
+        if (mergedIntent.type === 'resume_mobility') {
+          const dwellBook = contextRef.current.pendingDwellBook
+          const cart = contextRef.current.cartItems.length > 0 ? contextRef.current.cartItems : contextRef.current.shoppingList
+          const isInCart = dwellBook ? cart.some((item) => item.booksId === dwellBook.booksId) : false
+          if (dwellBook && !isInCart) {
+            setContext({ awaitingDwellFeedback: true, mobilityPaused: true })
+            await appendAssistantAndStore(
+              `"${dwellBook.title}"을 30초 정도 보셨는데 장바구니에는 담지 않으셨네요. 어떤 점이 마음에 안 들었는지 말해주시면 그 책 기준으로 더 맞는 대안을 추천해드릴게요.`,
+            )
+            return
+          }
         }
 
         if (mergedIntent.type === 'select_browse_mode') {
@@ -811,11 +867,11 @@ export function useChatAgent(options: { startMode: StartMode }) {
   )
 
   const acceptConfirmation = useCallback(() => {
-    void submitUserText('오케이', 'chat')
+    void submitUserText(CHAT_AGENT_MESSAGES.confirmInput, 'chat')
   }, [submitUserText])
 
   const cancelConfirmation = useCallback(() => {
-    void submitUserText('취소', 'chat')
+    void submitUserText(CHAT_AGENT_MESSAGES.cancelInput, 'chat')
   }, [submitUserText])
 
   const retryLastFailed = useCallback(() => {
@@ -831,10 +887,39 @@ export function useChatAgent(options: { startMode: StartMode }) {
     [submitUserText],
   )
 
+  const applyBookRecognitionCapture = useCallback(
+    async (reason: 'add' | 'remove', imageBase64: string) => {
+      if (!imageBase64.trim()) return
+      setBusy(true)
+      setLastFailedUserText(null)
+      try {
+        const label = reason === 'add' ? '표지 인식 · 담기' : '표지 인식 · 빼기'
+        await appendUserMessageAndStore({
+          text: `[${label}]`,
+          conversationId: conversationIdRef.current,
+          intent: reason === 'add' ? 'add_book' : 'remove_book',
+          setMessages,
+        })
+        const intentType = reason === 'add' ? 'add_book' : 'remove_book'
+        const result = await runToolWithFallback(
+          { name: 'shoppingListTool', args: { action: reason, imageBase64 } },
+          intentType,
+        )
+        if (!result.ok) {
+          setLastFailedUserText(`[${label}]`)
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [runToolWithFallback, setMessages],
+  )
+
   return {
     messages,
     submitUserText,
     submitAgentInput,
+    applyBookRecognitionCapture,
     context,
     latestMapSnapshot,
     telemetry: getTelemetrySnapshot(),

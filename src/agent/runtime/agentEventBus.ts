@@ -1,4 +1,5 @@
 import type { Point2 } from '../../data/floorPlan'
+import type { DwellBookCandidate } from '../types'
 
 /** Event bus schema version (W18). */
 export const AGENT_MAP_EVENT_VERSION = 1
@@ -7,6 +8,11 @@ export type AgentMapCommand =
   | { type: 'REPLAN_SHORTEST'; version: number }
   | { type: 'PAUSE_MOBILITY'; version: number }
   | { type: 'RESUME_MOBILITY'; version: number }
+  | { type: 'GO_CHECKOUT'; version: number }
+
+export type AgentDwellEvent =
+  | { type: 'DWELL_BOOK_DETECTED'; version: number; book: DwellBookCandidate }
+  | { type: 'CHECKOUT_ARRIVED'; version: number }
 
 export type AgentMapSnapshot = {
   version: number
@@ -38,8 +44,11 @@ function createTypedBusEvent<T>(eventName: string): TypedBusEvent<T> {
 
 const mapCommandBus = createTypedBusEvent<AgentMapCommand>('agent:map-command')
 const mapSnapshotBus = createTypedBusEvent<AgentMapSnapshot>('agent:map-snapshot')
+const dwellEventBus = createTypedBusEvent<AgentDwellEvent>('agent:dwell-event')
 
 export const dispatchMapCommand = mapCommandBus.dispatch
 export const subscribeMapCommand = mapCommandBus.subscribe
 export const publishMapSnapshot = mapSnapshotBus.dispatch
 export const subscribeMapSnapshot = mapSnapshotBus.subscribe
+export const dispatchDwellEvent = dwellEventBus.dispatch
+export const subscribeDwellEvent = dwellEventBus.subscribe

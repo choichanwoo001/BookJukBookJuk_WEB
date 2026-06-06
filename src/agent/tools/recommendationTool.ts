@@ -31,7 +31,7 @@ type RecommendationVariant = {
   fallbackList: string[]
 }
 
-const VARIANTS: Record<Exclude<RecommendationMode, 'taste'>, RecommendationVariant> = {
+const VARIANTS: Record<'location' | 'rating', RecommendationVariant> = {
   location: {
     fetch: fetchLocationRecommendations,
     prefix: '위치 추천',
@@ -105,13 +105,48 @@ function resolveUsersId(ctx: Parameters<ToolDefinition['run']>[1]): string {
 }
 
 function recommendationExcludeIds(ctx: Parameters<ToolDefinition['run']>[1]): string[] {
-  const { shoppingList, recentlyRecommendedBookIds } = ctx.getContext()
-  const fromList = shoppingList.map((b) => b.booksId).filter((id) => id.trim().length > 0)
+  const { cartItems, shoppingList, recentlyRecommendedBookIds } = ctx.getContext()
+  const fromList = [...cartItems, ...shoppingList].map((b) => b.booksId).filter((id) => id.trim().length > 0)
   const recent = (recentlyRecommendedBookIds ?? []).filter((id) => id.trim().length > 0)
   return [...new Set([...fromList, ...recent])]
 }
 
 const TASTE_DIVERSITY_WINDOW = 15
+
+async function runBookAlternativeRecommendation(
+  args: Record<string, unknown>,
+  ctx: Parameters<ToolDefinition['run']>[1],
+): Promise<ToolResult> {
+  const seedBookId = typeof args.seedBookId === 'string' ? args.seedBookId.trim() : ''
+  const reason = typeof args.negativeReason === 'string' ? args.negativeReason.trim() : ''
+  const excludeBookIds = [...recommendationExcludeIds(ctx), seedBookId].filter((id) => id.length > 0)
+  const res = await fetchLocationRecommendations(3, excludeBookIds)
+  if (!res.ok) {
+    if (res.errorCode === SUPABASE_NOT_CONFIGURED) {
+      return okResult('책 기준 보완 추천을 준비했어요.', {
+        recommendations: [
+          '보완 추천 1. 더 가벼운 분량의 책',
+          '보완 추천 2. 같은 주제의 입문서',
+          '보완 추천 3. 평점이 높은 대체 도서',
+        ],
+        source: 'fallback',
+      })
+    }
+    return {
+      ok: false,
+      toolName: TOOL_NAME,
+      message: res.message ?? '보완 추천 조회에 실패했어요.',
+      errorCode: res.errorCode,
+    }
+  }
+  const books = dedupeBookPreviewList(res.data)
+  const prefix = reason ? `보완 추천(${reason.slice(0, 18)})` : '보완 추천'
+  return okResult('방금 내려놓은 책 기준으로 대안을 골라봤어요.', {
+    recommendations: books.length > 0 ? formatRecommendations(prefix, books) : ['보완 추천 1. 같은 주제의 다른 책'],
+    source: 'supabase',
+    candidates: mapCandidates(books),
+  })
+}
 
 async function runTasteRecommendation(ctx: Parameters<ToolDefinition['run']>[1]): Promise<ToolResult> {
   const usersId = resolveUsersId(ctx)
@@ -173,9 +208,15 @@ export const recommendationTool: ToolDefinition = {
     return validateRecommendationArgs(args)
   },
   async run(args, ctx) {
-    const mode: RecommendationMode = args.mode === 'location' || args.mode === 'rating' ? args.mode : 'taste'
+    const mode: RecommendationMode =
+      args.mode === 'location' || args.mode === 'rating' || args.mode === 'book_alternative'
+        ? args.mode
+        : 'taste'
     if (mode === 'taste') {
       return runTasteRecommendation(ctx)
+    }
+    if (mode === 'book_alternative') {
+      return runBookAlternativeRecommendation(args, ctx)
     }
     const variant = VARIANTS[mode]
     if (!variant) {

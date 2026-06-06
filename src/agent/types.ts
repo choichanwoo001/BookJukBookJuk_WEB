@@ -14,6 +14,7 @@ export type AgentIntentType =
   | 'search_books'
   | 'pause_mobility'
   | 'resume_mobility'
+  | 'checkout'
   | 'add_book'
   | 'remove_book'
   | 'route_replan_shortest'
@@ -57,7 +58,7 @@ export type RecommendationToolData = {
   }
 }
 
-export type RecommendationMode = 'taste' | 'location' | 'rating'
+export type RecommendationMode = 'taste' | 'location' | 'rating' | 'book_alternative'
 
 export type BookSearchToolData = {
   books: { title: string; authors: string }[]
@@ -103,12 +104,34 @@ export type ShoppingListEntry = {
   coverImageUrl?: string
 }
 
+export type CartItem = ShoppingListEntry
+
+export type DwellBookCandidate = ShoppingListEntry & {
+  detectedAt: number
+  source: 'route' | 'cover' | 'manual'
+}
+
+export type CheckoutStatus = 'idle' | 'going_to_counter' | 'completed' | 'error'
+
+export type Receipt = {
+  receiptId: string
+  usersId: string
+  items: CartItem[]
+  purchasedAt: string
+  qrPayload: string
+}
+
 export type AgentContext = {
   state: AgentState
   mobilityPaused: boolean
   listType: string
   activeUsersId?: string
   shoppingList: ShoppingListEntry[]
+  cartItems: CartItem[]
+  pendingDwellBook: DwellBookCandidate | null
+  awaitingDwellFeedback: boolean
+  checkoutStatus: CheckoutStatus
+  receipt: Receipt | null
   /** 세션 내 최근 추천에 노출된 책 id (연속 추천 다양화용, 쇼핑리스트와 별도). */
   recentlyRecommendedBookIds: string[]
   /** 취향 추천 상위 창 슬라이스 로테이션 카운터. */

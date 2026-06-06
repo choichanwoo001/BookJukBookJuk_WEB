@@ -14,6 +14,8 @@ function stateAfterTool(current: AgentState, result: ToolResult): AgentState {
       return 'NAV_EXEC'
     case 'mobilityControlTool':
       return 'NAV_EXEC'
+    case 'checkoutTool':
+      return 'SESSION_END'
     default:
       return current
   }

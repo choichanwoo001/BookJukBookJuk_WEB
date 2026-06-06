@@ -10,6 +10,8 @@ type Rule = {
 }
 
 const rules: Rule[] = [
+  { type: 'checkout', keywords: ['계산하러', '계산대', '결제', '구매 완료', '큐레이션 종료', '종료하고 계산'], priority: 120, confidence: 0.95 },
+  { type: 'add_book', regex: /(사기|살래|살게|구매|카트|장바구니|담아|넣어)/, priority: 89, confidence: 0.9 },
   {
     type: 'cancel',
     keywords: ['취소', '됐어', '그만', 'cancel', 'no thanks'],

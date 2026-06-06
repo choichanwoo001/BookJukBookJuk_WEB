@@ -118,3 +118,7 @@ export function findBestFuzzyShoppingListMatch(
   return best.item
 }
 
+export function shoppingListSkipRecognition(): boolean {
+  return import.meta.env.VITE_SHOPPING_LIST_SKIP_RECOGNITION === 'true'
+}
+

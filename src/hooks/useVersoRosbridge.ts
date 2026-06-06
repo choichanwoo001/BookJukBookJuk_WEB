@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { VersoRosbridgeClient } from '../lib/verso/VersoRosbridgeClient'
+import { registerVersoCommandBridge } from '../lib/verso/versoCommandBridge'
+import type { VersoCommandAction, VersoConnectionState, VersoEvent, VersoPath, VersoStatus } from '../lib/verso/types'
+
+export type UseVersoRosbridgeResult = {
+  connectionState: VersoConnectionState
+  lastStatus: VersoStatus | null
+  lastPath: VersoPath | null
+  lastEvent: VersoEvent | null
+  robotSyncActive: boolean
+  publishCommand: (action: VersoCommandAction) => boolean
+  connect: (url: string) => void
+  disconnect: () => void
+  reconnect: () => void
+}
+
+export function useVersoRosbridge(activeUrl: string | null): UseVersoRosbridgeResult {
+  const [connectionState, setConnectionState] = useState<VersoConnectionState>('disconnected')
+  const [lastStatus, setLastStatus] = useState<VersoStatus | null>(null)
+  const [lastPath, setLastPath] = useState<VersoPath | null>(null)
+  const [lastEvent, setLastEvent] = useState<VersoEvent | null>(null)
+
+  const client = useMemo(() => new VersoRosbridgeClient(), [])
+  const activeUrlRef = useRef<string | null>(null)
+
+  const handleConnectionState = useCallback((state: VersoConnectionState) => {
+    setConnectionState(state)
+    if (state === 'disconnected') {
+      setLastStatus(null)
+      setLastPath(null)
+      setLastEvent(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    client.setHandlers({
+      onConnectionState: handleConnectionState,
+      onStatus: setLastStatus,
+      onPath: setLastPath,
+      onEvent: setLastEvent,
+    })
+  }, [client, handleConnectionState])
+
+  const publishCommand = useCallback(
+    (action: VersoCommandAction) => client.publishCommand(action),
+    [client],
+  )
+
+  const connect = useCallback(
+    (url: string) => {
+      activeUrlRef.current = url.trim() || null
+      client.connect(url)
+    },
+    [client],
+  )
+
+  const disconnect = useCallback(() => {
+    activeUrlRef.current = null
+    client.disconnect()
+  }, [client])
+
+  const reconnect = useCallback(() => {
+    const url = activeUrlRef.current
+    if (url) client.reconnect()
+  }, [client])
+
+  useEffect(() => {
+    const trimmed = activeUrl?.trim() ?? ''
+    if (!trimmed) {
+      activeUrlRef.current = null
+      client.disconnect()
+      return
+    }
+    activeUrlRef.current = trimmed
+    client.connect(trimmed)
+    return () => {
+      client.disconnect()
+    }
+  }, [activeUrl, client])
+
+  useEffect(() => {
+    registerVersoCommandBridge(
+      connectionState,
+      connectionState === 'connected' ? publishCommand : null,
+    )
+    return () => registerVersoCommandBridge('disconnected', null)
+  }, [connectionState, publishCommand])
+
+  const robotSyncActive = connectionState === 'connected' && lastStatus !== null
+
+  return useMemo(
+    () => ({
+      connectionState,
+      lastStatus,
+      lastPath,
+      lastEvent,
+      robotSyncActive,
+      publishCommand,
+      connect,
+      disconnect,
+      reconnect,
+    }),
+    [
+      connectionState,
+      lastStatus,
+      lastPath,
+      lastEvent,
+      robotSyncActive,
+      publishCommand,
+      connect,
+      disconnect,
+      reconnect,
+    ],
+  )
+}

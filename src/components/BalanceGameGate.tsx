@@ -173,7 +173,7 @@ export default function BalanceGameGate({ onComplete }: BalanceGameGateProps) {
 
   return (
     <section className="onboardingShell balanceGate" aria-label="책 취향 밸런스 게임">
-      <div className="balanceCard">
+      <div className="balanceQuestionPane">
         <div className="balanceTop">
           <span>취향 밸런스 게임</span>
           <strong>
@@ -184,6 +184,8 @@ export default function BalanceGameGate({ onComplete }: BalanceGameGateProps) {
           <span style={{ width: `${progress}%` }} />
         </div>
         <h1>{question.question}</h1>
+      </div>
+      <div className="balanceChoicesPane">
         <div className="balanceChoices">
           {question.choices.map((choice) => (
             <button key={choice.label} type="button" className="balanceChoice" onClick={() => choose(choice)}>

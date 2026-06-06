@@ -1,10 +1,16 @@
 import { useMemo, useState } from 'react'
 import { defaultTasteSeed, rankReaderProfiles } from '../data/readerProfiles'
+import type { ShoppingListEntry } from '../agent/types'
 import type { ReaderBook, ReaderProfile, TasteSeed } from '../types/onboarding'
+import { partitionReaderBookEntries, planEntryFromReaderBook } from '../utils/similarReadersPlan'
 
 type SimilarReadersGateProps = {
   tasteSeed: TasteSeed | null
   usersId: string | null
+  plannedBooks: ShoppingListEntry[]
+  onAddBooks: (books: ShoppingListEntry[]) => void
+  onRemoveBooks: (books: ShoppingListEntry[]) => void
+  onClearPlannedBooks: () => void
   onStart: () => void
 }
 
@@ -29,12 +35,58 @@ function BookCover({ book }: { book: ReaderBook }) {
   )
 }
 
-export default function SimilarReadersGate({ tasteSeed, usersId, onStart }: SimilarReadersGateProps) {
+function uniqueReaderBooks(profile: ReaderProfile) {
+  const seen = new Set<string>()
+  const books: ReaderBook[] = []
+  for (const book of [...profile.likedBooks, ...profile.readBooks]) {
+    const key = `${book.title.trim()}-${book.author.trim()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    books.push(book)
+  }
+  return books
+}
+
+export default function SimilarReadersGate({
+  tasteSeed,
+  usersId,
+  plannedBooks,
+  onAddBooks,
+  onRemoveBooks,
+  onClearPlannedBooks,
+  onStart,
+}: SimilarReadersGateProps) {
   const rankedProfiles = useMemo(() => rankReaderProfiles(tasteSeed ?? defaultTasteSeed), [tasteSeed])
   const [selectedId, setSelectedId] = useState(rankedProfiles[0]?.id ?? '')
   const [activeTab, setActiveTab] = useState<BookTab>('liked')
   const selectedProfile = rankedProfiles.find((profile) => profile.id === selectedId) ?? rankedProfiles[0]
   const activeBooks = activeTab === 'liked' ? selectedProfile.likedBooks : selectedProfile.readBooks
+  const plannedBookIds = useMemo(() => new Set(plannedBooks.map((book) => book.booksId)), [plannedBooks])
+  const activePlannedCount = activeBooks.filter((book) =>
+    plannedBookIds.has(planEntryFromReaderBook(selectedProfile, book).booksId),
+  ).length
+  const activeUnplannedCount = activeBooks.length - activePlannedCount
+  const allReaderBooks = uniqueReaderBooks(selectedProfile)
+  const readerPlannedCount = allReaderBooks.filter((book) =>
+    plannedBookIds.has(planEntryFromReaderBook(selectedProfile, book).booksId),
+  ).length
+  const readerUnplannedCount = allReaderBooks.length - readerPlannedCount
+
+  const addReaderBooks = (books: ReaderBook[]) => {
+    const { toAdd } = partitionReaderBookEntries(selectedProfile, books, plannedBookIds)
+    if (toAdd.length > 0) onAddBooks(toAdd)
+  }
+
+  const removeReaderBooks = (books: ReaderBook[]) => {
+    const { toRemove } = partitionReaderBookEntries(selectedProfile, books, plannedBookIds)
+    if (toRemove.length > 0) onRemoveBooks(toRemove)
+  }
+
+  const handleBookPlanClick = (book: ReaderBook) => {
+    const entry = planEntryFromReaderBook(selectedProfile, book)
+    if (plannedBookIds.has(entry.booksId)) onRemoveBooks([entry])
+    else onAddBooks([entry])
+  }
 
   return (
     <section className="similarReadersPage" aria-label="비슷한 독자 추천">
@@ -45,8 +97,14 @@ export default function SimilarReadersGate({ tasteSeed, usersId, onStart }: Simi
           <p>내 독서 기록과 비슷한 취향을 가진 독자들이에요.</p>
         </div>
         <div className="similarReadersControls">
+          <span>{plannedBooks.length}권 담김</span>
+          {plannedBooks.length > 0 && (
+            <button type="button" className="readerPlanClearButton" onClick={onClearPlannedBooks}>
+              {plannedBooks.length}권 전체 비우기
+            </button>
+          )}
           <span>{usersId ? `연결된 사용자 ${usersId}` : `${tasteSeed?.tone ?? defaultTasteSeed.tone} 취향 분석`}</span>
-          <button type="button" onClick={onStart}>
+          <button type="button" className="onboardingCtaPrimary" onClick={onStart}>
             이 독자 취향으로 시작
           </button>
         </div>
@@ -74,7 +132,7 @@ export default function SimilarReadersGate({ tasteSeed, usersId, onStart }: Simi
                     취향 유사도 <b>{profile.similarity}%</b>
                   </p>
                   <ul>
-                    {profile.reasons.slice(0, 2).map((reason) => (
+                    {profile.reasons.slice(0, 1).map((reason) => (
                       <li key={reason}>{reason}</li>
                     ))}
                   </ul>
@@ -92,6 +150,31 @@ export default function SimilarReadersGate({ tasteSeed, usersId, onStart }: Simi
               <h2>{selectedProfile.name}</h2>
               <p className="readerDetailSimilarity">{selectedProfile.similarity}%</p>
               <p className="readerDetailDescription">{selectedProfile.description}</p>
+              <div className="readerPlanActions">
+                {activeUnplannedCount > 0 && (
+                  <button type="button" onClick={() => addReaderBooks(activeBooks)}>
+                    현재 탭 {activeUnplannedCount}권 담기
+                  </button>
+                )}
+                {activePlannedCount > 0 && (
+                  <button type="button" className="readerPlanRemoveButton" onClick={() => removeReaderBooks(activeBooks)}>
+                    현재 탭 {activePlannedCount}권 담기 취소
+                  </button>
+                )}
+                {readerUnplannedCount > 0 && (
+                  <button type="button" onClick={() => addReaderBooks(allReaderBooks)}>
+                    이 독자 전체 {readerUnplannedCount}권 담기
+                  </button>
+                )}
+                {readerPlannedCount > 0 && (
+                  <button type="button" className="readerPlanRemoveButton" onClick={() => removeReaderBooks(allReaderBooks)}>
+                    이 독자 {readerPlannedCount}권 담기 취소
+                  </button>
+                )}
+                <span>
+                  이 탭 {activePlannedCount}/{activeBooks.length}권 담김
+                </span>
+              </div>
             </div>
           </div>
 
@@ -117,21 +200,32 @@ export default function SimilarReadersGate({ tasteSeed, usersId, onStart }: Simi
           </div>
 
           <div className="readerBooksGrid">
-            {activeBooks.map((book) => (
-              <article key={book.id} className="readerBookCard">
-                <BookCover book={book} />
-                <h3>{book.title}</h3>
-                <p className="readerBookAuthor">{book.author}</p>
-                {book.rating && (
-                  <p className="readerBookRating">
-                    별점 {book.rating.toFixed(1)}
-                    {book.reviewCount ? ` (${book.reviewCount})` : ''}
-                  </p>
-                )}
-                <strong>추천 이유</strong>
-                <p>{book.reason}</p>
-              </article>
-            ))}
+            {activeBooks.map((book) => {
+              const isAdded = plannedBookIds.has(planEntryFromReaderBook(selectedProfile, book).booksId)
+              return (
+                <article key={book.id} className="readerBookCard">
+                  <BookCover book={book} />
+                  <h3>{book.title}</h3>
+                  <p className="readerBookAuthor">{book.author}</p>
+                  {book.rating && (
+                    <p className="readerBookRating">
+                      별점 {book.rating.toFixed(1)}
+                      {book.reviewCount ? ` (${book.reviewCount})` : ''}
+                    </p>
+                  )}
+                  <strong>추천 이유</strong>
+                  <p>{book.reason}</p>
+                  <button
+                    type="button"
+                    className="readerBookAddButton"
+                    data-added={isAdded}
+                    onClick={() => handleBookPlanClick(book)}
+                  >
+                    {isAdded ? '담기 취소' : '책 담기'}
+                  </button>
+                </article>
+              )
+            })}
           </div>
         </article>
       </div>

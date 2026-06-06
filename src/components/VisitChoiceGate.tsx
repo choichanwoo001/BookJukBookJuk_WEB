@@ -7,13 +7,13 @@ type VisitChoiceGateProps = {
 export default function VisitChoiceGate({ onSelect }: VisitChoiceGateProps) {
   return (
     <section className="onboardingShell visitChoiceGate" aria-label="방문 유형 선택">
-      <div className="onboardingIntro">
+      <header className="onboardingIntro">
         <p className="onboardingEyebrow">BookJukBookJuk</p>
         <h1>오늘의 독서 취향을 먼저 맞춰볼게요.</h1>
         <p>
           처음이라면 짧은 밸런스 게임으로 취향을 파악하고, 다시 방문했다면 QR 로그인으로 이전 데이터를 불러옵니다.
         </p>
-      </div>
+      </header>
       <div className="visitChoiceGrid">
         <button type="button" className="visitChoiceCard" onClick={() => onSelect('first')}>
           <span className="visitChoiceIcon" aria-hidden>

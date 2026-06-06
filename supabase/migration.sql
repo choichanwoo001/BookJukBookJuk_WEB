@@ -29,6 +29,11 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
+do $$ begin
+  alter type public.book_user_state_enum add value if not exists 'PURCHASED';
+exception when duplicate_object then null;
+end $$;
+
 -- ---------------------------------------------------------------------------
 -- books (카탈로그; export_books_catalog.py 등과 컬럼 대응)
 -- ---------------------------------------------------------------------------
@@ -252,6 +257,29 @@ create table public.book_user_states (
   constraint fk_book_user_states_book foreign key (books_id) references public.books (id) on delete cascade
 );
 
+create table public.purchase_receipts (
+  receipt_id text not null,
+  users_id text not null,
+  purchased_at timestamptz not null default now(),
+  qr_payload text not null,
+  created_at timestamptz not null default now(),
+  constraint pk_purchase_receipts primary key (receipt_id),
+  constraint fk_purchase_receipts_user foreign key (users_id) references public.users (users_id) on delete cascade
+);
+
+create table public.purchase_receipt_items (
+  receipt_id text not null,
+  books_id text not null,
+  title_snapshot text not null default '',
+  authors_snapshot text not null default '',
+  cover_image_url_snapshot text not null default '',
+  order_index integer not null default 0,
+  created_at timestamptz not null default now(),
+  constraint pk_purchase_receipt_items primary key (receipt_id, books_id),
+  constraint fk_purchase_receipt_items_receipt foreign key (receipt_id) references public.purchase_receipts (receipt_id) on delete cascade,
+  constraint fk_purchase_receipt_items_book foreign key (books_id) references public.books (id) on delete cascade
+);
+
 create table public.user_taste_profiles (
   users_id text not null,
   profile_version text not null default 'v1',
@@ -405,6 +433,8 @@ alter table public.book_vectors enable row level security;
 alter table public.collections enable row level security;
 alter table public.collection_books enable row level security;
 alter table public.book_user_states enable row level security;
+alter table public.purchase_receipts enable row level security;
+alter table public.purchase_receipt_items enable row level security;
 alter table public.user_taste_profiles enable row level security;
 
 alter table public.kg_nodes enable row level security;
@@ -414,5 +444,19 @@ create policy user_taste_profiles_service_all
   on public.user_taste_profiles
   for all
   to service_role
+  using (true)
+  with check (true);
+
+create policy purchase_receipts_client_all
+  on public.purchase_receipts
+  for all
+  to anon, authenticated
+  using (true)
+  with check (true);
+
+create policy purchase_receipt_items_client_all
+  on public.purchase_receipt_items
+  for all
+  to anon, authenticated
   using (true)
   with check (true);

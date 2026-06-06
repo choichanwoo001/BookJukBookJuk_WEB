@@ -13,6 +13,22 @@ interface ImportMetaEnv {
    * 개발 단계에서 사용할 고정 사용자 ID
    */
   readonly VITE_APP_DEFAULT_USER_ID?: string
+  /**
+   * Verso rosbridge WebSocket URL (예: ws://192.168.0.10:9090)
+   */
+  readonly VITE_VERSO_ROSBRIDGE_URL?: string
+  /**
+   * book_recognition 클라이언트 모드: http | http_only | window
+   */
+  readonly VITE_BOOK_RECOGNITION_MODE?: string
+  /**
+   * book_recognition API base (예: /book-recognition)
+   */
+  readonly VITE_BOOK_RECOGNITION_API_BASE?: string
+  /**
+   * true면 shoppingListTool이 identify API fallback을 건너뜀
+   */
+  readonly VITE_SHOPPING_LIST_SKIP_RECOGNITION?: string
 }
 
 interface ImportMeta {

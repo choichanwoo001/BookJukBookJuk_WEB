@@ -1,14 +1,16 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import BalanceGameGate from './components/BalanceGameGate'
 import ChatPanel from './components/ChatPanel'
-import Map3DView from './components/Map3DView'
 import QrLoginGate from './components/QrLoginGate'
 import SimilarReadersGate from './components/SimilarReadersGate'
 import VisitChoiceGate from './components/VisitChoiceGate'
 import { clearCurrentWebSession } from './lib/supabase/qrLogin'
+import type { ShoppingListEntry } from './agent/types'
 import type { OnboardingStep, TasteSeed, VisitType } from './types/onboarding'
 import type { StartMode } from './types/startMode'
 import './styles/layout.css'
+
+const Map3DView = lazy(() => import('./components/Map3DView'))
 
 function App() {
   const [activePane, setActivePane] = useState<'map' | 'chat'>('map')
@@ -17,6 +19,7 @@ function App() {
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('visit_choice')
   const [visitType, setVisitType] = useState<VisitType | null>(null)
   const [tasteSeed, setTasteSeed] = useState<TasteSeed | null>(null)
+  const [plannedBooks, setPlannedBooks] = useState<ShoppingListEntry[]>([])
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement))
 
   useEffect(() => {
@@ -46,6 +49,7 @@ function App() {
     clearCurrentWebSession()
     setUsersId(null)
     setTasteSeed(null)
+    setPlannedBooks([])
     setVisitType(null)
     setStartMode('browse_no_list')
     setOnboardingStep('visit_choice')
@@ -54,6 +58,28 @@ function App() {
   const enterApp = () => {
     setStartMode(visitType === 'returning' ? 'existing_list' : 'browse_no_list')
     setOnboardingStep('app')
+  }
+
+  const addPlannedBooks = (books: ShoppingListEntry[]) => {
+    setPlannedBooks((prev) => {
+      const seen = new Set(prev.map((book) => book.booksId))
+      const next = [...prev]
+      for (const book of books) {
+        if (seen.has(book.booksId)) continue
+        seen.add(book.booksId)
+        next.push(book)
+      }
+      return next
+    })
+  }
+
+  const removePlannedBooks = (books: ShoppingListEntry[]) => {
+    const removeIds = new Set(books.map((book) => book.booksId))
+    setPlannedBooks((prev) => prev.filter((book) => !removeIds.has(book.booksId)))
+  }
+
+  const clearPlannedBooks = () => {
+    setPlannedBooks([])
   }
 
   if (onboardingStep === 'visit_choice') {
@@ -91,7 +117,17 @@ function App() {
   }
 
   if (onboardingStep === 'similar_readers') {
-    return <SimilarReadersGate tasteSeed={tasteSeed} usersId={usersId} onStart={enterApp} />
+    return (
+      <SimilarReadersGate
+        tasteSeed={tasteSeed}
+        usersId={usersId}
+        plannedBooks={plannedBooks}
+        onAddBooks={addPlannedBooks}
+        onRemoveBooks={removePlannedBooks}
+        onClearPlannedBooks={clearPlannedBooks}
+        onStart={enterApp}
+      />
+    )
   }
 
   return (
@@ -106,10 +142,17 @@ function App() {
         </button>
       </div>
       <section className="mapPane" onPointerDown={() => setActivePane('map')}>
-        <Map3DView activePane={activePane} onActivateMap={() => setActivePane('map')} />
+        <Suspense fallback={<div className="map3DLoading" role="status">지도 불러오는 중...</div>}>
+          <Map3DView activePane={activePane} onActivateMap={() => setActivePane('map')} />
+        </Suspense>
       </section>
       <aside className="chatPane" onPointerDown={() => setActivePane('chat')}>
-        <ChatPanel activePane={activePane} onActivateChat={() => setActivePane('chat')} startMode={startMode} />
+        <ChatPanel
+          activePane={activePane}
+          onActivateChat={() => setActivePane('chat')}
+          startMode={startMode}
+          initialShoppingList={plannedBooks}
+        />
       </aside>
     </main>
   )

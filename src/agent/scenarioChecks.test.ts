@@ -208,6 +208,97 @@ describe('build flow boundaries', () => {
     )
   })
 
+  it('removes AB pick from list on "A 빼기"', async () => {
+    const appendSpy = vi.fn(async () => undefined)
+    const runToolSpy = vi.fn(async () => ({
+      ok: true,
+      toolName: 'shoppingListTool',
+      message: '뺐어요',
+      data: { shoppingList: [] },
+    }))
+    const handled = await handleBuildFlowInput({
+      buildFlow: {
+        ...initialBuildFlowSession(),
+        step: 'step3_ab_pick',
+        candidates: [
+          { title: 'A책', authors: '저자A', reason: 'r', reviewKeywords: [] },
+          { title: 'B책', authors: '저자B', reason: 'r', reviewKeywords: [] },
+        ],
+      },
+      intentText: 'A 빼기',
+      appendAssistantAndStore: appendSpy,
+      setBuildFlow: vi.fn(),
+      loadThemesForAnswers: vi.fn(async () => []),
+      loadCandidatesForTheme: vi.fn(async () => []),
+      runToolWithFallback: runToolSpy,
+      getShoppingListCount: () => 1,
+    })
+    expect(handled).toBe(true)
+    expect(runToolSpy).toHaveBeenCalledWith(
+      { name: 'shoppingListTool', args: { action: 'remove', hint: '책 제거 A책' } },
+      'remove_book',
+    )
+    expect(appendSpy).toHaveBeenLastCalledWith('리스트에서 A책을 뺐어요. 현재 1권이에요.')
+  })
+
+  it('does not treat "A 빼기" as add in AB pick step', async () => {
+    const runToolSpy = vi.fn(async () => ({
+      ok: true,
+      toolName: 'shoppingListTool',
+      message: 'ok',
+    }))
+    await handleBuildFlowInput({
+      buildFlow: {
+        ...initialBuildFlowSession(),
+        step: 'step3_ab_pick',
+        candidates: [
+          { title: 'A책', authors: '저자A', reason: 'r', reviewKeywords: [] },
+          { title: 'B책', authors: '저자B', reason: 'r', reviewKeywords: [] },
+        ],
+      },
+      intentText: 'A 빼기',
+      appendAssistantAndStore: vi.fn(async () => undefined),
+      setBuildFlow: vi.fn(),
+      loadThemesForAnswers: vi.fn(async () => []),
+      loadCandidatesForTheme: vi.fn(async () => []),
+      runToolWithFallback: runToolSpy,
+      getShoppingListCount: () => 0,
+    })
+    expect(runToolSpy).not.toHaveBeenCalledWith(
+      { name: 'shoppingListTool', args: { action: 'add', hint: '책 추가 A책' } },
+      'add_book',
+    )
+  })
+
+  it('returns to AB pick when review step remove empties the list', async () => {
+    const appendSpy = vi.fn(async () => undefined)
+    const setBuildFlowSpy = vi.fn()
+    const handled = await handleBuildFlowInput({
+      buildFlow: {
+        ...initialBuildFlowSession(),
+        step: 'step4_review_confirm',
+        candidates: [
+          { title: 'A책', authors: '저자A', reason: 'r', reviewKeywords: [] },
+          { title: 'B책', authors: '저자B', reason: 'r', reviewKeywords: [] },
+        ],
+      },
+      intentText: 'A 빼기',
+      appendAssistantAndStore: appendSpy,
+      setBuildFlow: setBuildFlowSpy,
+      loadThemesForAnswers: vi.fn(async () => []),
+      loadCandidatesForTheme: vi.fn(async () => []),
+      runToolWithFallback: vi.fn(async () => ({
+        ok: true,
+        toolName: 'shoppingListTool',
+        message: '뺐어요',
+      })),
+      getShoppingListCount: () => 0,
+    })
+    expect(handled).toBe(true)
+    expect(setBuildFlowSpy).toHaveBeenCalled()
+    expect(appendSpy).toHaveBeenLastCalledWith('리스트가 비었어요. 다시 A/B 중에서 골라 주세요.')
+  })
+
   it('uses latest shopping list count after successful add', async () => {
     const appendSpy = vi.fn(async () => undefined)
     const handled = await handleBuildFlowInput({

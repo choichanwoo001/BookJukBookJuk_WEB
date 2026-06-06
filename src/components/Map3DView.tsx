@@ -13,28 +13,24 @@ import { pickMissionIndicesSeeded } from '../utils/missionPick'
 import { useNavigationRoute } from '../hooks/useNavigationRoute'
 import {
   FIXED_SELECTION_RADIUS_M,
-  THIRD_PERSON_DEFAULT_FOV,
-  WALK_DEFAULT_FOV,
-  ZOOM_FOV_MAX,
-  ZOOM_FOV_MIN,
 } from '../config/constants'
 import { useBookshelfInstances } from '../hooks/useBookshelfInstances'
 import { useBookshelfClipboard } from '../hooks/useBookshelfClipboard'
-import type { ViewMode, CircleSelection, PickPoint, FixtureRenderInstance } from '../types/scene'
+import type { CircleSelection, PickPoint, FixtureRenderInstance } from '../types/scene'
 import type { MinimapUvPoint } from './scene/MinimapViewportReporter'
 import { getMinimapWorldBounds } from '../utils/minimapBounds'
+import { createOverviewFlipEvents } from '../utils/overviewDisplayFlip'
+import { isEditableDomTarget } from '../utils/domTarget'
 import { SceneContent } from './scene/SceneContent'
 import { BookshelfEditPanel } from './BookshelfEditPanel'
 import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
-import {
-  AGENT_MAP_EVENT_VERSION,
-  publishMapSnapshot,
-  subscribeMapCommand,
-  type AgentMapCommand,
-} from '../agent/runtime/agentEventBus'
 import { buildMissionShelfPool, buildNavBookshelfRects } from '../utils/missionShelfPool'
 import { MapViewButtons } from './map/MapViewButtons'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
+import { useMapViewState } from '../hooks/useMapViewState'
+import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
+import { buildVersoRouteVisual } from '../utils/versoPathVisual'
+import { VersoConnectionPanel } from './map/VersoConnectionPanel'
 
 function buildStaticInstances(): FixtureRenderInstance[] {
   const counters = counterInstances.map<FixtureRenderInstance>((item) => ({
@@ -68,13 +64,6 @@ function selectionToText(selection: CircleSelection) {
   ].join(' | ')
 }
 
-function isEditableDomTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  return target.isContentEditable
-}
-
 function Map3DView({
   activePane,
   onActivateMap,
@@ -82,18 +71,12 @@ function Map3DView({
   activePane: 'map' | 'chat'
   onActivateMap: () => void
 }) {
-  const [mode, setMode] = useState<ViewMode>('overview')
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
-  const [showMapDiffLayer, setShowMapDiffLayer] = useState(false)
-  const [showBookshelfOverlayLayer, setShowBookshelfOverlayLayer] = useState(false)
-  const [firstPersonFov, setFirstPersonFov] = useState(WALK_DEFAULT_FOV)
-  const [thirdPersonFov, setThirdPersonFov] = useState(THIRD_PERSON_DEFAULT_FOV)
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
-  const [minimapPlayerPos, setMinimapPlayerPos] = useState<{ u: number; v: number; yaw: number } | null>(null)
+  const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(null)
   const playerWorldXzRef = useRef<Point2 | null>(null)
-  const [missionVersion, setMissionVersion] = useState(0)
-  const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
+  const navigationActiveLegRef = useRef<number | null>(null)
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const { spanX: minimapSpanX, spanZ: minimapSpanZ } = useMemo(() => getMinimapWorldBounds(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
@@ -118,6 +101,27 @@ function Map3DView({
     handleUpdateD,
   } = useBookshelfInstances()
 
+  const clearSelection = useCallback(() => {
+    setSelectedIndex(null)
+  }, [setSelectedIndex])
+
+  const {
+    mode,
+    isEdit,
+    isOverviewLike,
+    missionVersion,
+    minimapPlayerPos,
+    setMinimapPlayerPos,
+    walkFov,
+    handleViewModeChange,
+    handleMinimapToggle,
+    handleWalkFovChange,
+  } = useMapViewState({
+    playerWorldXzRef,
+    activeLegRef: navigationActiveLegRef,
+    clearSelection,
+  })
+
   const missionBookshelfPool = useMemo(
     () => buildMissionShelfPool(instances, bookshelfOverlayLayerInstances),
     [instances],
@@ -127,10 +131,6 @@ function Map3DView({
     const pool = missionBookshelfPool.map((_, i) => i)
     return pickMissionIndicesSeeded(pool, missionVersion)
   }, [missionBookshelfPool, missionVersion])
-
-  const handleNewMission = useCallback(() => {
-    setMissionVersion((v) => v + 1)
-  }, [])
 
   const navBounds = useMemo(() => {
     const b = getMinimapWorldBounds()
@@ -159,19 +159,24 @@ function Map3DView({
     bounds: navBounds,
   })
 
-  const isEdit = mode === 'edit'
-  const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
+  const {
+    connectionState: versoConnectionState,
+    lastStatus: versoStatus,
+    lastPath: versoPath,
+    robotSyncActive,
+  } = useVersoRosbridge(versoActiveUrl)
 
-  const clampWalkFov = useCallback((v: number) => Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, v)), [])
-
-  const handleWalkFovChange = useCallback(
-    (next: number) => {
-      const v = clampWalkFov(next)
-      if (mode === 'thirdPerson') setThirdPersonFov(v)
-      else setFirstPersonFov(v)
-    },
-    [clampWalkFov, mode],
+  const robotRoute = useMemo(
+    () => buildVersoRouteVisual(versoStatus, versoPath),
+    [versoStatus, versoPath],
   )
+  const displayRoute = robotRoute ?? navigationRoute
+
+  useEffect(() => {
+    navigationActiveLegRef.current = navigationRoute?.activeLeg ?? null
+  }, [navigationRoute?.activeLeg])
+
+  const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
 
   const handleAddSelectionWithCircle = useCallback((point: PickPoint) => {
     setSelections((prev) => [
@@ -189,22 +194,6 @@ function Map3DView({
     isEnabled: isBookshelfEdit,
     onPasteNew: addInstance,
   })
-
-  const handleViewModeChange = useCallback((next: ViewMode) => {
-    setMode(next)
-    setSelectedIndex(null)
-  }, [setSelectedIndex])
-
-  const handleMinimapToggle = useCallback(() => {
-    if (mode === 'firstPerson' || mode === 'thirdPerson') {
-      setPrevWalkMode(mode)
-      setMode('overview')
-      setSelectedIndex(null)
-    } else if (mode === 'overview') {
-      setMode(prevWalkMode)
-      setSelectedIndex(null)
-    }
-  }, [mode, prevWalkMode, setSelectedIndex])
 
   useEffect(() => {
     if (selections.length === 0) return
@@ -226,31 +215,11 @@ function Map3DView({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activePane, mode, editTool, setSelectedIndex])
 
-  useEffect(() => {
-    return subscribeMapCommand((command: AgentMapCommand) => {
-      if (command.type === 'REPLAN_SHORTEST') {
-        handleNewMission()
-      }
-      if (command.type === 'PAUSE_MOBILITY' && (mode === 'firstPerson' || mode === 'thirdPerson')) {
-        setPrevWalkMode(mode)
-        setMode('overview')
-      }
-      if (command.type === 'RESUME_MOBILITY' && mode === 'overview') {
-        setMode(prevWalkMode)
-      }
-    })
-  }, [handleNewMission, mode, prevWalkMode])
-
-  useEffect(() => {
-    publishMapSnapshot({
-      version: AGENT_MAP_EVENT_VERSION,
-      playerXz: playerWorldXzRef.current,
-      missionVersion,
-      activeLeg: navigationRoute?.activeLeg ?? null,
-    })
-  }, [missionVersion, navigationRoute?.activeLeg, minimapPlayerPos])
-
   const selected = selectedIndex !== null ? instances[selectedIndex] : null
+  const overviewFlipEvents = useMemo(
+    () => (isOverviewLike ? createOverviewFlipEvents() : undefined),
+    [isOverviewLike],
+  )
 
   return (
     <div
@@ -258,7 +227,14 @@ function Map3DView({
       data-active-pane={activePane === 'map'}
       onPointerDown={onActivateMap}
     >
-      <Canvas dpr={[1, 2]} style={{ zIndex: 0 }}>
+      <Canvas
+        dpr={[1, 2]}
+        events={overviewFlipEvents}
+        style={{
+          zIndex: 0,
+          transform: isOverviewLike ? 'scaleY(-1)' : undefined,
+        }}
+      >
         <SceneContent
           mode={mode}
           activePane={activePane}
@@ -270,15 +246,15 @@ function Map3DView({
           selectedBookshelfIndex={isEdit ? selectedIndex : null}
           onSelectBookshelf={isEdit ? setSelectedIndex : undefined}
           onUpdateBookshelf={isEdit ? handleUpdateInstance : undefined}
-          showMapDiffLayer={showMapDiffLayer}
-          showBookshelfOverlayLayer={showBookshelfOverlayLayer}
           forwardArrowRef={forwardArrowRef}
-          walkFov={mode === 'thirdPerson' ? thirdPersonFov : firstPersonFov}
+          walkFov={walkFov}
           onWalkFovChange={handleWalkFovChange}
           onMinimapViewportUv={handleMinimapViewportUv}
           onPlayerPosition={setMinimapPlayerPos}
           playerWorldXzRef={playerWorldXzRef}
-          navigationRoute={navigationRoute}
+          navigationRoute={displayRoute}
+          robotSyncActive={robotSyncActive}
+          robotStatus={versoStatus}
         />
       </Canvas>
 
@@ -296,13 +272,8 @@ function Map3DView({
         <MapViewButtons
           mode={mode}
           isEdit={isEdit}
-          showMapDiffLayer={showMapDiffLayer}
-          showBookshelfOverlayLayer={showBookshelfOverlayLayer}
           missionVersion={missionVersion}
           missionIndices={missionIndices}
-          onShowMapDiffChange={setShowMapDiffLayer}
-          onShowBookshelfOverlayChange={setShowBookshelfOverlayLayer}
-          onNewMission={handleNewMission}
           onModeChange={handleViewModeChange}
         />
 
@@ -312,9 +283,15 @@ function Map3DView({
           spanZ={minimapSpanZ}
           viewportUv={minimapViewportUv}
           playerPos={minimapPlayerPos}
-          navDimPath={navigationRoute?.dimPath ?? null}
-          navHighlightPath={navigationRoute?.highlightPath ?? null}
+          navDimPath={displayRoute?.dimPath ?? null}
+          navHighlightPath={displayRoute?.highlightPath ?? null}
           onClick={handleMinimapToggle}
+        />
+
+        <VersoConnectionPanel
+          connectionState={versoConnectionState}
+          onConnect={setVersoActiveUrl}
+          onDisconnect={() => setVersoActiveUrl(null)}
         />
       </div>
 

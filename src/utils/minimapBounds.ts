@@ -22,12 +22,12 @@ export function getMinimapWorldBounds() {
 }
 
 /**
- * Three.js overview(위에서 내려다본) 화면과 맞추기: u는 +X 오른쪽, v는 +Z가 아래로(이미지 아래쪽).
- * PNG 상단 = minZ, 하단 = maxZ.
+ * Three.js overview(위에서 내려다본) 화면과 맞추기: u는 +X 오른쪽, v는 +Z가 위로(이미지 위쪽).
+ * PNG 상단 = maxZ, 하단 = minZ.
  */
 export function worldXzToMinimapUv(x: number, z: number): { u: number; v: number } {
-  const { minX, minZ, spanX, spanZ } = getMinimapWorldBounds()
+  const { minX, maxZ, spanX, spanZ } = getMinimapWorldBounds()
   const u = (x - minX) / spanX
-  const v = (z - minZ) / spanZ
+  const v = (maxZ - z) / spanZ
   return { u, v }
 }

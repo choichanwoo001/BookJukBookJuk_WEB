@@ -23,6 +23,7 @@ import {
   OVERVIEW_PAN_SPEED,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
+import { overviewPanDy } from '../../utils/overviewDisplayFlip'
 
 export function CameraZoomController({
   enabled,
@@ -234,8 +235,9 @@ export function OverviewPanController({
     /** overview 카메라 부모 `group`의 Y 회전(MAP_VIEW_YAW_OFFSET_RAD)과 팬 방향 정합 */
     const panSign = Math.cos(MAP_VIEW_YAW_OFFSET_RAD)
     /* eslint-disable react-hooks/immutability -- Three.js PerspectiveCamera position mutation */
+    const panDy = overviewPanDy(dy)
     perspectiveCamera.position.x -= dx * panSpeed * panSign
-    perspectiveCamera.position.z -= dy * panSpeed * panSign
+    perspectiveCamera.position.z -= panDy * panSpeed * panSign
     /* eslint-enable react-hooks/immutability */
   }, [camera])
 

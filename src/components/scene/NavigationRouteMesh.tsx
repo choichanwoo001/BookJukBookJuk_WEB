@@ -1,4 +1,4 @@
-import { Line } from '@react-three/drei'
+﻿import { Line } from '@react-three/drei'
 import { useMemo } from 'react'
 import { Color, DoubleSide } from 'three'
 import type { Point2 } from '../../data/floorPlan'

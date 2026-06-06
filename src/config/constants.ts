@@ -45,6 +45,8 @@ export const OVERVIEW_Y_MIN = 10
 export const OVERVIEW_Y_MAX = 120
 /** 오버뷰/미니맵 방향 정합용 Y축 오프셋(라디안). 오버뷰 카메라는 부모 회전 없이 위에서 내려다봄. */
 export const MAP_VIEW_YAW_OFFSET_RAD = 0
+/** 로봇 /verso/status heading → 웹 yaw 보정(라디안). 현장 테스트 후 조정. */
+export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
 
 // --- Player ---
 export const PLAYER_SCALE = 0.7
@@ -81,10 +83,10 @@ export const NAV_LINE_OPACITY_DIM = 0.22
 export const NAV_LINE_OPACITY_BRIGHT = 0.95
 /** 멀리 있을 때 밝은 선 투명도(하이라이트 거리 보간 끝단). */
 export const NAV_LINE_OPACITY_HIGHLIGHT_FAR = 0.78
-export const NAV_LINE_COLOR_DIM = '#6ab4ff'
-export const NAV_LINE_COLOR_BRIGHT = '#4de8ff'
+export const NAV_LINE_COLOR_DIM = '#a07840'
+export const NAV_LINE_COLOR_BRIGHT = '#e6be5a'
 /** 멀리 있을 때 밝은 선이 보간되는 색. */
-export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#8af0ff'
+export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#ffd18a'
 export const NAV_ARRIVAL_RING_INNER = 0.5
 export const NAV_ARRIVAL_RING_OUTER = 0.72
 export const NAV_ROUTE_Y = 0.04
@@ -133,7 +135,7 @@ export const bookshelfOverlayLayerMaterial = new MeshStandardMaterial({
   color: '#B8956A',
   roughness: 0.72,
   metalness: 0.04,
-  emissive: '#1a3a52',
+  emissive: '#3d2a14',
   emissiveIntensity: 0.22,
   side: 2,
 })
@@ -143,7 +145,7 @@ export const bookshelfOverlayInteriorWoodMaterial = new MeshStandardMaterial({
   color: '#8B6F4A',
   roughness: 0.78,
   metalness: 0.03,
-  emissive: '#152838',
+  emissive: '#2a1e10',
   emissiveIntensity: 0.12,
   side: 2,
 })
@@ -160,7 +162,7 @@ export const counterOverlayPedestalMaterial = new MeshStandardMaterial({
   color: '#E8E4DC',
   roughness: 0.54,
   metalness: 0.08,
-  emissive: '#1a2838',
+  emissive: '#2a2218',
   emissiveIntensity: 0.06,
   side: 2,
 })
@@ -235,7 +237,7 @@ export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roug
 export const playerMaterial = new MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.85, metalness: 0.0 })
 /** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분). */
 export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.88, metalness: 0.0 })
-export const markerMaterial = new MeshStandardMaterial({ color: '#58D68D', emissive: '#1f6f4a', emissiveIntensity: 0.35 })
-export const areaMaterial = new MeshStandardMaterial({ color: '#58D68D', transparent: true, opacity: 0.28 })
-export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#4FC3F7', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
-export const selectedWireMaterial = new MeshStandardMaterial({ color: '#4FC3F7', wireframe: true, transparent: true, opacity: 0.7, side: 2 })
+export const markerMaterial = new MeshStandardMaterial({ color: '#c9a56a', emissive: '#5c4020', emissiveIntensity: 0.35 })
+export const areaMaterial = new MeshStandardMaterial({ color: '#c9a56a', transparent: true, opacity: 0.28 })
+export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#e6be5a', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
+export const selectedWireMaterial = new MeshStandardMaterial({ color: '#e6be5a', wireframe: true, transparent: true, opacity: 0.7, side: 2 })

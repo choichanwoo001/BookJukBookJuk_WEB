@@ -6,6 +6,7 @@ import {
   EDIT_YAW_WHEEL_SENSITIVITY,
 } from '../config/constants'
 import type { FixtureRenderInstance } from '../types/scene'
+import { clientYToNdcY } from '../utils/overviewDisplayFlip'
 
 export type EditDragControllerOptions = {
   selectedIndex: number | null
@@ -44,7 +45,7 @@ export function useEditDragController({
     const rect = gl.domElement.getBoundingClientRect()
     ndc.current.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
+      clientYToNdcY(clientY, rect.top, rect.height),
     )
     raycaster.current.setFromCamera(ndc.current, camera)
     const target = new Vector3()

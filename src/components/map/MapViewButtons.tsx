@@ -1,47 +1,22 @@
-import type { ChangeEvent } from 'react'
 import type { ViewMode } from '../../types/scene'
 
 export type MapViewButtonsProps = {
   mode: ViewMode
   isEdit: boolean
-  showMapDiffLayer: boolean
-  showBookshelfOverlayLayer: boolean
   missionVersion: number
   missionIndices: number[]
-  onShowMapDiffChange: (next: boolean) => void
-  onShowBookshelfOverlayChange: (next: boolean) => void
-  onNewMission: () => void
   onModeChange: (next: ViewMode) => void
 }
 
 export function MapViewButtons({
   mode,
   isEdit,
-  showMapDiffLayer,
-  showBookshelfOverlayLayer,
   missionVersion,
   missionIndices,
-  onShowMapDiffChange,
-  onShowBookshelfOverlayChange,
-  onNewMission,
   onModeChange,
 }: MapViewButtonsProps) {
-  const handleDiffChange = (e: ChangeEvent<HTMLInputElement>) => onShowMapDiffChange(e.target.checked)
-  const handleOverlayChange = (e: ChangeEvent<HTMLInputElement>) => onShowBookshelfOverlayChange(e.target.checked)
-
   return (
     <div className="mapViewButtons">
-      <label className="mapDiffLayerToggle">
-        <input type="checkbox" checked={showMapDiffLayer} onChange={handleDiffChange} />
-        맵 차이 (ver0↔ver2)
-      </label>
-      <label className="mapDiffLayerToggle">
-        <input type="checkbox" checked={showBookshelfOverlayLayer} onChange={handleOverlayChange} />
-        책장 후보 (오버레이)
-      </label>
-      <button type="button" onClick={onNewMission}>
-        새 미션
-      </button>
       <button type="button" data-active={mode === 'firstPerson'} onClick={() => onModeChange('firstPerson')}>
         1인칭 시점
       </button>

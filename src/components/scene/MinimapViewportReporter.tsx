@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Plane, Raycaster, Vector2, Vector3 } from 'three'
 import type { ViewMode } from '../../types/scene'
 import { worldXzToMinimapUv } from '../../utils/minimapBounds'
+import { flipMinimapV } from '../../utils/overviewDisplayFlip'
 
 const floorPlane = new Plane(new Vector3(0, 1, 0), 0)
 const hit = new Vector3()
@@ -61,7 +62,8 @@ export function MinimapViewportReporter({
         }
         return
       }
-      pts.push(worldXzToMinimapUv(hit.x, hit.z))
+      const { u, v } = worldXzToMinimapUv(hit.x, hit.z)
+      pts.push({ u, v: flipMinimapV(v) })
     }
 
     const serialized = pts.map((p) => `${round4(p.u)},${round4(p.v)}`).join('|')

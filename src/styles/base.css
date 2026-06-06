@@ -1,0 +1,109 @@
+:root {
+  /* Beige palette — map scene (#1a1410) + light onboarding */
+  --bj-bg-deep: #1a1410;
+  --bj-bg-app: #1f1a14;
+  --bj-bg-panel: #2a231c;
+  --bj-bg-panel-alt: #352d24;
+  --bj-bg-input: #231e18;
+  --bj-bg-overlay: rgba(31, 26, 20, 0.88);
+  --bj-bg-overlay-strong: rgba(42, 35, 28, 0.95);
+  --bj-bg-light: #f5f4ef;
+  --bj-bg-light-top: #fbfaf6;
+  --bj-text-on-dark: #f5ebe0;
+  --bj-text-on-dark-muted: #c4b8a8;
+  --bj-text-on-dark-subtle: #9a8f82;
+  --bj-text-on-light: #242821;
+  --bj-text-on-light-muted: #686f65;
+  --bj-accent: #c9a56a;
+  --bj-accent-strong: #e6be5a;
+  --bj-accent-muted: #a07840;
+  --bj-accent-bg: rgba(160, 120, 60, 0.28);
+  --bj-accent-bg-strong: rgba(120, 88, 48, 0.72);
+  --bj-border-dark: rgba(255, 226, 179, 0.14);
+  --bj-border-dark-strong: rgba(230, 190, 90, 0.42);
+  --bj-border-light: #e0d9cc;
+  --bj-bubble-assistant: #3d3228;
+  --bj-bubble-user: #5c4a32;
+  --bj-btn-primary: #a07840;
+  --bj-btn-primary-hover: #b8894a;
+  --bj-btn-disabled: #6b5d4f;
+  --bj-warm-cream: #ffe9c9;
+  --bj-warm-gold: #ffd6a4;
+
+  color: var(--bj-text-on-dark);
+  background: var(--bj-bg-app);
+  font-family: Inter, 'Segoe UI', Roboto, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.appShell {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bj-bg-app);
+}
+
+.mapPane {
+  position: relative;
+  border-right: 1px solid var(--bj-border-dark);
+  min-height: 0;
+}
+
+.mapPane canvas {
+  cursor: grab;
+}
+
+.mapPane canvas:active {
+  cursor: grabbing;
+}
+
+@media (max-width: 1080px) {
+  .appShell {
+    grid-template-columns: 1fr;
+  }
+
+  .chatPane {
+    height: 38vh;
+    min-width: 0;
+    border-top: 1px solid var(--bj-border-dark);
+  }
+}
+
+.sessionBadge {
+  position: fixed;
+  top: 3.4rem;
+  left: 0.85rem;
+  right: auto;
+  z-index: 1300;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--bj-border-dark);
+  border-radius: 999px;
+  background: var(--bj-bg-overlay-strong);
+  color: var(--bj-text-on-dark);
+  font-size: 0.76rem;
+}
+
+.sessionBadge button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--bj-text-on-dark);
+  padding: 0.2rem 0.48rem;
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .sessionBadge {
+    max-width: calc(100vw - 1.4rem);
+  }
+}

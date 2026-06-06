@@ -88,7 +88,7 @@ async function main() {
   const buf = Buffer.alloc(W * H * 4)
 
   for (let v = 0; v < H; v++) {
-    const z = minZ + ((v + 0.5) / H) * spanZ
+    const z = maxZ - ((v + 0.5) / H) * spanZ
     const row = v * W * 4
     for (let u = 0; u < W; u++) {
       const x = minX + ((u + 0.5) / W) * spanX

@@ -1,6 +1,13 @@
 export type VisitType = 'first' | 'returning'
 
-export type OnboardingStep = 'visit_choice' | 'balance_game' | 'qr_login' | 'similar_readers' | 'app'
+export type OnboardingStep =
+  | 'visit_choice'
+  | 'balance_game'
+  | 'qr_login'
+  | 'similar_readers'
+  | 'llm_required'
+  | 'session_start'
+  | 'app'
 
 export type TasteSeed = {
   tasteTags: string[]

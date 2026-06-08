@@ -1,0 +1,46 @@
+import { useEffect, useState } from 'react'
+import type { TasteSeed } from '../types/onboarding'
+import { generateSessionIntro } from '../agent/runtime/llmSessionIntro'
+
+type SessionStartGateProps = {
+  tasteSeed: TasteSeed | null
+  onStart: () => void
+}
+
+export default function SessionStartGate({ tasteSeed, onStart }: SessionStartGateProps) {
+  const [intro, setIntro] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let disposed = false
+    const run = async () => {
+      setLoading(true)
+      const text = await generateSessionIntro(tasteSeed)
+      if (!disposed) {
+        setIntro(text)
+        setLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      disposed = true
+    }
+  }, [tasteSeed])
+
+  return (
+    <section className="onboardingShell sessionStartGate" aria-label="세션 시작">
+      <header className="onboardingIntro">
+        <p className="onboardingEyebrow">BookJukBookJuk</p>
+        <h1>산책과 함께 독서 여정을 시작해요</h1>
+        {loading ? (
+          <p>로봇이 인사를 준비하고 있어요…</p>
+        ) : (
+          <p className="sessionIntroText">{intro}</p>
+        )}
+      </header>
+      <button type="button" className="onboardingCtaPrimary" disabled={loading} onClick={onStart}>
+        이어셋 착용 · 세션 시작
+      </button>
+    </section>
+  )
+}

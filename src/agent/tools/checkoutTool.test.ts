@@ -27,6 +27,10 @@ vi.mock('../runtime/agentEventBus', () => ({
   dispatchDwellEvent: vi.fn(),
 }))
 
+vi.mock('../../config/demoMode', () => ({
+  isDemoMode: () => false,
+}))
+
 import { checkoutTool } from './checkoutTool'
 import type { AgentContext, CartItem, Receipt, ToolExecutionContext } from '../types'
 

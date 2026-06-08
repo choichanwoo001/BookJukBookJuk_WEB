@@ -110,7 +110,7 @@ export default function QrLoginGate({ onLoggedIn }: QrLoginGateProps) {
         <>
           <div className="qrLoginTokenBox">
             <p className="qrLoginLabel">QR 토큰 내용</p>
-            <code>{deepLink || '세션 없음'}</code>
+            <code className="breakAnywhere">{deepLink || '세션 없음'}</code>
             {ticketExpiresAt && <p className="qrLoginHint">만료까지 {formatRemainMs(ticketExpiresAt)}</p>}
           </div>
 

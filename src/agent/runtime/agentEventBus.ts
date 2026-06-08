@@ -9,16 +9,20 @@ export type AgentMapCommand =
   | { type: 'PAUSE_MOBILITY'; version: number }
   | { type: 'RESUME_MOBILITY'; version: number }
   | { type: 'GO_CHECKOUT'; version: number }
+  | { type: 'SET_MISSION'; version: number; poolIndices: number[] }
+  | { type: 'SET_DIRECT_GOALS'; version: number; goals: Point2[] }
 
 export type AgentDwellEvent =
   | { type: 'DWELL_BOOK_DETECTED'; version: number; book: DwellBookCandidate }
   | { type: 'CHECKOUT_ARRIVED'; version: number }
+  | { type: 'SHELF_ARRIVED'; version: number; legIndex: number; poolIndex: number | null }
 
 export type AgentMapSnapshot = {
   version: number
   playerXz: Point2 | null
   missionVersion: number
   activeLeg: number | null
+  arrivedLeg: number | null
 }
 
 type TypedBusEvent<T> = {
@@ -52,3 +56,15 @@ export const publishMapSnapshot = mapSnapshotBus.dispatch
 export const subscribeMapSnapshot = mapSnapshotBus.subscribe
 export const dispatchDwellEvent = dwellEventBus.dispatch
 export const subscribeDwellEvent = dwellEventBus.subscribe
+
+export function dispatchSetMission(poolIndices: number[]): void {
+  dispatchMapCommand({ type: 'SET_MISSION', version: AGENT_MAP_EVENT_VERSION, poolIndices })
+}
+
+export function dispatchSetDirectGoals(goals: Point2[]): void {
+  dispatchMapCommand({ type: 'SET_DIRECT_GOALS', version: AGENT_MAP_EVENT_VERSION, goals })
+}
+
+export function dispatchGoCheckout(): void {
+  dispatchMapCommand({ type: 'GO_CHECKOUT', version: AGENT_MAP_EVENT_VERSION })
+}

@@ -2,6 +2,7 @@
   width: 100%;
   height: 100%;
   position: relative;
+  --map-dock-height: 4.6rem;
 }
 
 /* R3F Canvas 루트가 전역 히트 영역을 잡는 경우: 래퍼는 통과, 버튼·미니맵만 클릭 가능 */
@@ -14,32 +15,207 @@
 
 .map3DUiLayer .mapViewButtons,
 .map3DUiLayer .mapMinimapWrap,
-.map3DUiLayer .versoConnectionPanel {
+.map3DUiLayer .mapControlDockArea,
+.map3DUiLayer .mapCameraPip {
   pointer-events: auto;
 }
 
 .map3DForwardHud {
   position: absolute;
-  bottom: 36px;
+  bottom: calc(var(--map-dock-height) + 0.85rem);
   left: 50%;
   transform: translateX(-50%);
   pointer-events: none;
   user-select: none;
 }
 
-.mapViewButtons {
+.map3DContainer[data-controls-visible='false'] {
+  --map-dock-height: 2.4rem;
+}
+
+.mapCameraPip {
   position: absolute;
   top: 0.85rem;
   left: 0.85rem;
+  z-index: 120;
+  width: min(220px, calc(100% - 12rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.45rem;
+  border-radius: 10px;
+  border: 1px solid var(--bj-border-dark);
+  background: var(--bj-bg-overlay-strong);
+  backdrop-filter: blur(8px);
+}
+
+.bookRecognitionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.bookRecognitionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.bookRecognitionTitle {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--bj-text-on-dark);
+}
+
+.bookRecognitionCameraButton {
+  font-size: 0.68rem;
+  padding: 0.12rem 0.48rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--bj-text-on-dark-muted);
+  cursor: pointer;
+}
+
+.bookRecognitionCameraButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--bj-text-on-dark);
+}
+
+.bookRecognitionCameraButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bookRecognitionCameraButton[data-active='true'] {
+  background: rgba(72, 180, 110, 0.35);
+  color: var(--bj-text-on-dark);
+}
+
+.bookRecognitionPreviewWrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--bj-border-dark);
+  background: #111;
+}
+
+.bookRecognitionVideo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bookRecognitionVideoPlaceholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.72rem;
+  color: var(--bj-text-on-dark-muted);
+  pointer-events: none;
+}
+
+.bookRecognitionError {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #ffb4b4;
+  line-height: 1.35;
+}
+
+.mapControlDockArea {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  padding: 0 0.85rem 0.65rem;
+  pointer-events: none;
+}
+
+.mapControlDockToggle {
+  pointer-events: auto;
+  border: 1px solid var(--bj-border-dark);
+  background: var(--bj-bg-overlay-strong);
+  color: var(--bj-text-on-dark);
+  border-radius: 999px;
+  padding: 0.32rem 0.65rem;
+  font-size: 0.74rem;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+}
+
+.mapControlDock {
+  pointer-events: auto;
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  /* 미니맵·캔버스보다 위: 줄바꿈 시 겹쳐도 클릭이 맵으로 새지 않게 */
-  z-index: 500;
-  isolation: isolate;
-  transform: translateZ(0);
-  pointer-events: auto;
+  padding: 0.55rem 0.65rem;
+  border-radius: 12px;
+  border: 1px solid var(--bj-border-dark);
+  background: var(--bj-bg-overlay-strong);
+  backdrop-filter: blur(8px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.mapControlDock .sessionBadge {
+  order: 2;
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--bj-border-dark);
+  border-radius: 999px;
+  background: var(--bj-bg-overlay);
+  color: var(--bj-text-on-dark);
+  font-size: 0.76rem;
+}
+
+.mapControlDock .sessionBadge button {
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--bj-text-on-dark);
+  padding: 0.2rem 0.48rem;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.mapControlDock--hidden {
+  opacity: 0;
+  transform: translateY(0.75rem);
+  pointer-events: none;
+  visibility: hidden;
+  height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  overflow: hidden;
+}
+
+.mapViewButtons {
+  order: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .mapLayerToggle {
@@ -61,12 +237,6 @@
   cursor: pointer;
 }
 
-.mapMissionStatus {
-  margin: 0;
-  color: var(--bj-text-muted-on-dark);
-  font-size: 0.76rem;
-}
-
 .mapViewButtons button {
   border: 1px solid var(--bj-border-dark);
   background: var(--bj-bg-overlay);
@@ -83,14 +253,12 @@
 }
 
 .versoConnectionPanel {
-  position: absolute;
-  bottom: 0.85rem;
-  left: 0.85rem;
-  z-index: 500;
+  order: 3;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  max-width: min(360px, calc(100% - 1.7rem));
+  max-width: min(360px, 100%);
 }
 
 .versoConnectionToggle {
@@ -126,6 +294,11 @@
 }
 
 .versoConnectionForm {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -299,13 +472,13 @@
 
 .editPanel {
   position: absolute;
-  bottom: 0.85rem;
+  bottom: calc(var(--map-dock-height) + 1.2rem);
   left: 0.85rem;
   background: var(--bj-bg-overlay-strong);
   border: 1px solid var(--bj-border-dark);
   border-radius: 10px;
   min-width: 210px;
-  z-index: 10;
+  z-index: 120;
   font-size: 0.82rem;
   color: var(--bj-text-on-dark);
   backdrop-filter: blur(8px);

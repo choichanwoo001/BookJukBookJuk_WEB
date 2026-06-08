@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   parseUserIntent,
-  recommendationAttachmentsFromResult,
   toolCallForIntent,
 } from '../agent/runtime/chatAgentRuntime'
 import {
@@ -10,14 +9,11 @@ import {
   mergePlannerIntentWithRules,
   requiresConfirmation,
 } from '../agent/policy'
-import { transitionStateFromIntent, transitionStateFromTool } from '../agent/stateMachine'
+import { transitionStateFromIntent } from '../agent/stateMachine'
 import {
   getTelemetrySnapshot,
   incrementMetric,
-  recordBridgeErrorCode,
   recordIntentOutcome,
-  recordThemeLlmLatency,
-  recordToolLatency,
 } from '../agent/telemetry'
 import {
   AGENT_MAP_EVENT_VERSION,
@@ -27,9 +23,6 @@ import {
   type AgentMapSnapshot,
 } from '../agent/runtime/agentEventBus'
 import { planWithLlm } from '../agent/runtime/llmPlanner'
-import { rewriteAssistantMessage } from '../agent/runtime/llmRewriter'
-import { generateThemesWithLlm } from '../agent/runtime/llmThemeGenerator'
-import { executeTool } from '../agent/tools/registry'
 import { normalizeListHint } from '../agent/listHintNormalize'
 import { getDefaultUserId } from '../lib/supabase/env'
 import { getCurrentWebSessionUsersId } from '../lib/supabase/qrLogin'
@@ -39,7 +32,6 @@ import {
 } from '../lib/supabase/conversation'
 import { shelfListLoadUserMessage } from '../lib/supabase/listLoadUi'
 import { loadShelfBooks, mapListTypeToShelfType } from '../lib/supabase/shelves'
-import type { StartMode } from '../types/startMode'
 import type {
   AgentContext,
   AgentIntent,
@@ -48,27 +40,19 @@ import type {
   AgentMessage,
   DwellBookCandidate,
   ShoppingListEntry,
-  ToolCall,
   ToolExecutionContext,
   ToolResult,
 } from '../agent/types'
 import { appendUserMessageAndStore } from './chatAgent/helpers'
 import { mergePlannedToolCall } from './chatAgent/toolCallMerge'
-import {
-  buildThemeOptions,
-  handleBuildFlowInput,
-  initialBuildFlowSession,
-  rankThemeCandidates,
-  STEP1_Q1,
-} from './chatAgent/buildFlow'
-import type { BuildFlowSession, RecommendationCandidate, ThemeOption } from './chatAgent/buildFlow'
 import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
-import { isRedundantFallbackAssistantText } from './chatAgent/assistantMessageDedupe'
-import { buildChatActionCard } from './chatAgent/actionCard'
-import { RECENT_RECOMMENDED_CAP, recommendationContextPatch } from './chatAgent/recommendationContext'
 import { CHAT_AGENT_MESSAGES } from './chatAgent/messages'
+import { isDemoMode } from '../config/demoMode'
+import type { TasteSeed } from '../types/onboarding'
+import { useDemoOrchestrator } from './useDemoOrchestrator'
+import { useToolRunner } from './chatAgent/useToolRunner'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -175,7 +159,10 @@ function asIntentType(input: string): AgentIntentType {
 }
 
 
-export function useChatAgent(options: { startMode: StartMode; initialShoppingList?: ShoppingListEntry[] }) {
+export function useChatAgent(options: {
+  initialShoppingList?: ShoppingListEntry[]
+  tasteSeed?: TasteSeed | null
+}) {
   const [messages, setMessages] = useState<AgentMessage[]>(initialMessages)
   const messagesRef = useRef<AgentMessage[]>(messages)
   const [context, setContextState] = useState<AgentContext>(initialContextValue)
@@ -193,8 +180,8 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
   const [conversationReady, setConversationReady] = useState(false)
   const [hasAppliedStartMode, setHasAppliedStartMode] = useState(false)
   const appliedStartModeKeyRef = useRef<string | null>(null)
-  const [buildFlow, setBuildFlow] = useState<BuildFlowSession>(initialBuildFlowSession)
-  const shouldAutoLoadShelf = options.startMode === 'existing_list'
+  const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
+  const shouldAutoLoadShelf = !hasInitialShoppingList
   const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
 
   useLayoutEffect(() => {
@@ -297,7 +284,7 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
       conversationIdRef.current = null
       setConversationReady(false)
     }
-  }, [activeUsersId, options.startMode])
+  }, [activeUsersId])
 
   useEffect(() => {
     if (!activeUsersId || shouldAutoLoadShelf) return
@@ -356,6 +343,14 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     }
   }, [appendAssistant])
 
+  const demo = useDemoOrchestrator({
+    tasteSeed: options.tasteSeed ?? null,
+    toolExecutionContext,
+    appendAssistantAndStore,
+    setContext,
+    getContext: () => contextRef.current,
+  })
+
   const loadExistingListOnDemand = useCallback(async () => {
     if (!activeUsersId) return false
     setListLoadStatus('loading')
@@ -379,48 +374,33 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     const run = async () => {
       const conversationId = conversationIdRef.current
       if (!conversationId) return
-      const appliedKey = `${conversationId}:${options.startMode}`
+      const appliedKey = conversationId
       if (appliedStartModeKeyRef.current === appliedKey) {
         setHasAppliedStartMode(true)
         return
       }
-      if (options.startMode === 'existing_list') {
-        if (listLoadStatus === 'loading') return
-        if (listLoadStatus === 'error') {
-          await appendAssistantAndStore(
-            '쇼핑리스트를 불러오지 못해 확인 단계를 건너뛸게요. "추천해줘" 또는 "길 안내 시작"처럼 말씀해 주세요.',
-          )
-          appliedStartModeKeyRef.current = appliedKey
-          setHasAppliedStartMode(true)
-          return
-        }
-        if (listLoadStatus !== 'ok') return
-        const n = contextRef.current.shoppingList.length
-        if (n > 0) {
-          await appendAssistantAndStore(
-            `현재 쇼핑리스트에 ${n}권이 있어요. 이 리스트로 확정하고 진행할까요? "진행" 또는 "확정"이라고 답하시거나, 책을 더하고 싶으면 "데미안 추가해줘"처럼 말씀해 주세요.`,
-          )
-        } else {
-          await appendAssistantAndStore(
-            '쇼핑리스트가 비어 있어요. 이대로 시작할까요? 진행하시려면 "진행", 책을 추가하시려면 책 이름을 말씀해 주세요.',
-          )
-        }
+      if (listLoadStatus === 'loading') return
+      if (listLoadStatus === 'error') {
+        await appendAssistantAndStore(
+          '쇼핑리스트를 불러오지 못했어요. 이대로 시작하려면 "진행" 또는 "확정"이라고 답해 주세요.',
+        )
         updateExistingListGate({ status: 'awaiting' })
         appliedStartModeKeyRef.current = appliedKey
         setHasAppliedStartMode(true)
         return
       }
-      if (options.startMode === 'build_list_chat') {
-        setBuildFlow((prev) => ({ ...prev, step: 'step1_question_1' }))
-        await appendAssistantAndStore(`좋아요. 리스트를 함께 만들어요.\n${STEP1_Q1}`)
-        appliedStartModeKeyRef.current = appliedKey
-        setHasAppliedStartMode(true)
-        return
+      if (listLoadStatus !== 'ok') return
+      const n = contextRef.current.shoppingList.length
+      if (n > 0) {
+        await appendAssistantAndStore(
+          `현재 쇼핑리스트에 ${n}권이 있어요. 이 리스트로 확정하고 진행할까요? "진행" 또는 "확정"이라고 답하시거나, 책을 더하고 싶으면 "데미안 추가해줘"처럼 말씀해 주세요.`,
+        )
+      } else {
+        await appendAssistantAndStore(
+          '쇼핑리스트가 비어 있어요. 이대로 시작할까요? 진행하시려면 "진행", 책을 추가하시려면 책 이름을 말씀해 주세요.',
+        )
       }
-      setContext({ listType: '쇼핑리스트' })
-      await appendAssistantAndStore(
-        '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 원하시면 바로 쇼핑리스트에 저장할 수 있어요.',
-      )
+      updateExistingListGate({ status: 'awaiting' })
       appliedStartModeKeyRef.current = appliedKey
       setHasAppliedStartMode(true)
     }
@@ -431,8 +411,6 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     conversationReady,
     hasAppliedStartMode,
     listLoadStatus,
-    options.startMode,
-    setContext,
     updateExistingListGate,
   ])
 
@@ -441,52 +419,14 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
    * regular intent flow: telemetry → context patch (incl. transitioned state)
    * → assistant message → fallbackTool on failure.
    */
-  const runToolWithFallback = useCallback(
-    async (
-      toolCall: ToolCall,
-      intentTypeForOutcome: string,
-      extraContextPatch?: Partial<AgentContext>,
-    ): Promise<ToolResult> => {
-      const t0 = performance.now()
-      const result = await executeTool(toolCall, toolExecutionContext)
-      recordToolLatency(toolCall.name, performance.now() - t0)
-
-      if (result.ok) incrementMetric('toolSuccess')
-      else incrementMetric('toolFailure')
-      recordIntentOutcome(intentTypeForOutcome, result.ok)
-
-      setContext({
-        ...(extraContextPatch ?? {}),
-        ...recommendationContextPatch(toolCall, result, contextRef.current, RECENT_RECOMMENDED_CAP),
-        lastToolResult: result,
-        state: transitionStateFromTool(contextRef.current.state, result),
-      })
-
-      const recAttach = recommendationAttachmentsFromResult(result)
-      const rewritten = await rewriteAssistantMessage(result, recAttach)
-      if (rewritten) incrementMetric('llmRewriterUsed')
-      else incrementMetric('llmRewriterFallback')
-      const primaryAssistantText = rewritten ?? result.message
-      await appendAssistantAndStore(primaryAssistantText, recAttach)
-
-      if (!result.ok) {
-        incrementMetric('fallbackUsed')
-        if (result.errorCode) recordBridgeErrorCode(result.errorCode)
-        const fallback = await executeTool(
-          { name: 'fallbackTool', args: { reason: result.errorCode ?? 'UNKNOWN' } },
-          toolExecutionContext,
-        )
-        if (!isRedundantFallbackAssistantText(primaryAssistantText, fallback.message)) {
-          await appendAssistantAndStore(fallback.message)
-        }
-      }
-
-      await runEditFollowUp(result, appendAssistantAndStore)
-
-      return result
-    },
-    [appendAssistantAndStore, runEditFollowUp, setContext, toolExecutionContext],
-  )
+  const runToolWithFallback = useToolRunner({
+    toolExecutionContext,
+    contextRef,
+    setContext,
+    appendAssistantAndStore,
+    runEditFollowUp,
+    onCartAddSuccess: demo.handleCartAddSuccess,
+  })
 
   const handleCancelIntent = useCallback(async () => {
     const pending = contextRef.current.pendingConfirmation
@@ -514,86 +454,7 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     )
   }, [appendAssistantAndStore, runToolWithFallback])
 
-  const actionCard = useMemo(
-    () => {
-      const cart = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
-      return buildChatActionCard(options.startMode, buildFlow, cart)
-    },
-    [buildFlow, context.cartItems, context.shoppingList, options.startMode],
-  )
-
-  const loadCandidatesForTheme = useCallback(
-    async (theme: ThemeOption, refreshCount: number): Promise<RecommendationCandidate[]> => {
-      const toolCall: ToolCall = { name: 'recommendationTool', args: { mode: 'taste' } }
-      const rec = await executeTool(toolCall, toolExecutionContext)
-      if (!rec.ok) return []
-      const recoPatch = recommendationContextPatch(toolCall, rec, contextRef.current, RECENT_RECOMMENDED_CAP)
-      if (Object.keys(recoPatch).length > 0) setContext(recoPatch)
-      const data = rec.data as {
-        candidates?: { title: string; authors: string; booksId?: string }[]
-        recommendations?: string[]
-      } | undefined
-      let pool = data?.candidates ?? []
-      if (pool.length === 0 && Array.isArray(data?.recommendations)) {
-        pool = data.recommendations
-          .map((line) => {
-            const body = line.replace(/^[^0-9]*\d+\.\s*/, '')
-            const [titleRaw, authorsRaw] = body.split(/\s-\s/)
-            return {
-              title: (titleRaw ?? '').trim(),
-              authors: (authorsRaw ?? '저자 미상').trim(),
-            }
-          })
-          .filter((item) => item.title.length > 0)
-      }
-      if (pool.length === 0) return []
-      const rankedPool = rankThemeCandidates(pool, theme)
-      const offset = refreshCount % rankedPool.length
-      const first = rankedPool[offset]
-      const second = rankedPool[(offset + 1) % rankedPool.length]
-      const base = [first, second].filter(Boolean)
-      const reviewKeywords = theme.keywords.slice(0, 3)
-      return base.map((item) => ({
-        title: item.title,
-        authors: item.authors || '저자 미상',
-        reason: theme.reason ?? `"${theme.name}" 방향과 사용자 답변을 반영한 추천`,
-        reviewKeywords: reviewKeywords.length > 0 ? reviewKeywords : ['공감', '가독성'],
-      }))
-    },
-    [setContext, toolExecutionContext],
-  )
-
-  const loadThemesForAnswers = useCallback(
-    async (answers: string[]): Promise<ThemeOption[]> => {
-      const [q1, q2] = answers
-      const startedAt = performance.now()
-      const llmResult = await generateThemesWithLlm({
-        q1: q1 ?? '',
-        q2: q2 ?? '',
-        context: {
-          listType: contextRef.current.listType,
-          state: contextRef.current.state,
-        },
-      })
-      recordThemeLlmLatency(performance.now() - startedAt)
-      if (llmResult.ok) {
-        incrementMetric('themeLlmUsed')
-        return llmResult.themes.map((theme) => ({
-          id: theme.id,
-          name: theme.name,
-          description: theme.description,
-          reason: theme.reason,
-          keywords: theme.keywords,
-        }))
-      }
-      incrementMetric('themeLlmFallback')
-      if (llmResult.reason === 'parse_error' || llmResult.reason === 'schema_error') {
-        incrementMetric('themeLlmParseError')
-      }
-      return buildThemeOptions(answers)
-    },
-    [],
-  )
+  const actionCard = null
 
   const submitUserText = useCallback(
     async (text: string, source: AgentIntentSource = 'chat') => {
@@ -604,28 +465,6 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
       setBusy(true)
       setLastFailedUserText(null)
       try {
-        if (options.startMode === 'build_list_chat' && buildFlow.step !== 'idle') {
-          await appendUserMessageAndStore({
-            text: normalized,
-            conversationId: conversationIdRef.current,
-            intent: 'select_list_mode',
-            setMessages,
-          })
-          const handled = await handleBuildFlowInput({
-            buildFlow,
-            intentText,
-            appendAssistantAndStore,
-            setBuildFlow,
-            loadThemesForAnswers,
-            loadCandidatesForTheme,
-            runToolWithFallback,
-            getShoppingListCount: () => contextRef.current.cartItems.length,
-          })
-          if (handled) {
-            return
-          }
-        }
-
         if (
           existingListGateRef.current.status === 'awaiting' &&
           !contextRef.current.pendingConfirmation &&
@@ -681,6 +520,10 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
             intent: 'request_recommendation',
             setMessages,
           })
+          if (isDemoMode()) {
+            const handled = await demo.handleDwellFeedback(intentText, dwellBook)
+            if (handled) return
+          }
           setContext({ awaitingDwellFeedback: false })
           await runToolWithFallback(
             {
@@ -695,6 +538,23 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
             { pendingDwellBook: null },
           )
           return
+        }
+
+        if (isDemoMode()) {
+          if (await demo.handleUserPick(intentText)) return
+          if (
+            demo.demoStateRef.current.step === 'alternative_recommend' &&
+            /(함께|두 권|안내|가자|보러)/.test(intentText)
+          ) {
+            await appendUserMessageAndStore({
+              text: normalized,
+              conversationId: conversationIdRef.current,
+              intent: 'resume_mobility',
+              setMessages,
+            })
+            await demo.handleAlternativeAccepted()
+            return
+          }
         }
 
         const llmPlan = await planWithLlm({
@@ -853,16 +713,13 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     },
     [
       appendAssistantAndStore,
-      buildFlow,
       handleCancelIntent,
       handleConfirmIntent,
-      loadCandidatesForTheme,
-      loadThemesForAnswers,
-      options.startMode,
       runToolWithFallback,
       setContext,
       existingListGateRef,
       updateExistingListGate,
+      demo,
     ],
   )
 
@@ -888,8 +745,23 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
   )
 
   const applyBookRecognitionCapture = useCallback(
-    async (reason: 'add' | 'remove', imageBase64: string) => {
+    async (reason: 'add' | 'remove' | 'browse', imageBase64: string) => {
       if (!imageBase64.trim()) return
+      if (reason === 'browse') {
+        setBusy(true)
+        try {
+          await appendUserMessageAndStore({
+            text: '[표지 인식 · 구경]',
+            conversationId: conversationIdRef.current,
+            intent: 'unknown',
+            setMessages,
+          })
+          await demo.handleBrowseCapture(imageBase64)
+        } finally {
+          setBusy(false)
+        }
+        return
+      }
       setBusy(true)
       setLastFailedUserText(null)
       try {
@@ -912,7 +784,14 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
         setBusy(false)
       }
     },
-    [runToolWithFallback, setMessages],
+    [demo, runToolWithFallback, setMessages],
+  )
+
+  const applyBookBrowseCapture = useCallback(
+    async (imageBase64: string) => {
+      await applyBookRecognitionCapture('browse', imageBase64)
+    },
+    [applyBookRecognitionCapture],
   )
 
   return {
@@ -920,6 +799,7 @@ export function useChatAgent(options: { startMode: StartMode; initialShoppingLis
     submitUserText,
     submitAgentInput,
     applyBookRecognitionCapture,
+    applyBookBrowseCapture,
     context,
     latestMapSnapshot,
     telemetry: getTelemetrySnapshot(),

@@ -3,42 +3,42 @@ import type { FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { ChatActionCard } from './ChatActionCard'
 import { ConfirmationCard } from './ConfirmationCard'
-import { BookRecognitionPanel } from './BookRecognitionPanel'
-import { useChatAgent } from '../hooks/useChatAgent'
 import { useSpeechInput } from '../hooks/useSpeechInput'
 import { useTts } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
-import type { ShoppingListEntry } from '../agent/types'
-import type { StartMode } from '../types/startMode'
+import type { AgentContext, AgentMessage, ChatActionCard as ChatActionCardModel } from '../agent/types'
 
 function ChatPanel({
   activePane,
   onActivateChat,
-  startMode,
-  initialShoppingList,
+  messages,
+  submitUserText,
+  context,
+  busy,
+  lastFailedUserText,
+  acceptConfirmation,
+  cancelConfirmation,
+  retryLastFailed,
+  listLoadStatus,
+  listLoadMessage,
+  actionCard,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
-  startMode: StartMode
-  initialShoppingList?: ShoppingListEntry[]
+  messages: AgentMessage[]
+  submitUserText: (text: string) => Promise<void>
+  context: AgentContext
+  busy: boolean
+  lastFailedUserText: string | null
+  acceptConfirmation: () => void
+  cancelConfirmation: () => void
+  retryLastFailed: () => void
+  listLoadStatus: 'idle' | 'loading' | 'ok' | 'error'
+  listLoadMessage: string | null
+  actionCard: ChatActionCardModel | null
 }) {
   const [draft, setDraft] = useState('')
   const messageListRef = useRef<HTMLDivElement | null>(null)
-  const {
-    messages,
-    submitUserText,
-    context,
-    busy,
-    lastFailedUserText,
-    acceptConfirmation,
-    cancelConfirmation,
-    retryLastFailed,
-    listLoadStatus,
-    listLoadMessage,
-    loadExistingListOnDemand,
-    actionCard,
-    applyBookRecognitionCapture,
-  } = useChatAgent({ startMode, initialShoppingList })
 
   const tts = useTts()
 
@@ -53,7 +53,6 @@ function ChatPanel({
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
   const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
-  const isBuildMode = startMode === 'build_list_chat'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -75,7 +74,7 @@ function ChatPanel({
     const listEl = messageListRef.current
     if (!listEl) return
     listEl.scrollTop = listEl.scrollHeight
-  }, [messages, startMode])
+  }, [messages])
 
   return (
     <div
@@ -100,16 +99,6 @@ function ChatPanel({
             >
               계산하러 가기
             </button>
-            {isBuildMode && (
-              <button
-                type="button"
-                className="chatShelfLoadButton"
-                onClick={() => void loadExistingListOnDemand()}
-                disabled={listLoadStatus === 'loading'}
-              >
-                기존 리스트 불러오기
-              </button>
-            )}
           </div>
           {listLoadStatus === 'loading' ? (
             <p className="chatShelfListEmpty chatShelfListLoading">리스트를 불러오는 중이에요.</p>
@@ -119,11 +108,7 @@ function ChatPanel({
             </p>
           ) : cartItems.length === 0 ? (
             <p className="chatShelfListEmpty">
-              {startMode === 'build_list_chat'
-                ? '빈 리스트로 시작했어요. 채팅으로 책을 추가하거나 기존 리스트를 불러올 수 있어요.'
-                : startMode === 'browse_no_list'
-                  ? '아직 담긴 책이 없어요. 추천 중 마음에 드는 책을 리스트에 담아보세요.'
-                  : '저장된 책이 아직 없어요.'}
+              저장된 책이 아직 없어요.
             </p>
           ) : (
             <ul className="chatShelfListItems">
@@ -159,7 +144,7 @@ function ChatPanel({
                   fgColor="#111827"
                 />
               </div>
-              <code className="chatReceiptPayload">{context.receipt.qrPayload}</code>
+              <code className="chatReceiptPayload breakAnywhere">{context.receipt.qrPayload}</code>
             </div>
           )}
         </section>
@@ -183,7 +168,10 @@ function ChatPanel({
 
         <div ref={messageListRef} className="chatMessages">
           {messages.map((message) => (
-            <article key={message.id} className={`chatBubble ${message.role === 'user' ? 'user' : 'assistant'}`}>
+            <article
+              key={message.id}
+              className={`chatBubble breakAnywhere ${message.role === 'user' ? 'user' : 'assistant'}`}
+            >
               <div>{message.text}</div>
               {message.attachments && message.attachments.length > 0 && (
                 <ul className="chatBubbleAttachments">
@@ -208,10 +196,6 @@ function ChatPanel({
         )}
 
         <div className="chatVoiceBar">
-          <BookRecognitionPanel
-            busy={busy}
-            onCapture={applyBookRecognitionCapture}
-          />
           <button
             type="button"
             className="chatTtsToggle"

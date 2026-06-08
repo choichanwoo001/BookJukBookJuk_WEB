@@ -90,6 +90,7 @@ export function useMapViewState({
       playerXz: playerWorldXzRef.current,
       missionVersion,
       activeLeg: activeLegRef.current,
+      arrivedLeg: null,
     })
   }, [activeLegRef, missionVersion, minimapPlayerPos, playerWorldXzRef])
 

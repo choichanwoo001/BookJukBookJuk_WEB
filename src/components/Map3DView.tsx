@@ -11,6 +11,11 @@ import {
 import type { Point2 } from '../data/floorPlan'
 import { pickMissionIndicesSeeded } from '../utils/missionPick'
 import { useNavigationRoute } from '../hooks/useNavigationRoute'
+import { useAgentMission } from '../hooks/useAgentMission'
+import { resolveMissionPoolIndices } from '../utils/bookShelfNavigation'
+import { checkoutDirectGoals } from '../utils/counterNavigation'
+import { subscribeMapCommand, AGENT_MAP_EVENT_VERSION, dispatchDwellEvent } from '../agent/runtime/agentEventBus'
+import { isDemoMode } from '../config/demoMode'
 import {
   FIXED_SELECTION_RADIUS_M,
 } from '../config/constants'
@@ -25,12 +30,12 @@ import { SceneContent } from './scene/SceneContent'
 import { BookshelfEditPanel } from './BookshelfEditPanel'
 import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 import { buildMissionShelfPool, buildNavBookshelfRects } from '../utils/missionShelfPool'
-import { MapViewButtons } from './map/MapViewButtons'
+import { BookRecognitionPanel } from './BookRecognitionPanel'
+import { MapControlDock } from './map/MapControlDock'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
 import { useMapViewState } from '../hooks/useMapViewState'
 import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
-import { VersoConnectionPanel } from './map/VersoConnectionPanel'
 
 function buildStaticInstances(): FixtureRenderInstance[] {
   const counters = counterInstances.map<FixtureRenderInstance>((item) => ({
@@ -67,14 +72,31 @@ function selectionToText(selection: CircleSelection) {
 function Map3DView({
   activePane,
   onActivateMap,
+  busy,
+  onBookCapture,
+  onBookBrowse,
+  usersId,
+  isFullscreen,
+  onToggleFullscreen,
+  onResetOnboarding,
 }: {
   activePane: 'map' | 'chat'
   onActivateMap: () => void
+  busy: boolean
+  onBookCapture: (reason: 'add' | 'remove' | 'browse', imageBase64: string) => void | Promise<void>
+  onBookBrowse?: (imageBase64: string) => void | Promise<void>
+  usersId: string | null
+  isFullscreen: boolean
+  onToggleFullscreen: () => void
+  onResetOnboarding: () => void
 }) {
+  const [controlsVisible, setControlsVisible] = useState(true)
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
   const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(null)
+  const [checkoutGoals, setCheckoutGoals] = useState<Point2[] | null>(null)
+  const checkoutArrivedRef = useRef(false)
   const playerWorldXzRef = useRef<Point2 | null>(null)
   const navigationActiveLegRef = useRef<number | null>(null)
   const staticInstances = useMemo(() => buildStaticInstances(), [])
@@ -122,15 +144,29 @@ function Map3DView({
     clearSelection,
   })
 
+  const agentMission = useAgentMission(missionVersion)
+
   const missionBookshelfPool = useMemo(
     () => buildMissionShelfPool(instances, bookshelfOverlayLayerInstances),
     [instances],
   )
 
-  const missionIndices = useMemo(() => {
+  const fallbackMissionIndices = useMemo(() => {
     const pool = missionBookshelfPool.map((_, i) => i)
-    return pickMissionIndicesSeeded(pool, missionVersion)
-  }, [missionBookshelfPool, missionVersion])
+    return pickMissionIndicesSeeded(pool, agentMission.missionVersion)
+  }, [missionBookshelfPool, agentMission.missionVersion])
+
+  const missionIndices = useMemo(() => {
+    if (agentMission.poolIndices && agentMission.poolIndices.length > 0) {
+      return resolveMissionPoolIndices(
+        agentMission.poolIndices,
+        missionBookshelfPool.length,
+        agentMission.missionVersion,
+      )
+    }
+    if (isDemoMode()) return []
+    return fallbackMissionIndices
+  }, [agentMission.poolIndices, agentMission.missionVersion, fallbackMissionIndices, missionBookshelfPool.length])
 
   const navBounds = useMemo(() => {
     const b = getMinimapWorldBounds()
@@ -150,9 +186,29 @@ function Map3DView({
     }),
     [navBookshelfRects],
   )
+
+  const directGoals = useMemo(() => {
+    if (agentMission.directGoals && agentMission.directGoals.length > 0) {
+      return agentMission.directGoals
+    }
+    if (checkoutGoals && checkoutGoals.length > 0) return checkoutGoals
+    return null
+  }, [agentMission.directGoals, checkoutGoals])
+
+  useEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type === 'GO_CHECKOUT') {
+        checkoutArrivedRef.current = false
+        setCheckoutGoals(checkoutDirectGoals(navCtx, navBounds))
+      }
+    })
+  }, [navBounds, navCtx])
+
   const navigationRoute = useNavigationRoute({
     missionIndices,
-    missionVersion,
+    directGoals,
+    missionPoolIndices: agentMission.poolIndices ?? missionIndices,
+    missionVersion: agentMission.missionVersion,
     bookshelfInstances: missionBookshelfPool,
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
@@ -175,6 +231,14 @@ function Map3DView({
   useEffect(() => {
     navigationActiveLegRef.current = navigationRoute?.activeLeg ?? null
   }, [navigationRoute?.activeLeg])
+
+  useEffect(() => {
+    if (!checkoutGoals?.length || !navigationRoute) return
+    if (navigationRoute.activeLeg >= navigationRoute.goals.length && !checkoutArrivedRef.current) {
+      checkoutArrivedRef.current = true
+      dispatchDwellEvent({ type: 'CHECKOUT_ARRIVED', version: AGENT_MAP_EVENT_VERSION })
+    }
+  }, [checkoutGoals, navigationRoute])
 
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
 
@@ -225,6 +289,7 @@ function Map3DView({
     <div
       className="map3DContainer"
       data-active-pane={activePane === 'map'}
+      data-controls-visible={controlsVisible ? 'true' : 'false'}
       onPointerDown={onActivateMap}
     >
       <Canvas
@@ -259,6 +324,13 @@ function Map3DView({
       </Canvas>
 
       <div className="map3DUiLayer">
+        <BookRecognitionPanel
+          busy={busy}
+          onCapture={onBookCapture}
+          onBrowse={onBookBrowse ?? ((frame) => onBookCapture('browse', frame))}
+          placement="map"
+        />
+
         {(mode === 'firstPerson' || mode === 'thirdPerson') && (
           <div className="map3DForwardHud">
             <div ref={forwardArrowRef} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -268,14 +340,6 @@ function Map3DView({
             </div>
           </div>
         )}
-
-        <MapViewButtons
-          mode={mode}
-          isEdit={isEdit}
-          missionVersion={missionVersion}
-          missionIndices={missionIndices}
-          onModeChange={handleViewModeChange}
-        />
 
         <MapMinimapPanel
           mode={mode}
@@ -288,10 +352,19 @@ function Map3DView({
           onClick={handleMinimapToggle}
         />
 
-        <VersoConnectionPanel
-          connectionState={versoConnectionState}
-          onConnect={setVersoActiveUrl}
-          onDisconnect={() => setVersoActiveUrl(null)}
+        <MapControlDock
+          visible={controlsVisible}
+          onToggleVisible={() => setControlsVisible((v) => !v)}
+          usersId={usersId}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={onToggleFullscreen}
+          onResetOnboarding={onResetOnboarding}
+          mode={mode}
+          isEdit={isEdit}
+          onModeChange={handleViewModeChange}
+          versoConnectionState={versoConnectionState}
+          onVersoConnect={setVersoActiveUrl}
+          onVersoDisconnect={() => setVersoActiveUrl(null)}
         />
       </div>
 

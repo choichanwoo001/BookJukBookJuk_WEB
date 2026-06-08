@@ -11,6 +11,30 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    pool: 'threads',
+    maxWorkers: 2,
+  },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('/node_modules/')) return
+          if (id.includes('/node_modules/three/')) {
+            return 'three-core'
+          }
+          if (id.includes('/node_modules/@react-three/') || id.includes('/node_modules/@use-gesture/')) {
+            return 'r3f-vendor'
+          }
+          if (id.includes('/node_modules/react/') || id.includes('/node_modules/react-dom/')) {
+            return 'react-vendor'
+          }
+          if (id.includes('/node_modules/@supabase/')) {
+            return 'supabase-vendor'
+          }
+        },
+      },
+    },
   },
   server: {
     proxy: {

@@ -1,4 +1,6 @@
+@import './fonts.css';
 @import './base.css';
+@import './typography.css';
 @import './map.css';
 @import './chat.css';
 @import './onboarding.css';

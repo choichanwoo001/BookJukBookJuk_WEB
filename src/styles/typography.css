@@ -1,0 +1,15 @@
+/* Korean line-breaking defaults — keep-all prevents mid-syllable breaks (e.g. 하/는). */
+html,
+body,
+#root {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  line-break: strict;
+}
+
+/* Opt-out for long tokens, URLs, and user-generated content. */
+.breakAnywhere {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  line-break: auto;
+}

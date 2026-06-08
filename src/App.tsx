@@ -1,23 +1,20 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { AppMainShell } from './components/AppMainShell'
 import BalanceGameGate from './components/BalanceGameGate'
-import ChatPanel from './components/ChatPanel'
 import QrLoginGate from './components/QrLoginGate'
 import SimilarReadersGate from './components/SimilarReadersGate'
 import VisitChoiceGate from './components/VisitChoiceGate'
+import LlmRequiredGate from './components/LlmRequiredGate'
+import SessionStartGate from './components/SessionStartGate'
 import { clearCurrentWebSession } from './lib/supabase/qrLogin'
+import { demoRequiresLlm, isDemoMode, isLlmConfigured } from './config/demoMode'
 import type { ShoppingListEntry } from './agent/types'
-import type { OnboardingStep, TasteSeed, VisitType } from './types/onboarding'
-import type { StartMode } from './types/startMode'
+import type { OnboardingStep, TasteSeed } from './types/onboarding'
 import './styles/layout.css'
 
-const Map3DView = lazy(() => import('./components/Map3DView'))
-
 function App() {
-  const [activePane, setActivePane] = useState<'map' | 'chat'>('map')
   const [usersId, setUsersId] = useState<string | null>(null)
-  const [startMode, setStartMode] = useState<StartMode>('browse_no_list')
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('visit_choice')
-  const [visitType, setVisitType] = useState<VisitType | null>(null)
   const [tasteSeed, setTasteSeed] = useState<TasteSeed | null>(null)
   const [plannedBooks, setPlannedBooks] = useState<ShoppingListEntry[]>([])
   const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement))
@@ -50,13 +47,10 @@ function App() {
     setUsersId(null)
     setTasteSeed(null)
     setPlannedBooks([])
-    setVisitType(null)
-    setStartMode('browse_no_list')
     setOnboardingStep('visit_choice')
   }
 
   const enterApp = () => {
-    setStartMode(visitType === 'returning' ? 'existing_list' : 'browse_no_list')
     setOnboardingStep('app')
   }
 
@@ -86,7 +80,6 @@ function App() {
     return (
       <VisitChoiceGate
         onSelect={(nextVisitType) => {
-          setVisitType(nextVisitType)
           setOnboardingStep(nextVisitType === 'first' ? 'balance_game' : 'qr_login')
         }}
       />
@@ -99,7 +92,11 @@ function App() {
         onComplete={(nextTasteSeed) => {
           setTasteSeed(nextTasteSeed)
           setUsersId('first-visit-guest')
-          setOnboardingStep('similar_readers')
+          if (isDemoMode()) {
+            setOnboardingStep(demoRequiresLlm() && !isLlmConfigured() ? 'llm_required' : 'session_start')
+          } else {
+            setOnboardingStep('similar_readers')
+          }
         }}
       />
     )
@@ -110,8 +107,31 @@ function App() {
       <QrLoginGate
         onLoggedIn={(nextUsersId) => {
           setUsersId(nextUsersId)
-          setOnboardingStep('similar_readers')
+          if (isDemoMode()) {
+            setOnboardingStep(demoRequiresLlm() && !isLlmConfigured() ? 'llm_required' : 'session_start')
+          } else {
+            setOnboardingStep('similar_readers')
+          }
         }}
+      />
+    )
+  }
+
+  if (onboardingStep === 'llm_required') {
+    return (
+      <LlmRequiredGate
+        onRetry={() => {
+          setOnboardingStep(isLlmConfigured() ? 'session_start' : 'llm_required')
+        }}
+      />
+    )
+  }
+
+  if (onboardingStep === 'session_start') {
+    return (
+      <SessionStartGate
+        tasteSeed={tasteSeed}
+        onStart={() => setOnboardingStep('app')}
       />
     )
   }
@@ -131,30 +151,14 @@ function App() {
   }
 
   return (
-    <main className="appShell">
-      <div className="sessionBadge">
-        <span>{usersId ? `사용자 ${usersId}` : '첫 방문 게스트'}</span>
-        <button type="button" onClick={() => void toggleFullscreen()}>
-          {isFullscreen ? '전체화면 종료' : '전체화면'}
-        </button>
-        <button type="button" onClick={resetOnboarding}>
-          처음으로
-        </button>
-      </div>
-      <section className="mapPane" onPointerDown={() => setActivePane('map')}>
-        <Suspense fallback={<div className="map3DLoading" role="status">지도 불러오는 중...</div>}>
-          <Map3DView activePane={activePane} onActivateMap={() => setActivePane('map')} />
-        </Suspense>
-      </section>
-      <aside className="chatPane" onPointerDown={() => setActivePane('chat')}>
-        <ChatPanel
-          activePane={activePane}
-          onActivateChat={() => setActivePane('chat')}
-          startMode={startMode}
-          initialShoppingList={plannedBooks}
-        />
-      </aside>
-    </main>
+    <AppMainShell
+      usersId={usersId}
+      plannedBooks={plannedBooks}
+      tasteSeed={tasteSeed}
+      isFullscreen={isFullscreen}
+      onToggleFullscreen={() => void toggleFullscreen()}
+      onResetOnboarding={resetOnboarding}
+    />
   )
 }
 

@@ -3,6 +3,7 @@ import { defaultTasteSeed, rankReaderProfiles } from '../data/readerProfiles'
 import type { ShoppingListEntry } from '../agent/types'
 import type { ReaderBook, ReaderProfile, TasteSeed } from '../types/onboarding'
 import { partitionReaderBookEntries, planEntryFromReaderBook } from '../utils/similarReadersPlan'
+import AppButton from './AppButton'
 
 type SimilarReadersGateProps = {
   tasteSeed: TasteSeed | null
@@ -59,6 +60,7 @@ export default function SimilarReadersGate({
   const rankedProfiles = useMemo(() => rankReaderProfiles(tasteSeed ?? defaultTasteSeed), [tasteSeed])
   const [selectedId, setSelectedId] = useState(rankedProfiles[0]?.id ?? '')
   const [activeTab, setActiveTab] = useState<BookTab>('liked')
+  const [statusOpen, setStatusOpen] = useState(false)
   const selectedProfile = rankedProfiles.find((profile) => profile.id === selectedId) ?? rankedProfiles[0]
   const activeBooks = activeTab === 'liked' ? selectedProfile.likedBooks : selectedProfile.readBooks
   const plannedBookIds = useMemo(() => new Set(plannedBooks.map((book) => book.booksId)), [plannedBooks])
@@ -90,26 +92,6 @@ export default function SimilarReadersGate({
 
   return (
     <section className="similarReadersPage" aria-label="비슷한 독자 추천">
-      <header className="similarReadersHeader">
-        <div>
-          <p className="onboardingEyebrow">Taste match</p>
-          <h1>나와 비슷하게 읽은 사람들</h1>
-          <p>내 독서 기록과 비슷한 취향을 가진 독자들이에요.</p>
-        </div>
-        <div className="similarReadersControls">
-          <span>{plannedBooks.length}권 담김</span>
-          {plannedBooks.length > 0 && (
-            <button type="button" className="readerPlanClearButton" onClick={onClearPlannedBooks}>
-              {plannedBooks.length}권 전체 비우기
-            </button>
-          )}
-          <span>{usersId ? `연결된 사용자 ${usersId}` : `${tasteSeed?.tone ?? defaultTasteSeed.tone} 취향 분석`}</span>
-          <button type="button" className="onboardingCtaPrimary" onClick={onStart}>
-            이 독자 취향으로 시작
-          </button>
-        </div>
-      </header>
-
       <div className="similarReadersLayout">
         <aside className="readerListPanel" aria-label="비슷한 독자 목록">
           <div className="readerListScroller">
@@ -124,9 +106,9 @@ export default function SimilarReadersGate({
                   setActiveTab('liked')
                 }}
               >
+                <strong className="readerListName">{profile.name}</strong>
                 <Avatar profile={profile} />
                 <div className="readerListBody">
-                  <strong>{profile.name}</strong>
                   <span>{profile.tagline}</span>
                   <p>
                     취향 유사도 <b>{profile.similarity}%</b>
@@ -146,30 +128,37 @@ export default function SimilarReadersGate({
           <div className="readerDetailHero">
             <Avatar profile={selectedProfile} />
             <div>
-              <p className="readerDetailKicker">나와의 취향 유사도</p>
-              <h2>{selectedProfile.name}</h2>
-              <p className="readerDetailSimilarity">{selectedProfile.similarity}%</p>
+              <div className="readerDetailHeroHeader">
+                <div>
+                  <p className="readerDetailKicker">나와의 취향 유사도</p>
+                  <h2>{selectedProfile.name}</h2>
+                  <p className="readerDetailSimilarity">{selectedProfile.similarity}%</p>
+                </div>
+                <AppButton variant="primary" className="readerDetailStartButton" onClick={onStart}>
+                  이 독자 취향으로 시작
+                </AppButton>
+              </div>
               <p className="readerDetailDescription">{selectedProfile.description}</p>
               <div className="readerPlanActions">
                 {activeUnplannedCount > 0 && (
-                  <button type="button" onClick={() => addReaderBooks(activeBooks)}>
+                  <AppButton variant="secondary" onClick={() => addReaderBooks(activeBooks)}>
                     현재 탭 {activeUnplannedCount}권 담기
-                  </button>
+                  </AppButton>
                 )}
                 {activePlannedCount > 0 && (
-                  <button type="button" className="readerPlanRemoveButton" onClick={() => removeReaderBooks(activeBooks)}>
+                  <AppButton variant="danger" onClick={() => removeReaderBooks(activeBooks)}>
                     현재 탭 {activePlannedCount}권 담기 취소
-                  </button>
+                  </AppButton>
                 )}
                 {readerUnplannedCount > 0 && (
-                  <button type="button" onClick={() => addReaderBooks(allReaderBooks)}>
+                  <AppButton variant="secondary" onClick={() => addReaderBooks(allReaderBooks)}>
                     이 독자 전체 {readerUnplannedCount}권 담기
-                  </button>
+                  </AppButton>
                 )}
-                {readerPlannedCount > 0 && (
-                  <button type="button" className="readerPlanRemoveButton" onClick={() => removeReaderBooks(allReaderBooks)}>
+                {readerPlannedCount > activePlannedCount && (
+                  <AppButton variant="danger" onClick={() => removeReaderBooks(allReaderBooks)}>
                     이 독자 {readerPlannedCount}권 담기 취소
-                  </button>
+                  </AppButton>
                 )}
                 <span>
                   이 탭 {activePlannedCount}/{activeBooks.length}권 담김
@@ -191,12 +180,24 @@ export default function SimilarReadersGate({
           </section>
 
           <div className="readerBookTabs" role="tablist" aria-label="독자 책 목록">
-            <button type="button" role="tab" aria-selected={activeTab === 'liked'} onClick={() => setActiveTab('liked')}>
+            <AppButton
+              variant="tab"
+              role="tab"
+              active={activeTab === 'liked'}
+              aria-selected={activeTab === 'liked'}
+              onClick={() => setActiveTab('liked')}
+            >
               이 독자가 좋게 평가한 책
-            </button>
-            <button type="button" role="tab" aria-selected={activeTab === 'read'} onClick={() => setActiveTab('read')}>
+            </AppButton>
+            <AppButton
+              variant="tab"
+              role="tab"
+              active={activeTab === 'read'}
+              aria-selected={activeTab === 'read'}
+              onClick={() => setActiveTab('read')}
+            >
               이 독자가 읽은 책
-            </button>
+            </AppButton>
           </div>
 
           <div className="readerBooksGrid">
@@ -206,28 +207,63 @@ export default function SimilarReadersGate({
                 <article key={book.id} className="readerBookCard">
                   <BookCover book={book} />
                   <h3>{book.title}</h3>
-                  <p className="readerBookAuthor">{book.author}</p>
-                  {book.rating && (
-                    <p className="readerBookRating">
-                      별점 {book.rating.toFixed(1)}
-                      {book.reviewCount ? ` (${book.reviewCount})` : ''}
-                    </p>
-                  )}
+                  <div className="readerBookMeta">
+                    <p className="readerBookAuthor">{book.author}</p>
+                    {book.rating && (
+                      <p className="readerBookRating">
+                        별점 {book.rating.toFixed(1)}
+                        {book.reviewCount ? ` (${book.reviewCount})` : ''}
+                      </p>
+                    )}
+                  </div>
                   <strong>추천 이유</strong>
                   <p>{book.reason}</p>
-                  <button
-                    type="button"
+                  <AppButton
+                    variant={isAdded ? 'danger' : 'secondary'}
+                    size="sm"
                     className="readerBookAddButton"
                     data-added={isAdded}
+                    fullWidth
                     onClick={() => handleBookPlanClick(book)}
                   >
                     {isAdded ? '담기 취소' : '책 담기'}
-                  </button>
+                  </AppButton>
                 </article>
               )
             })}
           </div>
         </article>
+      </div>
+
+      <div
+        className={`similarReadersStatusDock${statusOpen ? ' similarReadersStatusDock-open' : ''}`}
+        onMouseLeave={() => setStatusOpen(false)}
+      >
+        <AppButton
+          variant="ghost"
+          size="sm"
+          className="similarReadersStatusTrigger"
+          aria-expanded={statusOpen}
+          aria-controls="similar-readers-status-panel"
+          onClick={() => setStatusOpen((open) => !open)}
+        >
+          {plannedBooks.length}권 담김
+        </AppButton>
+        <div
+          id="similar-readers-status-panel"
+          className="similarReadersStatusPanel"
+          role="region"
+          aria-label="세션 정보"
+        >
+          <p>
+            {usersId ? `연결된 사용자 ${usersId}` : `${tasteSeed?.tone ?? defaultTasteSeed.tone} 취향 분석`}
+          </p>
+          {plannedBooks.length > 0 && (
+            <AppButton variant="danger" size="sm" className="readerPlanClearButton" onClick={onClearPlannedBooks}>
+              {plannedBooks.length}권 전체 비우기
+            </AppButton>
+          )}
+        </div>
       </div>
     </section>
   )

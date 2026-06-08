@@ -17,6 +17,7 @@ import {
 } from '../utils/gridPathfinding'
 import { pickBookshelfGoalWorld } from '../utils/navBookshelfGoals'
 import type { WalkabilityContext } from '../utils/walkability'
+import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent } from '../agent/runtime/agentEventBus'
 
 export type NavigationRouteVisual = {
   dimPath: Point2[]
@@ -30,6 +31,10 @@ export type NavigationRouteVisual = {
 
 export function useNavigationRoute(args: {
   missionIndices: number[]
+  /** When set, overrides bookshelf-derived goals (e.g. checkout counter). */
+  directGoals?: Point2[] | null
+  /** Pool indices aligned with missionIndices for SHELF_ARRIVED events. */
+  missionPoolIndices?: number[]
   /** 새 미션 버튼 등으로 바뀔 때마다 경로 상태를 반드시 초기화하기 위해 포함 */
   missionVersion: number
   bookshelfInstances: FixtureRenderInstance[]
@@ -39,10 +44,20 @@ export function useNavigationRoute(args: {
   bounds: WorldBounds
   cellSize?: number
 }): NavigationRouteVisual | null {
-  const { missionIndices, missionVersion, bookshelfInstances, playerXzRef, ctx, bounds } = args
+  const {
+    missionIndices,
+    directGoals,
+    missionPoolIndices,
+    missionVersion,
+    bookshelfInstances,
+    playerXzRef,
+    ctx,
+    bounds,
+  } = args
   const cellSize = args.cellSize ?? NAV_GRID_CELL_M
 
   const goals = useMemo(() => {
+    if (directGoals && directGoals.length > 0) return directGoals
     const out: Point2[] = []
     for (const idx of missionIndices) {
       const inst = bookshelfInstances[idx]
@@ -51,7 +66,9 @@ export function useNavigationRoute(args: {
       if (g) out.push(g)
     }
     return out
-  }, [missionIndices, bookshelfInstances, ctx, bounds, cellSize])
+  }, [directGoals, missionIndices, bookshelfInstances, ctx, bounds, cellSize])
+
+  const missionKey = `${missionVersion}:${directGoals?.length ? `d:${directGoals.length}` : missionIndices.join(',')}`
 
   const interShelfPaths = useMemo(() => {
     if (goals.length < 2) return [] as Point2[][]
@@ -93,8 +110,11 @@ export function useNavigationRoute(args: {
 
   const activeLegRef = useRef(activeLeg)
   const goalsRef = useRef(goals)
+  const poolIndicesRef = useRef(missionPoolIndices ?? missionIndices)
 
-  const missionKey = `${missionVersion}:${missionIndices.join(',')}`
+  useEffect(() => {
+    poolIndicesRef.current = missionPoolIndices ?? missionIndices
+  }, [missionIndices, missionPoolIndices])
 
   useEffect(() => {
     activeLegRef.current = activeLeg
@@ -185,6 +205,13 @@ export function useNavigationRoute(args: {
       if (d < NAV_ARRIVAL_RADIUS_M) {
         if (!arrivalCooldown.current) {
           arrivalCooldown.current = true
+          const arrivedLeg = leg
+          dispatchDwellEvent({
+            type: 'SHELF_ARRIVED',
+            version: AGENT_MAP_EVENT_VERSION,
+            legIndex: arrivedLeg,
+            poolIndex: poolIndicesRef.current[arrivedLeg] ?? null,
+          })
           if (leg === 0 && leg0PathRef.current.length > 0) {
             startTransition(() => setFrozenLeg0([...leg0PathRef.current]))
           }

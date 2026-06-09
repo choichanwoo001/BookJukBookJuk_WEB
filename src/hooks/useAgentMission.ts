@@ -24,7 +24,7 @@ export function useAgentMission(defaultVersion: number): AgentMissionState & {
 
   useEffect(() => {
     return subscribeMapCommand((command: AgentMapCommand) => {
-      if (command.type === 'SET_MISSION') {
+      if (command.type === 'SET_MISSION' || command.type === 'PREVIEW_ROUTE') {
         setPoolIndices(command.poolIndices)
         setDirectGoals(null)
         setMissionVersion((v) => v + 1)
@@ -34,7 +34,7 @@ export function useAgentMission(defaultVersion: number): AgentMissionState & {
         setPoolIndices(null)
         setMissionVersion((v) => v + 1)
       }
-      if (command.type === 'REPLAN_SHORTEST') {
+      if (command.type === 'REPLAN_SHORTEST' || command.type === 'START_NAVIGATION') {
         setMissionVersion((v) => v + 1)
       }
       if (command.type === 'GO_CHECKOUT') {

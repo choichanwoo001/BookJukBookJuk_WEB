@@ -70,6 +70,16 @@ export function useMapViewState({
       if (command.type === 'REPLAN_SHORTEST') {
         handleNewMission()
       }
+      if (command.type === 'PREVIEW_ROUTE') {
+        setPrevWalkMode('thirdPerson')
+        setMode('overview')
+        handleNewMission()
+      }
+      if (command.type === 'START_NAVIGATION') {
+        setPrevWalkMode('thirdPerson')
+        setMode('thirdPerson')
+        handleNewMission()
+      }
       if (command.type === 'PAUSE_MOBILITY' && (mode === 'firstPerson' || mode === 'thirdPerson')) {
         setPrevWalkMode(mode)
         setMode('overview')

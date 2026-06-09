@@ -1068,7 +1068,8 @@
 
 .readerBookCard strong {
   display: block;
-  margin-top: 0.75rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
   color: #a07840;
   font-size: 0.82rem;
 }
@@ -1084,7 +1085,7 @@
 .readerBookAddButton {
   width: 100%;
   min-height: 2.4rem;
-  margin-top: auto;
+  margin-top: 0.65rem;
   padding-block: 0.45rem;
 }
 

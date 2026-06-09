@@ -15,6 +15,7 @@ export function useSceneWalkModeSync({
   yawRef,
   pitchRef,
   prevWalkModeRef,
+  preserveHeadingOnEnter = false,
 }: {
   mode: ViewMode
   worldRef: MutableRefObject<Group | null>
@@ -22,6 +23,7 @@ export function useSceneWalkModeSync({
   yawRef: MutableRefObject<number>
   pitchRef: MutableRefObject<number>
   prevWalkModeRef: MutableRefObject<'firstPerson' | 'thirdPerson' | null>
+  preserveHeadingOnEnter?: boolean
 }) {
   useLayoutEffect(() => {
     let raf = 0
@@ -55,7 +57,9 @@ export function useSceneWalkModeSync({
           0,
           storedWorldPositionRef.current[1],
         )
-        yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
+        if (!preserveHeadingOnEnter) {
+          yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
+        }
         pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
       } else if (prev !== mode) {
         pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
@@ -66,5 +70,5 @@ export function useSceneWalkModeSync({
 
     apply()
     return () => cancelAnimationFrame(raf)
-  }, [mode, pitchRef, prevWalkModeRef, storedWorldPositionRef, worldRef, yawRef])
+  }, [mode, pitchRef, preserveHeadingOnEnter, prevWalkModeRef, storedWorldPositionRef, worldRef, yawRef])
 }

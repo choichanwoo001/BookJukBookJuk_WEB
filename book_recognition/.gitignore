@@ -1,3 +1,8 @@
 refs/*
 !refs/.gitkeep
+!refs/README.md
+!refs/어른이된다는것.jpg
+!refs/오직두사람.jpg
+!refs/단한사람.jpeg
+!refs/시선으로부터.webp
 .models/

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "api:identify": "node scripts/identifyApiServer.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -14,9 +15,11 @@
     "fixtures:delta": "node scripts/detectDeltaFixtures.mjs",
     "map:diff-overlay": "node scripts/diffMapOverlay.mjs --base ver0_1.png --target ver2_1.png --write-web",
     "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts",
-    "db:migrate": "node scripts/runSupabaseMigration.mjs"
+    "db:migrate": "node scripts/runSupabaseMigration.mjs",
+    "refs:demo": "node scripts/registerDemoBookRefs.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.32",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
     "@supabase/supabase-js": "^2.104.1",

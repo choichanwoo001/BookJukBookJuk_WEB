@@ -14,6 +14,9 @@ type MetricKey =
   | 'themeLlmFallback'
   | 'themeLlmParseError'
   | 'themeLlmLatencyMs'
+  | 'chatOffTopicReply'
+  | 'chatConversationalLlmUsed'
+  | 'chatConversationalLlmFallback'
 
 const metrics: Record<MetricKey, number> = {
   toolSuccess: 0,
@@ -31,6 +34,9 @@ const metrics: Record<MetricKey, number> = {
   themeLlmFallback: 0,
   themeLlmParseError: 0,
   themeLlmLatencyMs: 0,
+  chatOffTopicReply: 0,
+  chatConversationalLlmUsed: 0,
+  chatConversationalLlmFallback: 0,
 }
 
 const intentStats: Record<string, { success: number; failure: number }> = {}

@@ -6,11 +6,13 @@ export const AGENT_MAP_EVENT_VERSION = 1
 
 export type AgentMapCommand =
   | { type: 'REPLAN_SHORTEST'; version: number }
+  | { type: 'START_NAVIGATION'; version: number }
   | { type: 'PAUSE_MOBILITY'; version: number }
   | { type: 'RESUME_MOBILITY'; version: number }
   | { type: 'GO_CHECKOUT'; version: number }
   | { type: 'SET_MISSION'; version: number; poolIndices: number[] }
   | { type: 'SET_DIRECT_GOALS'; version: number; goals: Point2[] }
+  | { type: 'PREVIEW_ROUTE'; version: number; poolIndices: number[] }
 
 export type AgentDwellEvent =
   | { type: 'DWELL_BOOK_DETECTED'; version: number; book: DwellBookCandidate }
@@ -67,4 +69,12 @@ export function dispatchSetDirectGoals(goals: Point2[]): void {
 
 export function dispatchGoCheckout(): void {
   dispatchMapCommand({ type: 'GO_CHECKOUT', version: AGENT_MAP_EVENT_VERSION })
+}
+
+export function dispatchStartNavigation(): void {
+  dispatchMapCommand({ type: 'START_NAVIGATION', version: AGENT_MAP_EVENT_VERSION })
+}
+
+export function dispatchPreviewRoute(poolIndices: number[]): void {
+  dispatchMapCommand({ type: 'PREVIEW_ROUTE', version: AGENT_MAP_EVENT_VERSION, poolIndices })
 }

@@ -20,6 +20,19 @@ const profile: ReaderProfile = {
 
 const books: ReaderBook[] = profile.likedBooks
 
+describe('planEntryFromReaderBook', () => {
+  it('maps demo scenario titles to stable demo book ids', () => {
+    const entry = planEntryFromReaderBook(profile, {
+      id: 'demo-book1',
+      title: '어른이 된다는 것',
+      author: '우치다 타츠루',
+      reason: 'r',
+    })
+    expect(entry.booksId).toBe('demo-book-adult')
+    expect(decodeURIComponent(entry.coverImageUrl ?? '')).toContain('어른이된다는것.jpg')
+  })
+})
+
 describe('partitionReaderBookEntries', () => {
   it('splits books into add and remove buckets without mixing actions', () => {
     const plannedIds = new Set([planEntryFromReaderBook(profile, books[0]).booksId])

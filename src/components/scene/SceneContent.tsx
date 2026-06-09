@@ -161,6 +161,7 @@ export function SceneContent({
     yawRef,
     pitchRef,
     prevWalkModeRef,
+    preserveHeadingOnEnter: robotSyncActive,
   })
 
   useEffect(() => {
@@ -304,12 +305,12 @@ export function SceneContent({
             />
           </group>
         )}
+        <BookshelfOverlayInterior
+          instances={bookshelfOverlayLayerInstances}
+          shellMaterial={bookshelfOverlayLayerMaterial}
+          woodMaterial={bookshelfOverlayInteriorWoodMaterial}
+        />
         <group userData={{ excludeCameraCollision: true }}>
-          <BookshelfOverlayInterior
-            instances={bookshelfOverlayLayerInstances}
-            shellMaterial={bookshelfOverlayLayerMaterial}
-            woodMaterial={bookshelfOverlayInteriorWoodMaterial}
-          />
           <SupermarketCounterInstances
             instances={counterOverlayLayerInstances}
             overlayCandidate

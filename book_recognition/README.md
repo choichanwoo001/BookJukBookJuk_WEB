@@ -70,9 +70,15 @@
 **실행 예시** (이 폴더 또는 패키지 경로에 맞게)
 
 ```bash
+# 웹 (표지 인식 API는 dev 서버에 내장)
+npm run dev
+
+npm run refs:demo                     # 시나리오 refs 4권 파일 존재 확인
+
+# Python 전체 데모 (선택)
 pip install -r requirements.txt
-python register.py                    # 또는 python -m book_recognition.register
-python gesture_test.py                # 또는 python -m book_recognition.gesture_test
+python register.py                    # 웹캠 수동 등록
+python gesture_test.py                # 제스처 + ORB 데모
 
 # 로봇 연동 (rosbridge가 떠 있을 때)
 set VERSO_ROSBRIDGE_URL=ws://로봇IP:9090   # Windows
@@ -83,7 +89,8 @@ python -m book_recognition.gesture_test
 **HTTP identify (웹 연동)** — 리포지토리 **루트**에서:
 
 ```bash
-uvicorn book_recognition.api_server:app --host 127.0.0.1 --port 8787
+npm run dev
+# (선택) 독립 API: npm run api:identify  또는 Python uvicorn …
 ```
 
 - `POST http://127.0.0.1:8787/identify`  

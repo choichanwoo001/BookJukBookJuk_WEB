@@ -1,11 +1,13 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+// @ts-expect-error Vite plugin (ESM)
+import { bookIdentifyPlugin } from './scripts/viteBookIdentifyPlugin.mjs'
 
 // https://vite.dev/config/
-// `npm run dev`에서 브라우저는 `fetch("/book-recognition/identify", …)` → 로컬 FastAPI(8787)
+// `npm run dev` — /book-recognition/identify 는 Vite 미들웨어에서 처리 (별도 8787 불필요)
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), bookIdentifyPlugin()],
   test: {
     globals: true,
     environment: 'jsdom',
@@ -33,15 +35,6 @@ export default defineConfig({
             return 'supabase-vendor'
           }
         },
-      },
-    },
-  },
-  server: {
-    proxy: {
-      '/book-recognition': {
-        target: 'http://127.0.0.1:8787',
-        changeOrigin: true,
-        rewrite: (p) => p.replace(/^\/book-recognition/, '') || '/',
       },
     },
   },

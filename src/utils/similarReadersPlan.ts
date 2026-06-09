@@ -1,7 +1,12 @@
 import type { ShoppingListEntry } from '../agent/types'
+import { demoBookToEntry, findDemoBookByTitle } from '../data/demoScenario'
 import type { ReaderBook, ReaderProfile } from '../types/onboarding'
 
 export function planEntryFromReaderBook(profile: ReaderProfile, book: ReaderBook): ShoppingListEntry {
+  const demoDef = findDemoBookByTitle(book.title)
+  if (demoDef) {
+    return demoBookToEntry(demoDef, demoDef.fallbackBooksId, book.coverUrl)
+  }
   return {
     booksId: `reader-${profile.id}-${book.id}`,
     title: book.title,

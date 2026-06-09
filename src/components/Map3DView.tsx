@@ -31,6 +31,7 @@ import { BookshelfEditPanel } from './BookshelfEditPanel'
 import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 import { buildMissionShelfPool, buildNavBookshelfRects } from '../utils/missionShelfPool'
 import { BookRecognitionPanel } from './BookRecognitionPanel'
+import type { GestureId } from '../lib/gestureClassifiers'
 import { MapControlDock } from './map/MapControlDock'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
 import { useMapViewState } from '../hooks/useMapViewState'
@@ -75,6 +76,7 @@ function Map3DView({
   busy,
   onBookCapture,
   onBookBrowse,
+  onGestureConfirmed,
   usersId,
   isFullscreen,
   onToggleFullscreen,
@@ -83,8 +85,13 @@ function Map3DView({
   activePane: 'map' | 'chat'
   onActivateMap: () => void
   busy: boolean
-  onBookCapture: (reason: 'add' | 'remove' | 'browse', imageBase64: string) => void | Promise<void>
+  onBookCapture: (
+    reason: 'add' | 'remove' | 'browse',
+    imageBase64: string,
+    trigger?: 'gesture' | 'ui',
+  ) => void | Promise<void>
   onBookBrowse?: (imageBase64: string) => void | Promise<void>
+  onGestureConfirmed?: (gestureId: GestureId) => void
   usersId: string | null
   isFullscreen: boolean
   onToggleFullscreen: () => void
@@ -321,6 +328,7 @@ function Map3DView({
           busy={busy}
           onCapture={onBookCapture}
           onBrowse={onBookBrowse ?? ((frame) => onBookCapture('browse', frame))}
+          onGestureConfirmed={onGestureConfirmed}
           placement="map"
         />
 

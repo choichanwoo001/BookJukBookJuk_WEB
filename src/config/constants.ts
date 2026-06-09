@@ -35,7 +35,7 @@ export const WALK_FOV_BUTTON_STEP = 2
 /** 3인칭 가림 반투명: 최종 불투명도 (낮을수록 더 투명). */
 export const THIRD_PERSON_OCCLUDER_OPACITY = 0.5
 /** 3인칭 가림 레이: 카메라 주변 오프셋(m). 얇은 벽·단일 레이 미스 보완. */
-export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.22
+export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.30
 /** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지.
  * 값이 너무 크면 플레이어 옆 벽까지 레이가 도달해 오탐이 발생하므로 작게 유지. */
 export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.10

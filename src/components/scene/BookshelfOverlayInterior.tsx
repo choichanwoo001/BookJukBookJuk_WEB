@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react'
-import { Color, Group, InstancedMesh, Mesh, Object3D } from 'three'
+import { Color, InstancedMesh, Object3D } from 'three'
 import type { MeshStandardMaterial as MeshStandardMaterialType } from 'three'
 import type { FixtureRenderInstance } from '../../types/scene'
 import {
@@ -217,13 +217,6 @@ const DetailedShelf = React.memo(function DetailedShelf({
   )
 })
 
-function disableRaycastOnTree(root: Group | null) {
-  if (!root) return
-  root.traverse((obj) => {
-    if (obj instanceof Mesh) obj.raycast = () => {}
-  })
-}
-
 export function BookshelfOverlayInterior({
   instances,
   shellMaterial,
@@ -233,14 +226,8 @@ export function BookshelfOverlayInterior({
   shellMaterial: MeshStandardMaterialType
   woodMaterial: MeshStandardMaterialType
 }) {
-  const rootRef = useRef<Group>(null)
-
-  useLayoutEffect(() => {
-    disableRaycastOnTree(rootRef.current)
-  }, [instances])
-
   return (
-    <group ref={rootRef}>
+    <group>
       {instances.map((inst, index) => {
         if (inst.w < MIN_BOOKSHELF_DETAIL_W || inst.d < MIN_BOOKSHELF_DETAIL_D) {
           return (

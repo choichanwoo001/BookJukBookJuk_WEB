@@ -22,11 +22,13 @@ function ChatPanel({
   listLoadStatus,
   listLoadMessage,
   actionCard,
+  onVoiceRecognized,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
   messages: AgentMessage[]
   submitUserText: (text: string) => Promise<void>
+  onVoiceRecognized?: (transcript: string) => void
   context: AgentContext
   busy: boolean
   lastFailedUserText: string | null
@@ -43,11 +45,14 @@ function ChatPanel({
   const tts = useTts()
 
   const handleSpeechResult = useCallback((transcript: string) => {
+    const trimmed = transcript.trim()
+    if (!trimmed) return
+    onVoiceRecognized?.(trimmed)
     setDraft((prev) => {
-      const trimmed = prev.trim()
-      return trimmed ? `${trimmed} ${transcript}` : transcript
+      const prevTrimmed = prev.trim()
+      return prevTrimmed ? `${prevTrimmed} ${trimmed}` : trimmed
     })
-  }, [])
+  }, [onVoiceRecognized])
 
   const speech = useSpeechInput({ onResult: handleSpeechResult })
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
@@ -170,7 +175,14 @@ function ChatPanel({
           {messages.map((message) => (
             <article
               key={message.id}
-              className={`chatBubble breakAnywhere ${message.role === 'user' ? 'user' : 'assistant'}`}
+              className={`chatBubble breakAnywhere ${
+                message.role === 'recognition'
+                  ? 'recognition'
+                  : message.role === 'user'
+                    ? 'user'
+                    : 'assistant'
+              }`}
+              data-recognition-kind={message.recognitionKind}
             >
               <div>{message.text}</div>
               {message.attachments && message.attachments.length > 0 && (
@@ -255,7 +267,7 @@ function ChatPanel({
               placeholder="메시지를 입력하세요"
               aria-label="메시지 입력"
               disabled={busy}
-              rows={2}
+              rows={1}
             />
             {speech.isSupported && (
               <button

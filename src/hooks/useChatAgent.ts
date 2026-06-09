@@ -18,6 +18,8 @@ import {
 import {
   AGENT_MAP_EVENT_VERSION,
   dispatchDwellEvent,
+  dispatchPreviewRoute,
+  dispatchStartNavigation,
   subscribeDwellEvent,
   subscribeMapSnapshot,
   type AgentMapSnapshot,
@@ -39,6 +41,7 @@ import type {
   AgentIntentSource,
   AgentMessage,
   DwellBookCandidate,
+  RecognitionKind,
   ShoppingListEntry,
   ToolExecutionContext,
   ToolResult,
@@ -49,9 +52,12 @@ import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
 import { CHAT_AGENT_MESSAGES } from './chatAgent/messages'
+import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
 import { useDemoOrchestrator } from './useDemoOrchestrator'
+import { resolveDemoMissionKeys } from './chatAgent/demoOrchestrator'
+import { bookKeysToPoolIndices } from '../utils/bookShelfNavigation'
 import { useToolRunner } from './chatAgent/useToolRunner'
 
 const initialContextValue = (): AgentContext => ({
@@ -180,7 +186,7 @@ export function useChatAgent(options: {
   const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
   const shouldAutoLoadShelf = !hasInitialShoppingList
   const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
-
+  const navPromptShownRef = useRef(false)
   useLayoutEffect(() => {
     contextRef.current = context
   }, [context])
@@ -335,12 +341,56 @@ export function useChatAgent(options: {
     }
   }, [appendAssistant])
 
-  const demo = useDemoOrchestrator({
-    tasteSeed: options.tasteSeed ?? null,
+  useEffect(() => {
+    if (!activeUsersId || !hasInitialShoppingList) return
+    if (navPromptShownRef.current) return
+    if (existingListGateRef.current.status !== 'inactive') return
+
+    navPromptShownRef.current = true
+    updateExistingListGate({ status: 'awaiting_nav' })
+
+    if (isDemoMode()) {
+      const list = options.initialShoppingList ?? []
+      const keys = resolveDemoMissionKeys(list)
+      if (keys.length > 0) {
+        dispatchPreviewRoute(bookKeysToPoolIndices(keys))
+      }
+    }
+
+    const count = options.initialShoppingList?.length ?? 0
+    void appendAssistantAndStore(
+      `책 ${count}권이 준비됐어요. 지도에서 이동 경로를 확인하시고, 준비되시면 "시작" 또는 "오케이"라고 답해 주세요.`,
+    )
+  }, [
+    activeUsersId,
+    appendAssistantAndStore,
+    existingListGateRef,
+    hasInitialShoppingList,
+    options.initialShoppingList,
+    updateExistingListGate,
+  ])
+
+  const appendRecognitionMessage = useCallback((kind: RecognitionKind, text: string) => {
+    const message: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'recognition',
+      text,
+      recognitionKind: kind,
+      createdAt: Date.now(),
+    }
+    setMessages((prev) => [...prev, message])
+  }, [])
+
+  const {
+    startShelfVisitFromList,
+    handleBrowseCapture: handleDemoBrowseCapture,
+    handleDwellFeedback: handleDemoDwellFeedback,
+    handleAlternativeAccepted: handleDemoAlternativeAccepted,
+    demoStateRef,
+  } = useDemoOrchestrator({
     toolExecutionContext,
     appendAssistantAndStore,
     setContext,
-    getContext: () => contextRef.current,
   })
 
   const loadExistingListOnDemand = useCallback(async () => {
@@ -372,7 +422,7 @@ export function useChatAgent(options: {
     setContext,
     appendAssistantAndStore,
     runEditFollowUp,
-    onCartAddSuccess: demo.handleCartAddSuccess,
+    onCartAddSuccess: async () => {},
   })
 
   const handleCancelIntent = useCallback(async () => {
@@ -423,8 +473,34 @@ export function useChatAgent(options: {
             intent: 'confirm',
             setMessages,
           })
-          updateExistingListGate({ status: 'confirmed' })
-          await appendAssistantAndStore('리스트를 확정했어요. 최단 경로 안내를 시작할게요.')
+          updateExistingListGate({ status: 'awaiting_nav' })
+          await appendAssistantAndStore(
+            '리스트를 확정했어요. 안내를 시작할까요? "진행" 또는 "오케이"라고 답해 주세요.',
+          )
+          return
+        }
+
+        if (
+          existingListGateRef.current.status === 'awaiting_nav' &&
+          !contextRef.current.pendingConfirmation &&
+          isProceedToken(intentText)
+        ) {
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'confirm',
+            setMessages,
+          })
+          updateExistingListGate({ status: 'nav_started' })
+          await appendAssistantAndStore('안내를 시작할게요.')
+          if (isDemoMode()) {
+            const list =
+              contextRef.current.cartItems.length > 0
+                ? contextRef.current.cartItems
+                : contextRef.current.shoppingList
+            startShelfVisitFromList(list)
+          }
+          dispatchStartNavigation()
           await runToolWithFallback({ name: 'routePlannerTool', args: { mode: 'shortest' } }, 'route_replan_shortest')
           return
         }
@@ -468,7 +544,7 @@ export function useChatAgent(options: {
             setMessages,
           })
           if (isDemoMode()) {
-            const handled = await demo.handleDwellFeedback(intentText, dwellBook)
+            const handled = await handleDemoDwellFeedback(intentText, dwellBook)
             if (handled) return
           }
           setContext({ awaitingDwellFeedback: false })
@@ -488,9 +564,22 @@ export function useChatAgent(options: {
         }
 
         if (isDemoMode()) {
-          if (await demo.handleUserPick(intentText)) return
           if (
-            demo.demoStateRef.current.step === 'alternative_recommend' &&
+            demoStateRef.current.step === 'awaiting_nav_confirm' &&
+            demoStateRef.current.awaitingNavConfirm != null &&
+            isProceedToken(intentText)
+          ) {
+            await appendUserMessageAndStore({
+              text: normalized,
+              conversationId: conversationIdRef.current,
+              intent: 'confirm',
+              setMessages,
+            })
+            await confirmDemoNavToBook(demoStateRef.current.awaitingNavConfirm)
+            return
+          }
+          if (
+            demoStateRef.current.step === 'alternative_recommend' &&
             /(함께|두 권|안내|가자|보러)/.test(intentText)
           ) {
             await appendUserMessageAndStore({
@@ -499,7 +588,7 @@ export function useChatAgent(options: {
               intent: 'resume_mobility',
               setMessages,
             })
-            await demo.handleAlternativeAccepted()
+            await handleDemoAlternativeAccepted()
             return
           }
         }
@@ -596,8 +685,17 @@ export function useChatAgent(options: {
         }
         if (!toolCall) {
           if (mergedIntent.type === 'unknown') {
-            await appendAssistantAndStore('요청을 이해하지 못했어요. 예: "추천해줘", "책 검색 데미안", "책 추가 데미안".')
-            recordIntentOutcome('unknown', false)
+            const unknownReply = await resolveUnknownChatReply({
+              text: intentText,
+              llmPlan,
+              context: contextRef.current,
+              history: messagesRef.current,
+            })
+            if (unknownReply.kind === 'off_topic') incrementMetric('chatOffTopicReply')
+            else if (unknownReply.usedLlm) incrementMetric('chatConversationalLlmUsed')
+            else incrementMetric('chatConversationalLlmFallback')
+            await appendAssistantAndStore(unknownReply.text)
+            recordIntentOutcome('unknown', unknownReply.kind === 'conversational')
             return
           }
           await appendAssistantAndStore('현재 이 요청은 아직 연결되지 않았어요.')
@@ -666,7 +764,10 @@ export function useChatAgent(options: {
       setContext,
       existingListGateRef,
       updateExistingListGate,
-      demo,
+      demoStateRef,
+      handleDemoAlternativeAccepted,
+      handleDemoDwellFeedback,
+      startShelfVisitFromList,
     ],
   )
 
@@ -692,7 +793,11 @@ export function useChatAgent(options: {
   )
 
   const applyBookRecognitionCapture = useCallback(
-    async (reason: 'add' | 'remove' | 'browse', imageBase64: string) => {
+    async (
+      reason: 'add' | 'remove' | 'browse',
+      imageBase64: string,
+      trigger: 'gesture' | 'ui' = 'ui',
+    ) => {
       if (!imageBase64.trim()) return
       if (reason === 'browse') {
         setBusy(true)
@@ -703,7 +808,7 @@ export function useChatAgent(options: {
             intent: 'unknown',
             setMessages,
           })
-          await demo.handleBrowseCapture(imageBase64)
+          await handleDemoBrowseCapture(imageBase64)
         } finally {
           setBusy(false)
         }
@@ -712,7 +817,14 @@ export function useChatAgent(options: {
       setBusy(true)
       setLastFailedUserText(null)
       try {
-        const label = reason === 'add' ? '표지 인식 · 담기' : '표지 인식 · 빼기'
+        const label =
+          trigger === 'gesture'
+            ? reason === 'add'
+              ? '제스처 · 담기'
+              : '제스처 · 빼기'
+            : reason === 'add'
+              ? '표지 인식 · 담기'
+              : '표지 인식 · 빼기'
         await appendUserMessageAndStore({
           text: `[${label}]`,
           conversationId: conversationIdRef.current,
@@ -721,7 +833,7 @@ export function useChatAgent(options: {
         })
         const intentType = reason === 'add' ? 'add_book' : 'remove_book'
         const result = await runToolWithFallback(
-          { name: 'shoppingListTool', args: { action: reason, imageBase64 } },
+          { name: 'shoppingListTool', args: { action: reason, imageBase64, source: trigger } },
           intentType,
         )
         if (!result.ok) {
@@ -731,7 +843,7 @@ export function useChatAgent(options: {
         setBusy(false)
       }
     },
-    [demo, runToolWithFallback, setMessages],
+    [handleDemoBrowseCapture, runToolWithFallback, setMessages],
   )
 
   const applyBookBrowseCapture = useCallback(
@@ -745,6 +857,7 @@ export function useChatAgent(options: {
     messages,
     submitUserText,
     submitAgentInput,
+    appendRecognitionMessage,
     applyBookRecognitionCapture,
     applyBookBrowseCapture,
     context,

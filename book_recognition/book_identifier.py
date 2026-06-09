@@ -25,7 +25,7 @@ class ORBMatcher:
 
     def load_refs(self) -> None:
         REFS_DIR.mkdir(parents=True, exist_ok=True)
-        exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+        exts = {".jpg", ".jpeg", ".png", ".webp", ".JPG", ".JPEG", ".PNG", ".WEBP"}
         paths: list[Path] = []
         for p in REFS_DIR.iterdir():
             if p.is_file() and p.suffix in exts:

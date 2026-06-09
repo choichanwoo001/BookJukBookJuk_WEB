@@ -52,11 +52,12 @@ function formatRecommendations(prefix: string, items: { title: string; authors: 
   return items.map((item, index) => `${prefix} ${index + 1}. ${item.title} - ${item.authors || '저자 미상'}`)
 }
 
-function mapCandidates(items: { id: string; title: string; authors: string }[]) {
+function mapCandidates(items: { id: string; title: string; authors: string; coverImageUrl?: string }[]) {
   return items.map((item) => ({
     booksId: item.id,
     title: item.title,
     authors: item.authors || '저자 미상',
+    coverImageUrl: item.coverImageUrl ?? '',
   }))
 }
 

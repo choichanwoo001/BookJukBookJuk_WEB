@@ -45,7 +45,9 @@ const SYSTEM_PROMPT =
   '쇼핑리스트 편집: 제목/표현 뒤에 "삭제해줘","제거해줘","빼줘","리스트에서 삭제" 등이 있으면 intentType은 remove_book, toolCall은 shoppingListTool(action remove).\n' +
   '"책 추가","추가해줘","담아줘","넣어줘" 등으로 특정 책을 리스트에 넣으려 하면 intentType은 add_book, toolCall은 shoppingListTool(action add).\n' +
   '위 패턴이 명확하면 추천·검색보다 리스트 편집 intent를 우선한다.\n' +
-  '기분·컨디션·우울 등 "지금 기분에 맞는 책" 요청도 추천 요청이면 intentType은 request_recommendation, recommendationTool은 취향(taste) 기반이 맞다. assistantDraft에 취향 프로필·행동 로그를 기반으로 골랐다는 뉘앙스를 짧게 넣는다(별도 DB "기분 모드"는 없다).'
+  '기분·컨디션·우울 등 "지금 기분에 맞는 책" 요청도 추천 요청이면 intentType은 request_recommendation, recommendationTool은 취향(taste) 기반이 맞다. assistantDraft에 취향 프로필·행동 로그를 기반으로 골랐다는 뉘앙스를 짧게 넣는다(별도 DB "기분 모드"는 없다).\n' +
+  '도구 실행 없이 독서·서점·이용법 관련 대화 질문이면 intentType은 unknown, toolCall은 null, assistantDraft에 1~3문장 답변을 작성한다.\n' +
+  '책·서점과 전혀 무관한 잡담(날씨·주식·요리 등)이면 intentType은 unknown, toolCall은 null, assistantDraft는 비운다.'
 
 function toHistoryText(history: AgentMessage[]): string {
   return history

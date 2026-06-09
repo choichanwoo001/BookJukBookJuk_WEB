@@ -157,7 +157,7 @@ class HttpBookRecognitionClient implements IBookRecognitionClient {
           return {
             ok: false,
             message:
-              'HTTP identify 서버에 연결할 수 없어요. uvicorn이 127.0.0.1:8787에서 실행 중인지 확인하세요.',
+              '표지 인식 API에 연결할 수 없어요. 개발 중이면 npm run dev를 다시 실행해 주세요.',
             errorCode: 'HTTP_UNREACHABLE',
           }
         }

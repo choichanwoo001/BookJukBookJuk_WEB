@@ -1,177 +1,317 @@
 import { findBookByIsbnOrTitle } from '../../lib/supabase/books'
+
 import type { ShoppingListEntry, ToolResult } from '../../agent/types'
+
 import {
+
   DEMO_BOOKS,
-  DEMO_INITIAL_RECOMMEND_KEYS,
+
+  DEMO_PLANNED_BOOK_KEYS,
+
   type DemoBookDef,
+
   type DemoBookKey,
+
   type DemoStep,
+
   demoBookToEntry,
+
+  demoRefCoverUrl,
+
   findDemoBookByTitle,
+
 } from '../../data/demoScenario'
+
 import { bookKeysToPoolIndices } from '../../utils/bookShelfNavigation'
+
 import {
+
   AGENT_MAP_EVENT_VERSION,
-  dispatchSetMission,
+
   dispatchGoCheckout,
+
+  dispatchSetMission,
+
 } from '../../agent/runtime/agentEventBus'
-import { generateRecommendNarrator } from '../../agent/runtime/llmRecommendNarrator'
+
 import { generateTransitMonologue } from '../../agent/runtime/llmTransitMonologue'
+
 import {
+
   pickAlternativeWithLlm,
+
   type AlternativePickerCandidate,
+
 } from '../../agent/runtime/llmAlternativePicker'
-import type { TasteSeed } from '../../types/onboarding'
+
+
 
 export type DemoOrchestratorState = {
+
   step: DemoStep
-  lastNavLeg: number
+
   transitLegAnnounced: number
+
 }
+
+
 
 export function initialDemoOrchestratorState(): DemoOrchestratorState {
-  return { step: 'idle', lastNavLeg: -1, transitLegAnnounced: -1 }
+
+  return { step: 'idle', transitLegAnnounced: -1 }
+
 }
+
+
+
+function resolveDemoCover(def: DemoBookDef, dbCover?: string): string {
+
+  const fromDb = dbCover?.trim()
+
+  return fromDb || demoRefCoverUrl(def)
+
+}
+
+
 
 export async function resolveDemoBookEntry(def: DemoBookDef): Promise<ShoppingListEntry> {
+
   const lookup = await findBookByIsbnOrTitle({ title: def.title })
+
   if (lookup.ok && lookup.data?.id) {
-    return demoBookToEntry(def, lookup.data.id)
+
+    return demoBookToEntry(def, lookup.data.id, resolveDemoCover(def, lookup.data.coverImageUrl))
+
   }
+
   return demoBookToEntry(def)
+
 }
 
-export function buildDemoRecommendationToolResult(
-  entries: ShoppingListEntry[],
-): ToolResult {
-  const recommendations = entries.map(
-    (e, i) => `취향 추천 ${i + 1}. ${e.title} - ${e.authors || '저자 미상'}`,
+
+
+/** 담은 책 목록에서 시연 서가 방문 순서(데모 도서 키)를 뽑는다. */
+
+export function resolveDemoMissionKeys(entries: ShoppingListEntry[]): DemoBookKey[] {
+
+  return DEMO_PLANNED_BOOK_KEYS.filter((key) =>
+
+    entries.some((entry) => findDemoBookByTitle(entry.title)?.key === key),
+
   )
-  return {
-    ok: true,
-    toolName: 'recommendationTool',
-    message: '데모 취향 추천을 준비했어요.',
-    data: {
-      recommendations,
-      source: 'demo',
-      candidates: entries.map((e) => ({
-        booksId: e.booksId,
-        title: e.title,
-        authors: e.authors,
-        coverImageUrl: e.coverImageUrl,
-      })),
-    },
-  }
+
 }
 
-export async function buildDemoInitialRecommendEntries(): Promise<ShoppingListEntry[]> {
-  const defs = DEMO_INITIAL_RECOMMEND_KEYS.map((key) => DEMO_BOOKS[key])
-  return Promise.all(defs.map((def) => resolveDemoBookEntry(def)))
-}
 
-export function demoRecommendAttachments(entries: ShoppingListEntry[]): string[] {
-  return entries.map((e, i) => `${i + 1}. ${e.title} - ${e.authors || '저자 미상'}`)
-}
-
-export async function narrateDemoRecommendations(
-  tasteSeed: TasteSeed | null,
-  entries: ShoppingListEntry[],
-): Promise<string | null> {
-  return generateRecommendNarrator(
-    tasteSeed,
-    entries.map((e) => ({
-      title: e.title,
-      authors: e.authors ?? '',
-      reason: DEMO_INITIAL_RECOMMEND_KEYS
-        .map((k) => DEMO_BOOKS[k])
-        .find((d) => d.title === e.title)?.description,
-    })),
-  )
-}
 
 export function dispatchDemoMissionForKeys(keys: DemoBookKey[]): void {
+
   dispatchSetMission(bookKeysToPoolIndices(keys))
+
 }
 
-export function parseDemoBookPick(text: string): DemoBookDef | null {
-  const indexMatch = text.match(/(\d+)\s*번/)
-  if (indexMatch) {
-    const idx = Number.parseInt(indexMatch[1], 10) - 1
-    const key = DEMO_INITIAL_RECOMMEND_KEYS[idx]
-    if (key) return DEMO_BOOKS[key]
-  }
-  if (text.includes('첫')) return DEMO_BOOKS.book1
-  if (text.includes('두') || text.includes('둘')) return DEMO_BOOKS.book2
-  return findDemoBookByTitle(text)
+
+
+export function beginDemoNavigationFromShoppingList(entries: ShoppingListEntry[]): DemoBookKey[] {
+
+  const keys = resolveDemoMissionKeys(entries)
+
+  if (keys.length > 0) dispatchDemoMissionForKeys(keys)
+
+  return keys
+
 }
+
+
+
+function recommendationLines(entries: ShoppingListEntry[]): string[] {
+
+  return entries.map((e, i) => `${i + 1}. ${e.title} - ${e.authors || '저자 미상'}`)
+
+}
+
+
+
+function buildDemoRecommendationToolResult(entries: ShoppingListEntry[]): ToolResult {
+
+  return {
+
+    ok: true,
+
+    toolName: 'recommendationTool',
+
+    message: '대안 추천을 준비했어요.',
+
+    data: {
+
+      recommendations: entries.map(
+
+        (e, i) => `보완 추천 ${i + 1}. ${e.title} - ${e.authors || '저자 미상'}`,
+
+      ),
+
+      source: 'demo',
+
+      candidates: entries.map((e) => ({
+
+        booksId: e.booksId,
+
+        title: e.title,
+
+        authors: e.authors,
+
+        coverImageUrl: e.coverImageUrl,
+
+      })),
+
+    },
+
+  }
+
+}
+
+
 
 export async function maybeAnnounceTransitMonologue(args: {
+
   state: DemoOrchestratorState
+
   activeLeg: number
+
   title: string
+
   authors: string
+
   description?: string
+
   demoStep: DemoStep
+
 }): Promise<{ message: string | null; nextState: DemoOrchestratorState }> {
+
   if (args.activeLeg === args.state.transitLegAnnounced) {
+
     return { message: null, nextState: args.state }
+
   }
+
   const message = await generateTransitMonologue({
+
     title: args.title,
+
     authors: args.authors,
+
     description: args.description,
+
     demoStep: args.demoStep,
+
     legIndex: args.activeLeg,
+
   })
+
   return {
+
     message,
+
     nextState: { ...args.state, transitLegAnnounced: args.activeLeg },
+
   }
+
 }
+
+
 
 export async function runDemoAlternativePick(args: {
+
   rejectedTitle: string
+
   negativeReason: string
-}): Promise<{ entry: ShoppingListEntry; message: string } | null> {
+
+}): Promise<{ entry: ShoppingListEntry; message: string; attachments: string[] } | null> {
+
   const altDef = DEMO_BOOKS.alternative
+
   const serendipityDef = DEMO_BOOKS.serendipity
+
   const altEntry = await resolveDemoBookEntry(altDef)
+
   const serEntry = await resolveDemoBookEntry(serendipityDef)
+
   const candidates: AlternativePickerCandidate[] = [
+
     {
+
       booksId: altEntry.booksId,
+
       title: altEntry.title,
+
       authors: altEntry.authors ?? '',
+
       description: altDef.description,
+
     },
+
     {
+
       booksId: serEntry.booksId,
+
       title: serEntry.title,
+
       authors: serEntry.authors ?? '',
+
       description: serendipityDef.description,
+
     },
+
   ]
+
   const picked = await pickAlternativeWithLlm({
+
     rejectedTitle: args.rejectedTitle,
+
     negativeReason: args.negativeReason,
+
     candidates,
+
   })
+
   if (!picked) return null
+
   const entry = candidates.find((c) => c.booksId === picked.pickedBooksId)
-  if (!entry) return { entry: altEntry, message: picked.assistantMessage }
+
+  const resolved =
+
+    entry?.booksId === altEntry.booksId
+
+      ? altEntry
+
+      : entry?.booksId === serEntry.booksId
+
+        ? serEntry
+
+        : altEntry
+
   return {
-    entry: {
-      booksId: entry.booksId,
-      title: entry.title,
-      authors: entry.authors,
-      coverImageUrl: '',
-    },
+
+    entry: resolved,
+
     message: picked.assistantMessage,
+
+    attachments: recommendationLines([resolved]),
+
   }
+
 }
+
+
 
 export function dispatchDemoCheckoutNav(): void {
+
   dispatchGoCheckout()
+
 }
 
-export { AGENT_MAP_EVENT_VERSION }
+
+
+export { AGENT_MAP_EVENT_VERSION, buildDemoRecommendationToolResult }
+
+

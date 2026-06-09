@@ -1,4 +1,5 @@
 import type { ReaderProfile, TasteSeed } from '../types/onboarding'
+import { DEMO_BOOKS, demoRefCoverUrl } from './demoScenario'
 
 export const defaultTasteSeed: TasteSeed = {
   tasteTags: ['문장', '관계', '잔잔함'],
@@ -7,7 +8,28 @@ export const defaultTasteSeed: TasteSeed = {
   interest: '관계와 내면',
 }
 
+const demoBook1ReaderEntry = {
+  id: 'demo-book1',
+  title: DEMO_BOOKS.book1.title,
+  author: DEMO_BOOKS.book1.authors,
+  coverUrl: demoRefCoverUrl(DEMO_BOOKS.book1),
+  rating: 4.5,
+  reviewCount: 142,
+  reason: '어른이란 무엇인지, 관계와 책임을 돌아보는 에세이가 취향과 잘 맞아요.',
+}
+
+const demoBook2ReaderEntry = {
+  id: 'demo-book2',
+  title: DEMO_BOOKS.book2.title,
+  author: DEMO_BOOKS.book2.authors,
+  coverUrl: demoRefCoverUrl(DEMO_BOOKS.book2),
+  rating: 4.4,
+  reviewCount: 118,
+  reason: '두 사람의 만남과 이별을 따라가는 소설이 감정선과 잘 맞아요.',
+}
+
 const calmBooks = [
+  demoBook1ReaderEntry,
   {
     id: 'liked-1',
     title: '아주 희미한 빛으로도',
@@ -55,6 +77,7 @@ export const readerProfiles: ReaderProfile[] = [
       '관계 중심의 소설과 조용한 에세이를 오래 읽는 독자예요. 빠른 전개보다 문장의 여운, 인물의 감정 변화, 읽고 난 뒤 남는 온도를 중요하게 봅니다.',
     likedBooks: calmBooks,
     readBooks: [
+      demoBook2ReaderEntry,
       {
         id: 'read-1',
         title: '쇼코의 미소',

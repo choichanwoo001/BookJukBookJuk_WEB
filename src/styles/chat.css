@@ -239,6 +239,15 @@
   align-self: flex-end;
 }
 
+.chatBubble.recognition {
+  align-self: center;
+  max-width: 96%;
+  background: rgba(255, 214, 120, 0.14);
+  border: 1px dashed rgba(255, 214, 120, 0.45);
+  color: #ffe9b8;
+  font-size: 0.84rem;
+}
+
 .chatForm {
   border-top: 1px solid var(--bj-border-dark);
   padding: 0.85rem;
@@ -250,9 +259,11 @@
 }
 
 .chatFormInputRow {
+  --chat-control-h: 2.55rem;
+  --chat-control-px: 0.75rem;
   display: flex;
   gap: 0.5rem;
-  align-items: flex-end;
+  align-items: stretch;
   width: 100%;
 }
 
@@ -346,12 +357,14 @@
   border: 1px solid var(--bj-border-dark);
   color: var(--bj-text-on-dark);
   border-radius: 10px;
-  padding: 0.62rem 0.75rem;
+  padding: 0 var(--chat-control-px);
+  padding-block: max(0px, calc((var(--chat-control-h) - 1.35em) / 2));
   outline: none;
   resize: none;
-  min-height: 2.5rem;
+  min-height: var(--chat-control-h);
   max-height: 8rem;
   font: inherit;
+  line-height: 1.35;
   overflow-y: auto;
 }
 
@@ -368,6 +381,15 @@
   cursor: pointer;
 }
 
+.chatFormInputRow > button[type='submit'] {
+  flex-shrink: 0;
+  min-height: var(--chat-control-h);
+  padding: 0 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .chatForm button:disabled {
   background: var(--bj-btn-disabled);
   cursor: not-allowed;
@@ -375,8 +397,8 @@
 
 .chatMicButton {
   flex-shrink: 0;
-  min-height: 2.55rem;
-  padding: 0 0.75rem;
+  min-height: var(--chat-control-h);
+  padding: 0 var(--chat-control-px);
   border: 1px solid var(--bj-border-dark-strong);
   border-radius: 10px;
   background: var(--bj-accent-bg);

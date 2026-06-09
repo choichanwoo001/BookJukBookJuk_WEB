@@ -92,8 +92,8 @@ function App() {
         onComplete={(nextTasteSeed) => {
           setTasteSeed(nextTasteSeed)
           setUsersId('first-visit-guest')
-          if (isDemoMode()) {
-            setOnboardingStep(demoRequiresLlm() && !isLlmConfigured() ? 'llm_required' : 'session_start')
+          if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
+            setOnboardingStep('llm_required')
           } else {
             setOnboardingStep('similar_readers')
           }
@@ -107,8 +107,8 @@ function App() {
       <QrLoginGate
         onLoggedIn={(nextUsersId) => {
           setUsersId(nextUsersId)
-          if (isDemoMode()) {
-            setOnboardingStep(demoRequiresLlm() && !isLlmConfigured() ? 'llm_required' : 'session_start')
+          if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
+            setOnboardingStep('llm_required')
           } else {
             setOnboardingStep('similar_readers')
           }
@@ -121,7 +121,7 @@ function App() {
     return (
       <LlmRequiredGate
         onRetry={() => {
-          setOnboardingStep(isLlmConfigured() ? 'session_start' : 'llm_required')
+          setOnboardingStep(isLlmConfigured() ? 'similar_readers' : 'llm_required')
         }}
       />
     )
@@ -145,7 +145,13 @@ function App() {
         onAddBooks={addPlannedBooks}
         onRemoveBooks={removePlannedBooks}
         onClearPlannedBooks={clearPlannedBooks}
-        onStart={enterApp}
+        onStart={() => {
+          if (isDemoMode()) {
+            setOnboardingStep('session_start')
+          } else {
+            enterApp()
+          }
+        }}
       />
     )
   }

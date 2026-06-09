@@ -140,13 +140,17 @@ export type AgentContext = {
   lastToolResult: ToolResult | null
 }
 
+export type RecognitionKind = 'voice' | 'gesture'
+
 export type AgentMessage = {
   id: string
-  role: 'assistant' | 'user'
+  role: 'assistant' | 'user' | 'recognition'
   text: string
   createdAt: number
   /** Extra lines (e.g. recommendation bullets) shown under the bubble (W7). */
   attachments?: string[]
+  /** 인식 테스트 로그 (음성·제스처). */
+  recognitionKind?: RecognitionKind
 }
 
 export type ChatActionOption = {

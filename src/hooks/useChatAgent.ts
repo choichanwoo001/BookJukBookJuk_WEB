@@ -177,9 +177,6 @@ export function useChatAgent(options: {
   const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
   const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
   const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
-  const [conversationReady, setConversationReady] = useState(false)
-  const [hasAppliedStartMode, setHasAppliedStartMode] = useState(false)
-  const appliedStartModeKeyRef = useRef<string | null>(null)
   const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
   const shouldAutoLoadShelf = !hasInitialShoppingList
   const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
@@ -269,20 +266,15 @@ export function useChatAgent(options: {
     if (!activeUsersId) return
     let disposed = false
     const initializeConversation = async () => {
-      setConversationReady(false)
-      setHasAppliedStartMode(false)
-      appliedStartModeKeyRef.current = null
       setMessages(initialMessages)
       const conversationId = await createConversation(activeUsersId)
       if (!conversationId || disposed) return
       conversationIdRef.current = conversationId
-      setConversationReady(true)
     }
     void initializeConversation()
     return () => {
       disposed = true
       conversationIdRef.current = null
-      setConversationReady(false)
     }
   }, [activeUsersId])
 
@@ -368,51 +360,6 @@ export function useChatAgent(options: {
     setListLoadMessage(null)
     return true
   }, [activeUsersId, setContext])
-
-  useEffect(() => {
-    if (!activeUsersId || !conversationReady || hasAppliedStartMode) return
-    const run = async () => {
-      const conversationId = conversationIdRef.current
-      if (!conversationId) return
-      const appliedKey = conversationId
-      if (appliedStartModeKeyRef.current === appliedKey) {
-        setHasAppliedStartMode(true)
-        return
-      }
-      if (listLoadStatus === 'loading') return
-      if (listLoadStatus === 'error') {
-        await appendAssistantAndStore(
-          '쇼핑리스트를 불러오지 못했어요. 이대로 시작하려면 "진행" 또는 "확정"이라고 답해 주세요.',
-        )
-        updateExistingListGate({ status: 'awaiting' })
-        appliedStartModeKeyRef.current = appliedKey
-        setHasAppliedStartMode(true)
-        return
-      }
-      if (listLoadStatus !== 'ok') return
-      const n = contextRef.current.shoppingList.length
-      if (n > 0) {
-        await appendAssistantAndStore(
-          `현재 쇼핑리스트에 ${n}권이 있어요. 이 리스트로 확정하고 진행할까요? "진행" 또는 "확정"이라고 답하시거나, 책을 더하고 싶으면 "데미안 추가해줘"처럼 말씀해 주세요.`,
-        )
-      } else {
-        await appendAssistantAndStore(
-          '쇼핑리스트가 비어 있어요. 이대로 시작할까요? 진행하시려면 "진행", 책을 추가하시려면 책 이름을 말씀해 주세요.',
-        )
-      }
-      updateExistingListGate({ status: 'awaiting' })
-      appliedStartModeKeyRef.current = appliedKey
-      setHasAppliedStartMode(true)
-    }
-    void run()
-  }, [
-    activeUsersId,
-    appendAssistantAndStore,
-    conversationReady,
-    hasAppliedStartMode,
-    listLoadStatus,
-    updateExistingListGate,
-  ])
 
   /**
    * Shared post-execute pipeline used by both the `confirm` flow and the

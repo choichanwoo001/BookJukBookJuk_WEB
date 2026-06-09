@@ -61,6 +61,7 @@ export default function SimilarReadersGate({
   const [selectedId, setSelectedId] = useState(rankedProfiles[0]?.id ?? '')
   const [activeTab, setActiveTab] = useState<BookTab>('liked')
   const [statusOpen, setStatusOpen] = useState(false)
+  const canStartWithPlannedBooks = plannedBooks.length > 0
   const selectedProfile = rankedProfiles.find((profile) => profile.id === selectedId) ?? rankedProfiles[0]
   const activeBooks = activeTab === 'liked' ? selectedProfile.likedBooks : selectedProfile.readBooks
   const plannedBookIds = useMemo(() => new Set(plannedBooks.map((book) => book.booksId)), [plannedBooks])
@@ -129,14 +130,9 @@ export default function SimilarReadersGate({
             <Avatar profile={selectedProfile} />
             <div>
               <div className="readerDetailHeroHeader">
-                <div>
-                  <p className="readerDetailKicker">나와의 취향 유사도</p>
-                  <h2>{selectedProfile.name}</h2>
-                  <p className="readerDetailSimilarity">{selectedProfile.similarity}%</p>
-                </div>
-                <AppButton variant="primary" className="readerDetailStartButton" onClick={onStart}>
-                  이 독자 취향으로 시작
-                </AppButton>
+                <p className="readerDetailKicker">나와의 취향 유사도</p>
+                <h2>{selectedProfile.name}</h2>
+                <p className="readerDetailSimilarity">{selectedProfile.similarity}%</p>
               </div>
               <p className="readerDetailDescription">{selectedProfile.description}</p>
               <div className="readerPlanActions">
@@ -233,6 +229,22 @@ export default function SimilarReadersGate({
             })}
           </div>
         </article>
+      </div>
+
+      <div className="similarReadersStartDock">
+        <AppButton
+          variant="primary"
+          className="similarReadersStartTrigger"
+          data-ready={canStartWithPlannedBooks || undefined}
+          disabled={!canStartWithPlannedBooks}
+          title={canStartWithPlannedBooks ? undefined : '마음에 드는 책을 먼저 담아주세요'}
+          onClick={onStart}
+        >
+          담은 책으로 시작하기
+          {canStartWithPlannedBooks && (
+            <span className="similarReadersStartCount">{plannedBooks.length}권</span>
+          )}
+        </AppButton>
       </div>
 
       <div

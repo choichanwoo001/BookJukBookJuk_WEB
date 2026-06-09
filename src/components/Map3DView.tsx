@@ -130,7 +130,6 @@ function Map3DView({
   const {
     mode,
     isEdit,
-    isOverviewLike,
     missionVersion,
     minimapPlayerPos,
     setMinimapPlayerPos,
@@ -280,10 +279,7 @@ function Map3DView({
   }, [activePane, mode, editTool, setSelectedIndex])
 
   const selected = selectedIndex !== null ? instances[selectedIndex] : null
-  const overviewFlipEvents = useMemo(
-    () => (isOverviewLike ? createOverviewFlipEvents() : undefined),
-    [isOverviewLike],
-  )
+  const canvasFlipEvents = useMemo(() => createOverviewFlipEvents(), [])
 
   return (
     <div
@@ -294,11 +290,8 @@ function Map3DView({
     >
       <Canvas
         dpr={[1, 2]}
-        events={overviewFlipEvents}
-        style={{
-          zIndex: 0,
-          transform: isOverviewLike ? 'scaleY(-1)' : undefined,
-        }}
+        events={canvasFlipEvents}
+        style={{ zIndex: 0, transform: 'scaleY(-1)' }}
       >
         <SceneContent
           mode={mode}

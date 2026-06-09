@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import type { RefObject } from 'react'
 import type { Group } from 'three'
 import type { Intersection } from 'three'
-import { InstancedMesh, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
+import { InstancedMesh, Matrix3, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
 import {
   THIRD_PERSON_OCCLUDER_OPACITY,
   THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M,
@@ -72,6 +72,8 @@ export function ThirdPersonOcclusionFader({
   const rayOrigin = useRef(new Vector3())
   const rayDir = useRef(new Vector3())
   const fadeStateRef = useRef<Map<string, FadeEntry>>(new Map())
+  const normalMatrix = useRef(new Matrix3())
+  const worldNormal = useRef(new Vector3())
 
   useEffect(() => {
     const node = worldRef.current
@@ -118,6 +120,14 @@ export function ThirdPersonOcclusionFader({
       const eps = Math.max(1e-3, 1e-4 * segmentFar)
       if (hit.distance >= segmentFar - eps) return
       if (isExcludedFromCameraCollision(hit.object)) return
+
+      // 히트된 면의 노멀이 카메라→플레이어 방향과 너무 수직이면(옆면 벽이면) 오탐으로 간주하여 제외.
+      // dot 값이 0에 가까울수록 벽이 레이 진행 방향과 평행(옆면)에 가깝다는 의미.
+      if (hit.face) {
+        normalMatrix.current.getNormalMatrix(hit.object.matrixWorld)
+        worldNormal.current.copy(hit.face.normal).applyMatrix3(normalMatrix.current).normalize()
+        if (Math.abs(worldNormal.current.dot(dirMain.current)) < 0.15) return
+      }
 
       const obj = hit.object
       if (obj instanceof InstancedMesh) {

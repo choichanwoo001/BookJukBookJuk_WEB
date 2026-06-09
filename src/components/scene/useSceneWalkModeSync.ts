@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Group } from 'three'
 import {
@@ -23,7 +23,7 @@ export function useSceneWalkModeSync({
   pitchRef: MutableRefObject<number>
   prevWalkModeRef: MutableRefObject<'firstPerson' | 'thirdPerson' | null>
 }) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     let raf = 0
     let attempts = 0
     const maxAttempts = 12
@@ -44,14 +44,17 @@ export function useSceneWalkModeSync({
         return
       }
 
-      worldRef.current.position.set(
-        storedWorldPositionRef.current[0],
-        0,
-        storedWorldPositionRef.current[1],
-      )
-
       const prev = prevWalkModeRef.current
-      if (prev === null) {
+      const enteringWalk = prev === null
+
+      // 오버뷰/편집에서 워크 모드로 들어올 때만 저장 좌표 복원.
+      // 1인칭↔3인칭 전환 시 월드를 되돌리면 이동 위치가 튀고 카메라가 바닥에서 다시 보간된다.
+      if (enteringWalk) {
+        worldRef.current.position.set(
+          storedWorldPositionRef.current[0],
+          0,
+          storedWorldPositionRef.current[1],
+        )
         yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
         pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
       } else if (prev !== mode) {

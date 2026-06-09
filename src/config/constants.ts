@@ -3,9 +3,9 @@ import { FLOOR_HEIGHT_M } from '../data/floorPlan'
 
 // --- Camera ---
 export const THIRD_PERSON_DISTANCE_M = 4.2
-export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0
+export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0 * (2 / 3)
 export const THIRD_PERSON_LOOK_AHEAD_M = 1.2
-export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72
+export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72 * (2 / 3)
 export const THIRD_PERSON_MAX_CAMERA_Y_M = FLOOR_HEIGHT_M - 0.22
 export const THIRD_PERSON_LOCKED_PITCH = -0.5
 /** 이동 중 카메라 요(yaw)를 캐릭터 앞방향에 맞출 때 지수 보간 계수 (초당). */
@@ -14,7 +14,7 @@ export const THIRD_PERSON_FOLLOW_YAW_LAMBDA = 14
 export const THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC = 1.35
 
 /** 1인칭 카메라 높이 (바닥 기준, m). */
-export const FIRST_PERSON_EYE_HEIGHT_M = 1.52
+export const FIRST_PERSON_EYE_HEIGHT_M = 1.52 * (2 / 3)
 /** 1인칭 기본 시선 (라디안, 약간 아래). */
 export const FIRST_PERSON_DEFAULT_PITCH = -0.06
 export const FIRST_PERSON_PITCH_MIN = -1.35
@@ -36,8 +36,9 @@ export const WALK_FOV_BUTTON_STEP = 2
 export const THIRD_PERSON_OCCLUDER_OPACITY = 0.5
 /** 3인칭 가림 레이: 카메라 주변 오프셋(m). 얇은 벽·단일 레이 미스 보완. */
 export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.22
-/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지. */
-export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.42
+/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지.
+ * 값이 너무 크면 플레이어 옆 벽까지 레이가 도달해 오탐이 발생하므로 작게 유지. */
+export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.10
 /** 연속 이 프레임만 레이 미스일 때 페이드 해제 (히스테리시스). */
 export const THIRD_PERSON_OCCLUSION_RELEASE_DELAY_FRAMES = 5
 export const OVERVIEW_ZOOM_SENSITIVITY = 0.05
@@ -49,7 +50,7 @@ export const MAP_VIEW_YAW_OFFSET_RAD = 0
 export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
 
 // --- Player ---
-export const PLAYER_SCALE = 0.7
+export const PLAYER_SCALE = 0.7 * (2 / 3)
 export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.12
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
 

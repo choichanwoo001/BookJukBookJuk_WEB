@@ -762,15 +762,8 @@
 
 .readerDetailHeroHeader {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.readerDetailStartButton {
-  flex-shrink: 0;
-  min-width: 10.5rem;
-  white-space: nowrap;
+  flex-direction: column;
+  gap: 0.15rem;
 }
 
 .similarReadersStatusDock {
@@ -826,6 +819,45 @@
   opacity: 1;
   transform: translateY(0);
   pointer-events: auto;
+}
+
+.similarReadersStartDock {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 30;
+}
+
+.similarReadersStartTrigger {
+  min-height: 3rem;
+  padding: 0.72rem 1.15rem;
+  border-radius: 999px;
+  font-size: 0.98rem;
+  font-family: var(--bj-font-heading);
+  box-shadow:
+    0 14px 32px rgba(96, 61, 26, 0.28),
+    0 0 0 4px rgba(155, 108, 52, 0.14);
+}
+
+.similarReadersStartTrigger[data-ready] {
+  box-shadow:
+    0 16px 36px rgba(96, 61, 26, 0.34),
+    0 0 0 5px rgba(155, 108, 52, 0.2);
+}
+
+.similarReadersStartCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  margin-left: 0.35rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .readerDetailHero .readerAvatar {
@@ -1052,7 +1084,8 @@
 .readerBookAddButton {
   width: 100%;
   min-height: 2.4rem;
-  margin-top: 1rem;
+  margin-top: auto;
+  padding-block: 0.45rem;
 }
 
 .qrLoginGate {
@@ -1211,19 +1244,21 @@
     grid-template-columns: 1fr;
   }
 
-  .readerDetailHeroHeader {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .readerDetailStartButton {
-    align-self: flex-end;
-    width: auto;
-  }
-
   .readerAvatar,
   .readerDetailHero .readerAvatar {
     width: 5.5rem;
     height: 5.5rem;
+  }
+
+  .similarReadersStartDock {
+    right: 50%;
+    bottom: 1rem;
+    transform: translateX(50%);
+    width: calc(100% - 2rem);
+    max-width: 22rem;
+  }
+
+  .similarReadersStartTrigger {
+    width: 100%;
   }
 }

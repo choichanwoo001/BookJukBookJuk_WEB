@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { ChatActionCard } from './ChatActionCard'
@@ -40,7 +41,28 @@ function ChatPanel({
   actionCard: ChatActionCardModel | null
 }) {
   const [draft, setDraft] = useState('')
+  const [receiptQrOpen, setReceiptQrOpen] = useState(false)
   const messageListRef = useRef<HTMLDivElement | null>(null)
+  const receiptQrHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openReceiptQr = useCallback(() => {
+    if (receiptQrHideTimerRef.current) {
+      clearTimeout(receiptQrHideTimerRef.current)
+      receiptQrHideTimerRef.current = null
+    }
+    setReceiptQrOpen(true)
+  }, [])
+
+  const scheduleCloseReceiptQr = useCallback(() => {
+    if (receiptQrHideTimerRef.current) clearTimeout(receiptQrHideTimerRef.current)
+    receiptQrHideTimerRef.current = setTimeout(() => setReceiptQrOpen(false), 280)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (receiptQrHideTimerRef.current) clearTimeout(receiptQrHideTimerRef.current)
+    }
+  }, [])
 
   const tts = useTts()
 
@@ -96,14 +118,30 @@ function ChatPanel({
               {shelfKind}
               {context.listType !== shelfKind ? ` · 표시: ${context.listType}` : ''} · {cartItems.length}권
             </span>
-            <button
-              type="button"
-              className="chatShelfLoadButton"
-              onClick={() => void submitUserText('계산하러 가자')}
-              disabled={busy || cartItems.length === 0 || context.checkoutStatus === 'going_to_counter'}
-            >
-              계산하러 가기
-            </button>
+            <div className="chatShelfListActions">
+              {context.receipt && (
+                <button
+                  type="button"
+                  className="chatReceiptTrigger"
+                  aria-label="전자 영수증 QR 보기"
+                  aria-expanded={receiptQrOpen}
+                  onMouseEnter={openReceiptQr}
+                  onMouseLeave={scheduleCloseReceiptQr}
+                  onFocus={openReceiptQr}
+                  onBlur={scheduleCloseReceiptQr}
+                >
+                  영수증 QR
+                </button>
+              )}
+              <button
+                type="button"
+                className="chatShelfLoadButton"
+                onClick={() => void submitUserText('계산하러 가자')}
+                disabled={busy || cartItems.length === 0 || context.checkoutStatus === 'going_to_counter'}
+              >
+                계산하러 가기
+              </button>
+            </div>
           </div>
           {listLoadStatus === 'loading' ? (
             <p className="chatShelfListEmpty chatShelfListLoading">리스트를 불러오는 중이에요.</p>
@@ -134,25 +172,38 @@ function ChatPanel({
               ))}
             </ul>
           )}
-          {context.receipt && (
-            <div className="chatReceiptCard" aria-label="전자 영수증">
-              <div className="chatReceiptHead">
-                <span>전자 영수증</span>
-                <strong>{context.receipt.items.length}권</strong>
-              </div>
-              <div className="chatReceiptQr" aria-label="보관함 추가 QR">
-                <QRCodeSVG
-                  value={context.receipt.qrPayload}
-                  size={96}
-                  marginSize={1}
-                  bgColor="#ffffff"
-                  fgColor="#111827"
-                />
-              </div>
-              <code className="chatReceiptPayload breakAnywhere">{context.receipt.qrPayload}</code>
-            </div>
-          )}
         </section>
+
+        {context.receipt &&
+          receiptQrOpen &&
+          createPortal(
+            <div
+              className="chatReceiptOverlay"
+              role="dialog"
+              aria-label="전자 영수증 QR"
+              onMouseEnter={openReceiptQr}
+              onMouseLeave={scheduleCloseReceiptQr}
+            >
+              <div className="chatReceiptOverlayCard">
+                <div className="chatReceiptOverlayHead">
+                  <span>전자 영수증</span>
+                  <strong>{context.receipt.items.length}권</strong>
+                </div>
+                <p className="chatReceiptOverlayHint">앱에서 스캔하면 보관함에 추가돼요</p>
+                <div className="chatReceiptOverlayQr" aria-hidden>
+                  <QRCodeSVG
+                    value={context.receipt.qrPayload}
+                    size={220}
+                    marginSize={2}
+                    bgColor="#ffffff"
+                    fgColor="#111827"
+                  />
+                </div>
+                <code className="chatReceiptOverlayPayload breakAnywhere">{context.receipt.qrPayload}</code>
+              </div>
+            </div>,
+            document.body,
+          )}
 
         {context.pendingConfirmation && (
           <ConfirmationCard

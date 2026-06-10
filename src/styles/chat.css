@@ -55,8 +55,15 @@
   color: #ffbe72;
 }
 
-.chatShelfLoadButton {
+.chatShelfListActions {
   margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.chatShelfLoadButton {
   border: 1px solid rgba(255, 214, 164, 0.42);
   border-radius: 999px;
   background: rgba(255, 214, 164, 0.14);
@@ -157,47 +164,82 @@
   color: #ffc98a;
 }
 
-.chatReceiptCard {
-  margin-top: 10px;
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
-  gap: 8px 10px;
-  align-items: center;
-  padding: 10px;
-  border: 1px solid rgba(93, 217, 168, 0.35);
-  border-radius: 8px;
-  background: rgba(31, 49, 44, 0.72);
+.chatReceiptTrigger {
+  border: 1px solid rgba(93, 217, 168, 0.5);
+  border-radius: 999px;
+  background: rgba(93, 217, 168, 0.16);
+  color: #d8f8ea;
+  font-size: 0.75rem;
+  padding: 0.22rem 0.55rem;
+  cursor: pointer;
 }
 
-.chatReceiptHead {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: rgba(238, 249, 244, 0.9);
-  font-size: 12px;
+.chatReceiptTrigger:hover,
+.chatReceiptTrigger:focus-visible {
+  background: rgba(93, 217, 168, 0.28);
+  border-color: rgba(93, 217, 168, 0.72);
+  outline: none;
 }
 
-.chatReceiptQr {
-  width: 74px;
-  aspect-ratio: 1;
+.chatReceiptOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
   display: grid;
   place-items: center;
-  border-radius: 6px;
-  color: #10231c;
-  background:
-    linear-gradient(90deg, #f3fff9 50%, transparent 0) 0 0 / 14px 14px,
-    linear-gradient(#f3fff9 50%, transparent 0) 0 0 / 14px 14px,
-    #5dd9a8;
-  font-size: 13px;
-  font-weight: 800;
+  padding: 1.5rem;
+  background: rgba(8, 12, 10, 0.72);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
 }
 
-.chatReceiptPayload {
-  min-width: 0;
-  color: rgba(238, 249, 244, 0.86);
-  font-size: 11px;
-  line-height: 1.35;
+.chatReceiptOverlayCard {
+  width: min(92vw, 360px);
+  padding: 1.35rem 1.25rem 1.15rem;
+  border-radius: 16px;
+  border: 1px solid rgba(93, 217, 168, 0.45);
+  background: linear-gradient(180deg, #f8fffb 0%, #eef8f3 100%);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+  text-align: center;
+}
+
+.chatReceiptOverlayHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: #163528;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.chatReceiptOverlayHint {
+  margin: 0 0 1rem;
+  color: #3d6b58;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.chatReceiptOverlayQr {
+  display: inline-grid;
+  place-items: center;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 2px solid rgba(22, 53, 40, 0.12);
+  box-shadow: 0 8px 24px rgba(22, 53, 40, 0.12);
+}
+
+.chatReceiptOverlayPayload {
+  display: block;
+  margin-top: 0.85rem;
+  color: #4a6b5d;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  word-break: break-all;
 }
 
 .chatMessages {

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { GESTURE_CONFIRM_FRAMES, GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import { useBookRecognitionCamera } from '../hooks/useBookRecognitionCamera'
@@ -23,6 +23,7 @@ export function BookRecognitionPanel({
   placement = 'map',
 }: BookRecognitionPanelProps) {
   const [gestureEnabled, setGestureEnabled] = useState(false)
+  const [identifying, setIdentifying] = useState(false)
 
   const {
     videoRef,
@@ -33,20 +34,18 @@ export function BookRecognitionPanel({
     captureFrameBase64,
   } = useBookRecognitionCamera()
 
-  const identifyingRef = useRef(false)
-
   const runCapture = useCallback(
     (reason: 'add' | 'remove', trigger: 'gesture' | 'ui') => {
-      if (busy || identifyingRef.current || !onCapture || !isActive) return
+      if (busy || identifying || !onCapture || !isActive) return
       const frame = captureFrameBase64()
       if (!frame) return
 
-      identifyingRef.current = true
+      setIdentifying(true)
       void Promise.resolve(onCapture(reason, frame, trigger)).finally(() => {
-        identifyingRef.current = false
+        setIdentifying(false)
       })
     },
-    [busy, captureFrameBase64, isActive, onCapture],
+    [busy, captureFrameBase64, identifying, isActive, onCapture],
   )
 
   const handleGestureConfirmed = useCallback(
@@ -81,7 +80,7 @@ export function BookRecognitionPanel({
   }, [isActive, start, stop])
 
   const previewLabel = gesture.previewGesture ? GESTURE_LABELS_KO[gesture.previewGesture] : null
-  const captureDisabled = busy || identifyingRef.current || !isActive
+  const captureDisabled = busy || identifying || !isActive
 
   return (
     <div

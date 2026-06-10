@@ -3,9 +3,9 @@ import { FLOOR_HEIGHT_M } from '../data/floorPlan'
 
 // --- Camera ---
 export const THIRD_PERSON_DISTANCE_M = 4.2
-export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0 * (2 / 3)
+export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0 * (1.55 / 1.65)
 export const THIRD_PERSON_LOOK_AHEAD_M = 1.2
-export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72 * (2 / 3)
+export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72 * (1.55 / 1.65)
 export const THIRD_PERSON_MAX_CAMERA_Y_M = FLOOR_HEIGHT_M - 0.22
 export const THIRD_PERSON_LOCKED_PITCH = -0.5
 /** 이동 중 카메라 요(yaw)를 캐릭터 앞방향에 맞출 때 지수 보간 계수 (초당). */
@@ -13,8 +13,8 @@ export const THIRD_PERSON_FOLLOW_YAW_LAMBDA = 14
 /** 3인칭 WASD 중 A/D 시점 회전 속도 (라디안/초). */
 export const THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC = 1.35
 
-/** 1인칭 카메라 높이 (바닥 기준, m). */
-export const FIRST_PERSON_EYE_HEIGHT_M = 1.52 * (2 / 3)
+/** 1인칭 카메라 높이 (바닥 기준, m). 키 1.55m 캐릭터의 눈높이. */
+export const FIRST_PERSON_EYE_HEIGHT_M = 1.55 * (1.55 / 1.65)
 /** 1인칭 기본 시선 (라디안, 약간 아래). */
 export const FIRST_PERSON_DEFAULT_PITCH = -0.06
 export const FIRST_PERSON_PITCH_MIN = -1.35
@@ -50,8 +50,14 @@ export const MAP_VIEW_YAW_OFFSET_RAD = 0
 export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
 
 // --- Player ---
-export const PLAYER_SCALE = 0.7 * (2 / 3)
-export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.12
+/** 목표 플레이어 키 (m). */
+export const PLAYER_HEIGHT_M = 1.55
+/** 휴머노이드 모델 제작 기준 키 (m). */
+export const PLAYER_MODEL_HEIGHT_M = 1.65
+/** 모델(1.65m) → 목표 키(1.55m) 스케일 비율. */
+export const PLAYER_SIZE_RATIO = PLAYER_HEIGHT_M / PLAYER_MODEL_HEIGHT_M
+export const PLAYER_SCALE = PLAYER_SIZE_RATIO
+export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.0
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
 
 /** Min/max for editable fixture width & depth (m) in edit mode. */
@@ -88,8 +94,6 @@ export const NAV_LINE_COLOR_DIM = '#a07840'
 export const NAV_LINE_COLOR_BRIGHT = '#e6be5a'
 /** 멀리 있을 때 밝은 선이 보간되는 색. */
 export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#ffd18a'
-export const NAV_ARRIVAL_RING_INNER = 0.5
-export const NAV_ARRIVAL_RING_OUTER = 0.72
 export const NAV_ROUTE_Y = 0.04
 
 // --- Overview Pan ---
@@ -236,8 +240,18 @@ export const pillarMaterial = new MeshStandardMaterial({ color: '#D9D0C3', rough
 export const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
 export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roughness: 0.88, metalness: 0.0, side: 2 })
 export const playerMaterial = new MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.85, metalness: 0.0 })
-/** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분). */
-export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.88, metalness: 0.0 })
+/** 휴머노이드 피부 (머리·목·손). */
+export const playerSkinMaterial = new MeshStandardMaterial({ color: '#E8B894', roughness: 0.72, metalness: 0.0 })
+/** 휴머노이드 머리카락. */
+export const playerHairMaterial = new MeshStandardMaterial({ color: '#3B2A1E', roughness: 0.85, metalness: 0.0 })
+/** 휴머노이드 상의 (서점 분위기에 맞는 차분한 청록). */
+export const playerShirtMaterial = new MeshStandardMaterial({ color: '#3E6B6B', roughness: 0.82, metalness: 0.0 })
+/** 휴머노이드 하의. */
+export const playerPantsMaterial = new MeshStandardMaterial({ color: '#3A3D45', roughness: 0.85, metalness: 0.0 })
+/** 휴머노이드 신발. */
+export const playerShoesMaterial = new MeshStandardMaterial({ color: '#1E1E1E', roughness: 0.6, metalness: 0.05 })
+/** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분, 피부 위에서 보이도록 어두운 색). */
+export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#2A2024', roughness: 0.6, metalness: 0.0 })
 export const markerMaterial = new MeshStandardMaterial({ color: '#c9a56a', emissive: '#5c4020', emissiveIntensity: 0.35 })
 export const areaMaterial = new MeshStandardMaterial({ color: '#c9a56a', transparent: true, opacity: 0.28 })
 export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#e6be5a', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })

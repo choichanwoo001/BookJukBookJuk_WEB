@@ -52,13 +52,16 @@ export type DemoOrchestratorState = {
 
   transitLegAnnounced: number
 
+  /** book2 선택 후 serendipity→book2 안내 확인 대기 */
+  awaitingNavConfirm: DemoBookKey[] | null
+
 }
 
 
 
 export function initialDemoOrchestratorState(): DemoOrchestratorState {
 
-  return { step: 'idle', transitLegAnnounced: -1 }
+  return { step: 'idle', transitLegAnnounced: -1, awaitingNavConfirm: null }
 
 }
 
@@ -116,7 +119,21 @@ export function beginDemoNavigationFromShoppingList(entries: ShoppingListEntry[]
 
   const keys = resolveDemoMissionKeys(entries)
 
-  if (keys.length > 0) dispatchDemoMissionForKeys(keys)
+  const firstLeg: DemoBookKey[] = keys.includes('book1') ? ['book1'] : keys.slice(0, 1)
+
+  if (firstLeg.length > 0) dispatchDemoMissionForKeys(firstLeg)
+
+  return firstLeg
+
+}
+
+
+
+/** book1 담기 후 book2 선택 시 serendipity 경유 안내를 예약한다. */
+
+export function requestDemoSerendipityLegNav(): DemoBookKey[] {
+
+  const keys: DemoBookKey[] = ['serendipity', 'book2']
 
   return keys
 

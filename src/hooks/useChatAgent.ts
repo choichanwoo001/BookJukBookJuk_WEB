@@ -56,8 +56,7 @@ import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
 import { useDemoOrchestrator } from './useDemoOrchestrator'
-import { resolveDemoMissionKeys } from './chatAgent/demoOrchestrator'
-import { bookKeysToPoolIndices } from '../utils/bookShelfNavigation'
+import { DEMO_SCENARIO_ROUTE_KEYS, demoPoolIndicesForKeys } from '../data/demoScenario'
 import { useToolRunner } from './chatAgent/useToolRunner'
 
 const initialContextValue = (): AgentContext => ({
@@ -350,11 +349,7 @@ export function useChatAgent(options: {
     updateExistingListGate({ status: 'awaiting_nav' })
 
     if (isDemoMode()) {
-      const list = options.initialShoppingList ?? []
-      const keys = resolveDemoMissionKeys(list)
-      if (keys.length > 0) {
-        dispatchPreviewRoute(bookKeysToPoolIndices(keys))
-      }
+      dispatchPreviewRoute(demoPoolIndicesForKeys(DEMO_SCENARIO_ROUTE_KEYS))
     }
 
     const count = options.initialShoppingList?.length ?? 0
@@ -386,6 +381,8 @@ export function useChatAgent(options: {
     handleBrowseCapture: handleDemoBrowseCapture,
     handleDwellFeedback: handleDemoDwellFeedback,
     handleAlternativeAccepted: handleDemoAlternativeAccepted,
+    confirmDemoNavToBook,
+    handleCartAddSuccess: handleDemoCartAddSuccess,
     demoStateRef,
   } = useDemoOrchestrator({
     toolExecutionContext,
@@ -422,7 +419,12 @@ export function useChatAgent(options: {
     setContext,
     appendAssistantAndStore,
     runEditFollowUp,
-    onCartAddSuccess: async () => {},
+    onCartAddSuccess: async () => {
+      if (!isDemoMode()) return
+      const cart = contextRef.current.cartItems
+      const last = cart[cart.length - 1]
+      if (last?.title) await handleDemoCartAddSuccess(last.title)
+    },
   })
 
   const handleCancelIntent = useCallback(async () => {
@@ -501,7 +503,6 @@ export function useChatAgent(options: {
             startShelfVisitFromList(list)
           }
           dispatchStartNavigation()
-          await runToolWithFallback({ name: 'routePlannerTool', args: { mode: 'shortest' } }, 'route_replan_shortest')
           return
         }
 
@@ -575,7 +576,7 @@ export function useChatAgent(options: {
               intent: 'confirm',
               setMessages,
             })
-            await confirmDemoNavToBook(demoStateRef.current.awaitingNavConfirm)
+            await confirmDemoNavToBook(demoStateRef.current.awaitingNavConfirm ?? [])
             return
           }
           if (
@@ -767,6 +768,7 @@ export function useChatAgent(options: {
       demoStateRef,
       handleDemoAlternativeAccepted,
       handleDemoDwellFeedback,
+      confirmDemoNavToBook,
       startShelfVisitFromList,
     ],
   )

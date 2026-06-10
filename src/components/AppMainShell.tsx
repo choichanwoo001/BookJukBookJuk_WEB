@@ -1,9 +1,10 @@
-import { lazy, Suspense, useCallback, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import ChatPanel from './ChatPanel'
 import { useChatAgent } from '../hooks/useChatAgent'
 import { GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import type { ShoppingListEntry } from '../agent/types'
 import type { TasteSeed } from '../types/onboarding'
+import { subscribeMapCommand } from '../agent/runtime/agentEventBus'
 
 const Map3DView = lazy(() => import('./Map3DView'))
 
@@ -26,6 +27,12 @@ export function AppMainShell({
 }: AppMainShellProps) {
   const [activePane, setActivePane] = useState<'map' | 'chat'>('map')
   const agent = useChatAgent({ initialShoppingList: plannedBooks, tasteSeed })
+
+  useEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type === 'START_NAVIGATION') setActivePane('map')
+    })
+  }, [])
 
   const { appendRecognitionMessage } = agent
 

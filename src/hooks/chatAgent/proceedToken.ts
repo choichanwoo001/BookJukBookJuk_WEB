@@ -9,8 +9,9 @@ export function isProceedToken(text: string): boolean {
   if (/^\/?(로봇)?확정/.test(compact)) return true
   if (/^진행/.test(raw)) return true
   if (/^확정/.test(raw)) return true
+  if (/^시작/.test(raw)) return true
 
-  const short = ['오케이', 'okay', 'ok', '맞아', '확정할게']
+  const short = ['오케이', 'okay', 'ok', 'start', '맞아', '확정할게', '시작']
   for (const token of short) {
     if (lower === token || lower.startsWith(`${token} `) || lower.startsWith(`${token}\n`)) {
       return true

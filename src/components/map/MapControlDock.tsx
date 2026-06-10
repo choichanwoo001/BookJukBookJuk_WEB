@@ -10,6 +10,7 @@ export type MapControlDockProps = {
   isFullscreen: boolean
   onToggleFullscreen: () => void
   onResetOnboarding: () => void
+  onOpenScenarioRoute: () => void
   mode: ViewMode
   isEdit: boolean
   onModeChange: (next: ViewMode) => void
@@ -25,6 +26,7 @@ export function MapControlDock({
   isFullscreen,
   onToggleFullscreen,
   onResetOnboarding,
+  onOpenScenarioRoute,
   mode,
   isEdit,
   onModeChange,
@@ -51,6 +53,9 @@ export function MapControlDock({
           </button>
           <button type="button" onClick={onResetOnboarding}>
             처음으로
+          </button>
+          <button type="button" onClick={onOpenScenarioRoute}>
+            시나리오 경로
           </button>
         </div>
         <MapViewButtons

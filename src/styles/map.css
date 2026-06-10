@@ -680,3 +680,179 @@
   background: var(--bj-bg-deep);
   font-size: 0.95rem;
 }
+
+.scenarioRoutePlannerBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(8, 10, 14, 0.92);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.scenarioRoutePlannerPanel {
+  display: flex;
+  flex-direction: column;
+  width: min(1200px, 100%);
+  max-height: 100%;
+  background: var(--bj-bg-overlay-strong);
+  border: 1px solid var(--bj-border-dark);
+  border-radius: 14px;
+  overflow: hidden;
+  color: var(--bj-text-on-dark);
+}
+
+.scenarioRoutePlannerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scenarioRoutePlannerTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.scenarioRoutePlannerSubtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.86rem;
+  color: var(--bj-text-on-dark-muted);
+}
+
+.scenarioRoutePlannerActions {
+  display: flex;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.scenarioRoutePlannerPreviewBtn,
+.scenarioRoutePlannerCloseBtn {
+  border: 1px solid var(--bj-border-dark);
+  background: rgba(31, 26, 20, 0.75);
+  color: var(--bj-text-on-dark);
+  border-radius: 8px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.scenarioRoutePlannerPreviewBtn {
+  border-color: var(--bj-accent-strong);
+  background: var(--bj-accent-bg-strong);
+  color: var(--bj-warm-cream);
+}
+
+.scenarioRoutePlannerMap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0.75rem 1rem 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1a1410;
+}
+
+.scenarioRoutePlannerImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.scenarioRouteSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.scenarioRoutePlannerLegend {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem 1rem;
+  font-size: 0.8rem;
+}
+
+.scenarioRouteLegendSection h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  color: var(--bj-text-on-dark-muted);
+}
+
+.scenarioRouteStopList,
+.scenarioRouteSegmentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.scenarioRouteStopList li,
+.scenarioRouteSegmentList li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.scenarioRouteStopOrder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: rgba(255, 230, 102, 0.9);
+  color: #111;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.scenarioRouteStopLabel {
+  font-weight: 600;
+}
+
+.scenarioRouteStopMeta {
+  color: var(--bj-text-on-dark-subtle);
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.74rem;
+}
+
+.scenarioRouteSegmentSwatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.scenarioRouteWarn {
+  color: #ff8a8a;
+  font-size: 0.74rem;
+}
+
+.scenarioRoutePlannerWarning {
+  margin: 0;
+  padding: 0.65rem 1.1rem 1rem;
+  color: #ffb4b4;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 720px) {
+  .scenarioRoutePlannerLegend {
+    grid-template-columns: 1fr;
+  }
+
+  .scenarioRoutePlannerHeader {
+    flex-direction: column;
+  }
+}

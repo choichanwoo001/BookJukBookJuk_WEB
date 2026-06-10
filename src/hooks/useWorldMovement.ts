@@ -72,6 +72,7 @@ export function useWorldMovement(
   characterYawRef?: RefObject<number>,
   movingRef?: RefObject<boolean>,
   keyboardEnabled = true,
+  playerPositionRef?: RefObject<[number, number]>,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -79,7 +80,8 @@ export function useWorldMovement(
     keyS: false,
     keyD: false,
   })
-  const playerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
+  const internalPlayerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
+  const activePlayerPositionRef = playerPositionRef ?? internalPlayerPositionRef
 
   useEffect(() => {
     const resetKeyState = () => {
@@ -148,7 +150,7 @@ export function useWorldMovement(
       localDirection.x * cosYaw + localDirection.y * sinYaw,
       -localDirection.x * sinYaw + localDirection.y * cosYaw,
     )
-    const current = playerPositionRef.current
+    const current = activePlayerPositionRef.current
     const step = WALK_SPEED_MPS * delta
 
     const xCandidate: [number, number] = [current[0] + direction.x * step, current[1]]

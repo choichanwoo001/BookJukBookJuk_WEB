@@ -12,6 +12,7 @@ import {
 } from '../../data/floorPlan'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
+import { syncPlayerPositionFromWorldRef, useGuidanceIntroMotion } from '../../hooks/useGuidanceIntroMotion'
 import {
   bookshelfOverlayLayerInstances,
   counterOverlayLayerInstances,
@@ -110,6 +111,7 @@ export function SceneContent({
   const isFreeLookRef = useRef(false)
   const mouseLookDraggingRef = useRef(false)
   const walkMovingRef = useRef(false)
+  const playerPositionRef = useRef<[number, number]>([...INITIAL_PLAYER_POS])
   const prevWalkModeRef = useRef<'firstPerson' | 'thirdPerson' | null>(null)
   const isFirstPerson = mode === 'firstPerson'
   const isThirdPerson = mode === 'thirdPerson'
@@ -137,11 +139,33 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
-  useWorldMovement(worldRef, yawRef, isWalkMode && controlsEnabled && !robotSyncActive, {
-    floorRects,
-    wallRects: baseWallRects,
-    bookshelfRects: bookshelfCollisionRects,
-  }, characterYawRef, walkMovingRef, controlsEnabled && !robotSyncActive)
+  const guidanceIntroActive = useGuidanceIntroMotion({
+    worldRef,
+    yawRef,
+    characterYawRef,
+    playerPositionRef,
+    enabled: isWalkMode && controlsEnabled && !robotSyncActive,
+    collisionOverrides: {
+      floorRects,
+      wallRects: baseWallRects,
+      bookshelfRects: bookshelfCollisionRects,
+    },
+  })
+
+  useWorldMovement(
+    worldRef,
+    yawRef,
+    isWalkMode && controlsEnabled && !robotSyncActive,
+    {
+      floorRects,
+      wallRects: baseWallRects,
+      bookshelfRects: bookshelfCollisionRects,
+    },
+    characterYawRef,
+    walkMovingRef,
+    controlsEnabled && !robotSyncActive && !guidanceIntroActive,
+    playerPositionRef,
+  )
 
   useVersoRobotSync({
     robotSyncActive,
@@ -163,6 +187,11 @@ export function SceneContent({
     prevWalkModeRef,
     preserveHeadingOnEnter: robotSyncActive,
   })
+
+  useEffect(() => {
+    if (!isWalkMode) return
+    syncPlayerPositionFromWorldRef(worldRef, playerPositionRef)
+  }, [isWalkMode])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

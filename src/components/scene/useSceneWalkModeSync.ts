@@ -40,7 +40,10 @@ export function useSceneWalkModeSync({
       const isWalk = mode === 'firstPerson' || mode === 'thirdPerson'
 
       if (!isWalk) {
-        storedWorldPositionRef.current = [worldRef.current.position.x, worldRef.current.position.z]
+        // 오버뷰 최초 진입 시 world는 (0,0)이라 스폰 좌표를 덮어쓰지 않는다.
+        if (prevWalkModeRef.current !== null) {
+          storedWorldPositionRef.current = [worldRef.current.position.x, worldRef.current.position.z]
+        }
         worldRef.current.position.set(0, 0, 0)
         prevWalkModeRef.current = null
         return

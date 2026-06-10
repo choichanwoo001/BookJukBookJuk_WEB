@@ -34,6 +34,7 @@ import { BookRecognitionPanel } from './BookRecognitionPanel'
 import type { GestureId } from '../lib/gestureClassifiers'
 import { MapControlDock } from './map/MapControlDock'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
+import { ScenarioRoutePlannerPanel } from './map/ScenarioRoutePlannerPanel'
 import { useMapViewState } from '../hooks/useMapViewState'
 import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
@@ -98,6 +99,7 @@ function Map3DView({
   onResetOnboarding: () => void
 }) {
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [scenarioRouteOpen, setScenarioRouteOpen] = useState(false)
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
@@ -205,7 +207,7 @@ function Map3DView({
     return subscribeMapCommand((command) => {
       if (command.type === 'GO_CHECKOUT') {
         checkoutArrivedRef.current = false
-        setCheckoutGoals(checkoutDirectGoals(navCtx, navBounds))
+        setCheckoutGoals(checkoutDirectGoals(navCtx, navBounds, playerWorldXzRef.current))
       }
     })
   }, [navBounds, navCtx])
@@ -353,6 +355,11 @@ function Map3DView({
           onClick={handleMinimapToggle}
         />
 
+        <ScenarioRoutePlannerPanel
+          open={scenarioRouteOpen}
+          onClose={() => setScenarioRouteOpen(false)}
+        />
+
         <MapControlDock
           visible={controlsVisible}
           onToggleVisible={() => setControlsVisible((v) => !v)}
@@ -360,6 +367,7 @@ function Map3DView({
           isFullscreen={isFullscreen}
           onToggleFullscreen={onToggleFullscreen}
           onResetOnboarding={onResetOnboarding}
+          onOpenScenarioRoute={() => setScenarioRouteOpen(true)}
           mode={mode}
           isEdit={isEdit}
           onModeChange={handleViewModeChange}

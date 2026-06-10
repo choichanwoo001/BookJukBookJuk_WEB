@@ -86,6 +86,15 @@ npm run lint
 npm run build
 ```
 
+Windows PowerShell에서는 `npm.ps1` 실행 정책 차단을 피하기 위해 `npm.cmd`를 사용합니다.
+
+```powershell
+npm.cmd run lint
+npm.cmd run build
+```
+
+Codex 작업 중 검증 루틴은 [docs/codex-verification.md](docs/codex-verification.md)를 따릅니다.
+
 맵 데이터 재생성:
 
 ```bash

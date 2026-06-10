@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import type { RefObject } from 'react'
 import type { Group } from 'three'
 import type { Intersection } from 'three'
-import { InstancedMesh, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
+import { InstancedMesh, Matrix3, Mesh, MeshStandardMaterial, Raycaster, Vector3 } from 'three'
 import {
   THIRD_PERSON_OCCLUDER_OPACITY,
   THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M,
@@ -40,6 +40,8 @@ const OCCLUSION_ANCHOR_OFFSET_UV: [number, number][] = [
   [0, -0.55],
 ]
 
+const NORMAL_FILTER_DOT_THRESHOLD = 0.15
+
 type FadeEntry =
   | { kind: 'mesh'; key: string; mesh: Mesh; miss: number }
   | { kind: 'inst'; key: string; mesh: InstancedMesh; instanceId: number; miss: number }
@@ -72,6 +74,8 @@ export function ThirdPersonOcclusionFader({
   const rayOrigin = useRef(new Vector3())
   const rayDir = useRef(new Vector3())
   const fadeStateRef = useRef<Map<string, FadeEntry>>(new Map())
+  const normalMatrix = useRef(new Matrix3())
+  const worldNormal = useRef(new Vector3())
 
   useEffect(() => {
     const node = worldRef.current
@@ -114,19 +118,41 @@ export function ThirdPersonOcclusionFader({
 
     const candidates = new Map<string, FadeEntry>()
 
-    const considerHit = (hit: Intersection, segmentFar: number) => {
+    const considerHit = (
+      hit: Intersection,
+      segmentFar: number,
+      applyNormalFilter: boolean,
+      rayDirection: Vector3,
+    ) => {
       const eps = Math.max(1e-3, 1e-4 * segmentFar)
       if (hit.distance >= segmentFar - eps) return
       if (isExcludedFromCameraCollision(hit.object)) return
+
+      // 앵커 cone 오프셋 레이만: 옆면 벽 오탐 방지용 노멀 필터.
+      if (applyNormalFilter && hit.face) {
+        normalMatrix.current.getNormalMatrix(hit.object.matrixWorld)
+        worldNormal.current.copy(hit.face.normal).applyMatrix3(normalMatrix.current).normalize()
+        if (Math.abs(worldNormal.current.dot(rayDirection)) < NORMAL_FILTER_DOT_THRESHOLD) return
+      }
 
       const obj = hit.object
       if (obj instanceof InstancedMesh) {
         const id = hit.instanceId
         if (id === undefined || id === null) return
-        if (!obj.geometry.getAttribute('instanceOpacity')) return
-        const key = instKey(obj, id)
-        if (!candidates.has(key)) {
-          candidates.set(key, { kind: 'inst', key, mesh: obj, instanceId: id, miss: 0 })
+        const opacityAttr = obj.geometry.getAttribute('instanceOpacity')
+        if (opacityAttr) {
+          const key = instKey(obj, id)
+          if (!candidates.has(key)) {
+            candidates.set(key, { kind: 'inst', key, mesh: obj, instanceId: id, miss: 0 })
+          }
+          return
+        }
+        const instMat = obj.material
+        if (Array.isArray(instMat)) return
+        if (!(instMat instanceof MeshStandardMaterial)) return
+        const meshKeyStr = meshKey(obj)
+        if (!candidates.has(meshKeyStr)) {
+          candidates.set(meshKeyStr, { kind: 'mesh', key: meshKeyStr, mesh: obj, miss: 0 })
         }
       } else if (obj instanceof Mesh) {
         const mat = obj.material
@@ -136,6 +162,16 @@ export function ThirdPersonOcclusionFader({
         if (!candidates.has(key)) {
           candidates.set(key, { kind: 'mesh', key, mesh: obj, miss: 0 })
         }
+      }
+    }
+
+    const castRay = (origin: Vector3, direction: Vector3, far: number, applyNormalFilter: boolean) => {
+      raycaster.set(origin, direction)
+      raycaster.far = far
+      raycaster.near = 0
+      const hits = raycaster.intersectObject(world, true)
+      for (const hit of hits) {
+        considerHit(hit, far, applyNormalFilter, direction)
       }
     }
 
@@ -156,14 +192,8 @@ export function ThirdPersonOcclusionFader({
         if (segFar < 1e-4) continue
         rayDir.current.multiplyScalar(1 / segFar)
 
-        raycaster.set(rayOrigin.current, rayDir.current)
-        raycaster.far = segFar
-        raycaster.near = 0
-
-        const hits = raycaster.intersectObject(world, true)
-        for (const hit of hits) {
-          considerHit(hit, segFar)
-        }
+        const applyNormalFilter = eu !== 0 || ev !== 0
+        castRay(rayOrigin.current, rayDir.current, segFar, applyNormalFilter)
       }
     }
 

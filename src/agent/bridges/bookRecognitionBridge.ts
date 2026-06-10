@@ -120,9 +120,9 @@ class HttpBookRecognitionClient implements IBookRecognitionClient {
             ? String((raw as { detail: string }).detail)
             : null
           const message =
-            (typeof raw?.message === 'string' ? String(raw.message) : null) ||
-            fastApiDetail ||
-            res.statusText
+            (typeof raw?.message === 'string' ? String(raw.message) : null)
+            || fastApiDetail
+            || res.statusText
           const statusErrorCode = res.status === 502 ? 'HTTP_BAD_GATEWAY' : `HTTP_${res.status}`
           return {
             ok: false,
@@ -156,7 +156,8 @@ class HttpBookRecognitionClient implements IBookRecognitionClient {
         if (e.message.includes('Failed to fetch') || e.name === 'TypeError') {
           return {
             ok: false,
-            message: 'HTTP identify 서버에 연결할 수 없어요. uvicorn이 127.0.0.1:8787에서 실행 중인지 확인하세요.',
+            message:
+              '표지 인식 API에 연결할 수 없어요. 개발 중이면 npm run dev를 다시 실행해 주세요.',
             errorCode: 'HTTP_UNREACHABLE',
           }
         }
@@ -218,4 +219,9 @@ export function getBookRecognitionClient(): IBookRecognitionClient {
     defaultClient = buildClient()
   }
   return defaultClient
+}
+
+/** 테스트용 클라이언트 교체 */
+export function setBookRecognitionClientForTests(client: IBookRecognitionClient | null): void {
+  defaultClient = client
 }

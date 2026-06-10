@@ -1,13 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { offsetDuplicateBookshelf, parseBookshelfFromClipboardText } from '../utils/bookshelfClipboard'
+import { isEditableDomTarget } from '../utils/domTarget'
 import type { FixtureRenderInstance } from '../types/scene'
-
-function isEditableDomTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  return target.isContentEditable
-}
 
 export type BookshelfClipboardOptions = {
   instances: FixtureRenderInstance[]

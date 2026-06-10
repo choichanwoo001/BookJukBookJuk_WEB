@@ -101,25 +101,23 @@ const AISLE_FACING_ALIGNED = alignBookshelfPairsFacingAcrossAisle(
   AISLE_FACING_SNAPPED.map((r) => ({ ...r })),
 )
 
-const AISLE_THIN: Omit<FixtureRenderInstance, 'kind'> = {
-  cx: -9.964,
-  cz: 13.423,
-  w: 0.3,
-  d: 0.4,
-  yaw: 0.3432,
-  h: 2.34,
-}
-
-const AISLE_NEAR_WALL_RAW: ShelfRow[] = [
+const AISLE_NEAR_WALL_LONG_RAW: ShelfRow[] = [
   { cx: -8.996, cz: -10.049, w: 2.5, d: 1.7, yaw: -2.812, h: 2.34 },
   { cx: -5.897, cz: -11.165, w: 2.5, d: 1.7, yaw: -2.812, h: 2.34 },
+]
+
+/** ㄴ자 코너(0.781,-16.212): 대각·단부·수직 다리 — 각각 다른 벽에 flush 스냅 필요 */
+const AISLE_L_CORNER_RAW: ShelfRow[] = [
   { cx: 0.055, cz: -13.733, w: 1.2, d: 1.3, yaw: 0.34, h: 2.34 },
   { cx: 0.784, cz: -11.847, w: 1.2, d: 1.3, yaw: 0.34, h: 2.34 },
   { cx: 1.324, cz: -10.263, w: 1.2, d: 0.3, yaw: 0.3256, h: 2.34 },
   { cx: -0.609, cz: -15.512, w: 1.2, d: 0.3, yaw: 0.3256, h: 2.34 },
 ]
 
-const AISLE_NEAR_WALL = AISLE_NEAR_WALL_RAW.map(snapShelfCenterIfNearWall)
+const AISLE_NEAR_WALL = [
+  ...AISLE_NEAR_WALL_LONG_RAW.map(snapShelfCenterIfNearWall),
+  ...AISLE_L_CORNER_RAW.map(snapShelfCenterFlushAlways),
+]
 
 const AISLE_GRID_PAIR_RAW: [ShelfRow[], ShelfRow[]] = [
   [
@@ -163,7 +161,6 @@ const AISLE_WALL_FLUSH = AISLE_WALL_FLUSH_RAW.map(snapShelfCenterFlushAlways)
 export const bookshelfOverlayLayerInstances: FixtureRenderInstance[] = [
   ...RAW_AISLES_PROCESSED.flat().map((r) => ({ kind: 'bookshelf' as const, ...r })),
   ...AISLE_FACING_ALIGNED.map((r) => ({ kind: 'bookshelf' as const, ...r })),
-  { kind: 'bookshelf', ...AISLE_THIN },
   ...AISLE_NEAR_WALL.map((r) => ({ kind: 'bookshelf' as const, ...r })),
   ...AISLE_GRID_PAIR.map((r) => ({ kind: 'bookshelf' as const, ...r })),
   ...AISLE_WALL_FLUSH.map((r) => ({ kind: 'bookshelf' as const, ...r })),

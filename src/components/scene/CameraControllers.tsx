@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { Vector3 } from 'three'
 import type { RefObject } from 'react'
@@ -23,6 +23,7 @@ import {
   OVERVIEW_PAN_SPEED,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
+import { overviewPanDy, overviewYawInput } from '../../utils/overviewDisplayFlip'
 
 export function CameraZoomController({
   enabled,
@@ -110,8 +111,11 @@ export function MouseLookController({
 
   const onMove = useCallback(
     (dx: number, dy: number) => {
-      yawRef.current -= dx * MOUSE_LOOK_SENSITIVITY
-      pitchRef.current = Math.max(pitchMin, Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY))
+      yawRef.current -= overviewYawInput(dx) * MOUSE_LOOK_SENSITIVITY
+      pitchRef.current = Math.max(
+        pitchMin,
+        Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY),
+      )
       if (!applyRotationToCamera) return
       const cam = get().camera
       if ('isPerspectiveCamera' in cam && cam.isPerspectiveCamera) {
@@ -151,7 +155,7 @@ export function FirstPersonCameraRig({
     const camera = state.camera
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
     camera.position.set(0, FIRST_PERSON_EYE_HEIGHT_M, 0)
-    camera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
+    camera.rotation.set(pitchRef.current, yawRef.current + Math.PI, Math.PI, 'YXZ')
   })
 
   return null
@@ -168,6 +172,11 @@ export function ThirdPersonCameraRig({
 }) {
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const snapOnNextFrameRef = useRef(true)
+
+  useLayoutEffect(() => {
+    snapOnNextFrameRef.current = true
+  }, [enabled])
 
   useFrame((state, delta) => {
     if (!enabled) return
@@ -180,21 +189,30 @@ export function ThirdPersonCameraRig({
     const cosPitch = Math.cos(pitch)
 
     desiredPosition.set(
-      Math.sin(yaw) * cosPitch,
+      -Math.sin(yaw) * cosPitch,
       -Math.sin(pitch),
-      Math.cos(yaw) * cosPitch,
+      -Math.cos(yaw) * cosPitch,
     ).multiplyScalar(THIRD_PERSON_DISTANCE_M)
     desiredPosition.y += THIRD_PERSON_TARGET_HEIGHT_M
     desiredPosition.y = Math.min(THIRD_PERSON_MAX_CAMERA_Y_M, Math.max(THIRD_PERSON_MIN_CAMERA_Y_M, desiredPosition.y))
 
     lookTargetRef.current.set(
-      -Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
+      Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
       THIRD_PERSON_TARGET_HEIGHT_M,
-      -Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
+      Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
     )
 
-    const lerpAlpha = 1 - Math.exp(-delta * 10)
-    camera.position.lerp(desiredPosition, lerpAlpha)
+    const shouldSnap =
+      snapOnNextFrameRef.current
+      || camera.position.distanceToSquared(desiredPosition) > THIRD_PERSON_DISTANCE_M * THIRD_PERSON_DISTANCE_M
+    if (shouldSnap) {
+      camera.position.copy(desiredPosition)
+      snapOnNextFrameRef.current = false
+    } else {
+      const lerpAlpha = 1 - Math.exp(-delta * 10)
+      camera.position.lerp(desiredPosition, lerpAlpha)
+    }
+    camera.up.set(0, -1, 0)
     camera.lookAt(lookTargetRef.current)
   })
 
@@ -234,8 +252,9 @@ export function OverviewPanController({
     /** overview 카메라 부모 `group`의 Y 회전(MAP_VIEW_YAW_OFFSET_RAD)과 팬 방향 정합 */
     const panSign = Math.cos(MAP_VIEW_YAW_OFFSET_RAD)
     /* eslint-disable react-hooks/immutability -- Three.js PerspectiveCamera position mutation */
+    const panDy = overviewPanDy(dy)
     perspectiveCamera.position.x -= dx * panSpeed * panSign
-    perspectiveCamera.position.z -= dy * panSpeed * panSign
+    perspectiveCamera.position.z -= panDy * panSpeed * panSign
     /* eslint-enable react-hooks/immutability */
   }, [camera])
 

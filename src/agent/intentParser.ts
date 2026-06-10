@@ -10,9 +10,24 @@ type Rule = {
 }
 
 const rules: Rule[] = [
-  { type: 'cancel', keywords: ['취소', '아니', '됐어', '그만', 'cancel', 'no thanks'], priority: 110, confidence: 0.94 },
+  { type: 'checkout', keywords: ['계산하러', '계산대', '결제', '구매 완료', '큐레이션 종료', '종료하고 계산'], priority: 120, confidence: 0.95 },
+  { type: 'add_book', regex: /(사기|살래|살게|구매|카트|장바구니|담아|넣어)/, priority: 89, confidence: 0.9 },
+  {
+    type: 'cancel',
+    keywords: ['취소', '됐어', '그만', 'cancel', 'no thanks'],
+    priority: 110,
+    confidence: 0.94,
+  },
+  {
+    type: 'cancel',
+    regex: /아니\s*,?\s*(취소|그만|됐어)/,
+    priority: 109,
+    confidence: 0.93,
+  },
   { type: 'cancel', regex: /^\s*(no|nope)\s*$/i, priority: 109, confidence: 0.92 },
   { type: 'confirm', keywords: ['오케이', 'okay', 'ok', '맞아', '찬성'], priority: 108, confidence: 0.93 },
+  { type: 'resume_mobility', regex: /^\s*\/\s*(?:로봇\s*)?진행(?:해)?\s*$/i, priority: 107, confidence: 0.94 },
+  { type: 'confirm', regex: /^\s*\/\s*(?:로봇\s*)?확정(?:해)?\s*$/i, priority: 107, confidence: 0.94 },
   { type: 'pause_mobility', keywords: ['멈춰', '정지', 'stop'], priority: 100, confidence: 0.95 },
   { type: 'resume_mobility', keywords: ['진행해', '재개', 'go'], priority: 99, confidence: 0.95 },
   { type: 'add_book', regex: /책\s*(추가|담아|넣어)/, priority: 88, confidence: 0.9 },

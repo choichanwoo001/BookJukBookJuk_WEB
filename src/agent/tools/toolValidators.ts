@@ -10,6 +10,7 @@ const shoppingListArgs = z
   .object({
     action: z.string().min(1),
     hint: z.string().optional(),
+    imageBase64: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     const action = val.action.trim().toLowerCase()
@@ -17,6 +18,14 @@ const shoppingListArgs = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'action은 add/remove만 지원합니다. (delete는 remove로 자동 처리됩니다.)',
+      })
+    }
+    const hasHint = Boolean(val.hint?.trim())
+    const hasImage = Boolean(val.imageBase64?.trim())
+    if (!hasHint && !hasImage) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'hint 또는 imageBase64 중 하나는 필요합니다.',
       })
     }
   })
@@ -30,7 +39,9 @@ const routeArgs = z.object({
 })
 
 const recommendationArgs = z.object({
-  mode: z.enum(['taste', 'location', 'rating']).optional(),
+  mode: z.enum(['taste', 'location', 'rating', 'book_alternative']).optional(),
+  seedBookId: z.string().optional(),
+  negativeReason: z.string().optional(),
 })
 
 const bookSearchArgs = z.object({

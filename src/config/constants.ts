@@ -3,9 +3,9 @@ import { FLOOR_HEIGHT_M } from '../data/floorPlan'
 
 // --- Camera ---
 export const THIRD_PERSON_DISTANCE_M = 4.2
-export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0
+export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0 * (1.55 / 1.65)
 export const THIRD_PERSON_LOOK_AHEAD_M = 1.2
-export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72
+export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72 * (1.55 / 1.65)
 export const THIRD_PERSON_MAX_CAMERA_Y_M = FLOOR_HEIGHT_M - 0.22
 export const THIRD_PERSON_LOCKED_PITCH = -0.5
 /** 이동 중 카메라 요(yaw)를 캐릭터 앞방향에 맞출 때 지수 보간 계수 (초당). */
@@ -13,8 +13,8 @@ export const THIRD_PERSON_FOLLOW_YAW_LAMBDA = 14
 /** 3인칭 WASD 중 A/D 시점 회전 속도 (라디안/초). */
 export const THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC = 1.35
 
-/** 1인칭 카메라 높이 (바닥 기준, m). */
-export const FIRST_PERSON_EYE_HEIGHT_M = 1.52
+/** 1인칭 카메라 높이 (바닥 기준, m). 키 1.55m 캐릭터의 눈높이. */
+export const FIRST_PERSON_EYE_HEIGHT_M = 1.55 * (1.55 / 1.65)
 /** 1인칭 기본 시선 (라디안, 약간 아래). */
 export const FIRST_PERSON_DEFAULT_PITCH = -0.06
 export const FIRST_PERSON_PITCH_MIN = -1.35
@@ -35,9 +35,10 @@ export const WALK_FOV_BUTTON_STEP = 2
 /** 3인칭 가림 반투명: 최종 불투명도 (낮을수록 더 투명). */
 export const THIRD_PERSON_OCCLUDER_OPACITY = 0.5
 /** 3인칭 가림 레이: 카메라 주변 오프셋(m). 얇은 벽·단일 레이 미스 보완. */
-export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.22
-/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지. */
-export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.42
+export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.30
+/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지.
+ * 값이 너무 크면 플레이어 옆 벽까지 레이가 도달해 오탐이 발생하므로 작게 유지. */
+export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.10
 /** 연속 이 프레임만 레이 미스일 때 페이드 해제 (히스테리시스). */
 export const THIRD_PERSON_OCCLUSION_RELEASE_DELAY_FRAMES = 5
 export const OVERVIEW_ZOOM_SENSITIVITY = 0.05
@@ -45,10 +46,18 @@ export const OVERVIEW_Y_MIN = 10
 export const OVERVIEW_Y_MAX = 120
 /** 오버뷰/미니맵 방향 정합용 Y축 오프셋(라디안). 오버뷰 카메라는 부모 회전 없이 위에서 내려다봄. */
 export const MAP_VIEW_YAW_OFFSET_RAD = 0
+/** 로봇 /verso/status heading → 웹 yaw 보정(라디안). 현장 테스트 후 조정. */
+export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
 
 // --- Player ---
-export const PLAYER_SCALE = 0.7
-export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.12
+/** 목표 플레이어 키 (m). */
+export const PLAYER_HEIGHT_M = 1.55
+/** 휴머노이드 모델 제작 기준 키 (m). */
+export const PLAYER_MODEL_HEIGHT_M = 1.65
+/** 모델(1.65m) → 목표 키(1.55m) 스케일 비율. */
+export const PLAYER_SIZE_RATIO = PLAYER_HEIGHT_M / PLAYER_MODEL_HEIGHT_M
+export const PLAYER_SCALE = PLAYER_SIZE_RATIO
+export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.0
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
 
 /** Min/max for editable fixture width & depth (m) in edit mode. */
@@ -81,12 +90,10 @@ export const NAV_LINE_OPACITY_DIM = 0.22
 export const NAV_LINE_OPACITY_BRIGHT = 0.95
 /** 멀리 있을 때 밝은 선 투명도(하이라이트 거리 보간 끝단). */
 export const NAV_LINE_OPACITY_HIGHLIGHT_FAR = 0.78
-export const NAV_LINE_COLOR_DIM = '#6ab4ff'
-export const NAV_LINE_COLOR_BRIGHT = '#4de8ff'
+export const NAV_LINE_COLOR_DIM = '#a07840'
+export const NAV_LINE_COLOR_BRIGHT = '#e6be5a'
 /** 멀리 있을 때 밝은 선이 보간되는 색. */
-export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#8af0ff'
-export const NAV_ARRIVAL_RING_INNER = 0.5
-export const NAV_ARRIVAL_RING_OUTER = 0.72
+export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#ffd18a'
 export const NAV_ROUTE_Y = 0.04
 
 // --- Overview Pan ---
@@ -133,7 +140,7 @@ export const bookshelfOverlayLayerMaterial = new MeshStandardMaterial({
   color: '#B8956A',
   roughness: 0.72,
   metalness: 0.04,
-  emissive: '#1a3a52',
+  emissive: '#3d2a14',
   emissiveIntensity: 0.22,
   side: 2,
 })
@@ -143,7 +150,7 @@ export const bookshelfOverlayInteriorWoodMaterial = new MeshStandardMaterial({
   color: '#8B6F4A',
   roughness: 0.78,
   metalness: 0.03,
-  emissive: '#152838',
+  emissive: '#2a1e10',
   emissiveIntensity: 0.12,
   side: 2,
 })
@@ -160,7 +167,7 @@ export const counterOverlayPedestalMaterial = new MeshStandardMaterial({
   color: '#E8E4DC',
   roughness: 0.54,
   metalness: 0.08,
-  emissive: '#1a2838',
+  emissive: '#2a2218',
   emissiveIntensity: 0.06,
   side: 2,
 })
@@ -233,9 +240,19 @@ export const pillarMaterial = new MeshStandardMaterial({ color: '#D9D0C3', rough
 export const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
 export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roughness: 0.88, metalness: 0.0, side: 2 })
 export const playerMaterial = new MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.85, metalness: 0.0 })
-/** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분). */
-export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#ffffff', roughness: 0.88, metalness: 0.0 })
-export const markerMaterial = new MeshStandardMaterial({ color: '#58D68D', emissive: '#1f6f4a', emissiveIntensity: 0.35 })
-export const areaMaterial = new MeshStandardMaterial({ color: '#58D68D', transparent: true, opacity: 0.28 })
-export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#4FC3F7', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
-export const selectedWireMaterial = new MeshStandardMaterial({ color: '#4FC3F7', wireframe: true, transparent: true, opacity: 0.7, side: 2 })
+/** 휴머노이드 피부 (머리·목·손). */
+export const playerSkinMaterial = new MeshStandardMaterial({ color: '#E8B894', roughness: 0.72, metalness: 0.0 })
+/** 휴머노이드 머리카락. */
+export const playerHairMaterial = new MeshStandardMaterial({ color: '#3B2A1E', roughness: 0.85, metalness: 0.0 })
+/** 휴머노이드 상의 (서점 분위기에 맞는 차분한 청록). */
+export const playerShirtMaterial = new MeshStandardMaterial({ color: '#3E6B6B', roughness: 0.82, metalness: 0.0 })
+/** 휴머노이드 하의. */
+export const playerPantsMaterial = new MeshStandardMaterial({ color: '#3A3D45', roughness: 0.85, metalness: 0.0 })
+/** 휴머노이드 신발. */
+export const playerShoesMaterial = new MeshStandardMaterial({ color: '#1E1E1E', roughness: 0.6, metalness: 0.05 })
+/** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분, 피부 위에서 보이도록 어두운 색). */
+export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#2A2024', roughness: 0.6, metalness: 0.0 })
+export const markerMaterial = new MeshStandardMaterial({ color: '#c9a56a', emissive: '#5c4020', emissiveIntensity: 0.35 })
+export const areaMaterial = new MeshStandardMaterial({ color: '#c9a56a', transparent: true, opacity: 0.28 })
+export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#e6be5a', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
+export const selectedWireMaterial = new MeshStandardMaterial({ color: '#e6be5a', wireframe: true, transparent: true, opacity: 0.7, side: 2 })

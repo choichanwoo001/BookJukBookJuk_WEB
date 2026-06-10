@@ -3,7 +3,7 @@ import type { DbResult } from './result'
 import { mapPostgrestError, notConfigured, queryFailed } from './result'
 
 export type ShelfType = '평가한' | '읽은' | '읽는중' | '쇼핑리스트'
-export type BookUserState = 'LIST' | 'READING' | 'RATED_ONLY' | 'REVIEW_POSTED'
+export type BookUserState = 'LIST' | 'READING' | 'RATED_ONLY' | 'REVIEW_POSTED' | 'PURCHASED'
 
 export type ShelfBookItem = {
   booksId: string

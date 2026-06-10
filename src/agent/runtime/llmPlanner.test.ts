@@ -5,8 +5,15 @@ import type { AgentContext } from '../types'
 const baseContext: AgentContext = {
   state: 'MODE_SELECT',
   mobilityPaused: false,
-  listType: '쇼핑리스트',
+  listType: '위시리스트',
   shoppingList: [],
+  cartItems: [],
+  pendingDwellBook: null,
+  awaitingDwellFeedback: false,
+  checkoutStatus: 'idle',
+  receipt: null,
+  recentlyRecommendedBookIds: [],
+  recommendationDiversityRound: 0,
   pendingConfirmation: null,
   lastToolResult: null,
 }
@@ -76,4 +83,3 @@ describe('planWithLlm', () => {
     expect(result).toBeNull()
   })
 })
-

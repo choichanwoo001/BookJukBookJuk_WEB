@@ -17,6 +17,7 @@ import {
   SPAWN_SEARCH_STEP,
 } from '../config/constants'
 import { pointInAnyRect } from '../utils/rectUtils'
+import { overviewYawInput } from '../utils/overviewDisplayFlip'
 
 type KeyState = {
   keyW: boolean
@@ -71,6 +72,7 @@ export function useWorldMovement(
   characterYawRef?: RefObject<number>,
   movingRef?: RefObject<boolean>,
   keyboardEnabled = true,
+  playerPositionRef?: RefObject<[number, number]>,
 ) {
   const keyStateRef = useRef<KeyState>({
     keyW: false,
@@ -78,7 +80,8 @@ export function useWorldMovement(
     keyS: false,
     keyD: false,
   })
-  const playerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
+  const internalPlayerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
+  const activePlayerPositionRef = playerPositionRef ?? internalPlayerPositionRef
 
   useEffect(() => {
     const resetKeyState = () => {
@@ -136,18 +139,18 @@ export function useWorldMovement(
     const key = keyStateRef.current
     if (yawRef) {
       const turn = (key.keyD ? 1 : 0) + (key.keyA ? -1 : 0)
-      yawRef.current -= turn * THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC * delta
+      yawRef.current -= overviewYawInput(turn) * THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC * delta
     }
     const moveZ = (key.keyS ? 1 : 0) + (key.keyW ? -1 : 0)
     const localDirection = normalizeVector(0, moveZ)
-    const yaw = yawRef?.current ?? 0
+    const yaw = (yawRef?.current ?? 0) + Math.PI
     const cosYaw = Math.cos(yaw)
     const sinYaw = Math.sin(yaw)
     const direction = new Vector2(
       localDirection.x * cosYaw + localDirection.y * sinYaw,
       -localDirection.x * sinYaw + localDirection.y * cosYaw,
     )
-    const current = playerPositionRef.current
+    const current = activePlayerPositionRef.current
     const step = WALK_SPEED_MPS * delta
 
     const xCandidate: [number, number] = [current[0] + direction.x * step, current[1]]
@@ -163,7 +166,7 @@ export function useWorldMovement(
     if (movingRef) movingRef.current = isMoving
 
     if (characterYawRef && yawRef) {
-      characterYawRef.current = yawRef.current
+      characterYawRef.current = yawRef.current + Math.PI
     }
   })
 }

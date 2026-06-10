@@ -1,4 +1,4 @@
-import type { AgentContext, ToolCall } from '../../agent/types'
+import type { AgentContext, ShoppingListEntry, ToolCall, ToolResult } from '../../agent/types'
 import { formatAbCandidateAttachments } from './helpers'
 import type { Dispatch, SetStateAction } from 'react'
 
@@ -120,6 +120,67 @@ export function rankThemeCandidates(
   })
 }
 
+function normalizeTitleKey(title: string): string {
+  return title.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export function candidateInShoppingList(
+  candidate: RecommendationCandidate | undefined,
+  shoppingList: ShoppingListEntry[],
+): boolean {
+  if (!candidate?.title.trim()) return false
+  const key = normalizeTitleKey(candidate.title)
+  return shoppingList.some((entry) => {
+    const entryKey = normalizeTitleKey(entry.title)
+    return entryKey === key || entryKey.includes(key) || key.includes(entryKey)
+  })
+}
+
+function isAbRemoveIntent(intentText: string): boolean {
+  return /(빼|제거|삭제)/.test(intentText) || /담기\s*취소/.test(intentText)
+}
+
+function isAbAddIntent(intentText: string): boolean {
+  return intentText.includes('담') || intentText.includes('추가') || intentText.includes('둘 다')
+}
+
+function parseAbPick(intentText: string, mode: 'add' | 'remove'): ('a' | 'b')[] {
+  if (mode === 'add' && !isAbAddIntent(intentText)) return []
+  if (mode === 'remove' && !isAbRemoveIntent(intentText)) return []
+  if (intentText.includes('둘 다')) return ['a', 'b']
+  const lower = intentText.toLowerCase()
+  const picks: ('a' | 'b')[] = []
+  if (/\ba\b/.test(lower) || lower.includes(' a')) picks.push('a')
+  if (/\bb\b/.test(lower) || lower.includes(' b')) picks.push('b')
+  return picks
+}
+
+function titlesForAbPicks(
+  picks: ('a' | 'b')[],
+  candidates: RecommendationCandidate[],
+): string[] {
+  return picks
+    .map((pick) => (pick === 'a' ? candidates[0]?.title : candidates[1]?.title) ?? '')
+    .filter((title) => title.length > 0)
+}
+
+async function runShoppingListRemovals(
+  titles: string[],
+  runToolWithFallback: BuildFlowHandlerParams['runToolWithFallback'],
+): Promise<{ succeededTitles: string[]; failedTitles: string[] }> {
+  const succeededTitles: string[] = []
+  const failedTitles: string[] = []
+  for (const title of titles) {
+    const result = await runToolWithFallback(
+      { name: 'shoppingListTool', args: { action: 'remove', hint: `책 제거 ${title}` } },
+      'remove_book',
+    )
+    if (result.ok) succeededTitles.push(title)
+    else failedTitles.push(title)
+  }
+  return { succeededTitles, failedTitles }
+}
+
 type BuildFlowHandlerParams = {
   buildFlow: BuildFlowSession
   intentText: string
@@ -127,8 +188,12 @@ type BuildFlowHandlerParams = {
   setBuildFlow: Dispatch<SetStateAction<BuildFlowSession>>
   loadThemesForAnswers: (answers: string[]) => Promise<ThemeOption[]>
   loadCandidatesForTheme: (theme: ThemeOption, refreshCount: number) => Promise<RecommendationCandidate[]>
-  runToolWithFallback: (toolCall: ToolCall, intentTypeForOutcome: string, extraContextPatch?: Partial<AgentContext>) => Promise<unknown>
-  shoppingListCount: number
+  runToolWithFallback: (
+    toolCall: ToolCall,
+    intentTypeForOutcome: string,
+    extraContextPatch?: Partial<AgentContext>,
+  ) => Promise<ToolResult>
+  getShoppingListCount: () => number
 }
 
 type HandlerStateSetter = Dispatch<SetStateAction<BuildFlowSession>>
@@ -142,7 +207,7 @@ export async function handleBuildFlowInput(params: Omit<BuildFlowHandlerParams, 
     loadThemesForAnswers,
     loadCandidatesForTheme,
     runToolWithFallback,
-    shoppingListCount,
+    getShoppingListCount,
   } = params
 
   if (buildFlow.step === 'step1_question_1') {
@@ -212,9 +277,6 @@ export async function handleBuildFlowInput(params: Omit<BuildFlowHandlerParams, 
   }
 
   if (buildFlow.step === 'step3_ab_pick') {
-    const lower = intentText.toLowerCase()
-    const chooseA = lower.includes('a')
-    const chooseB = lower.includes('b')
     if (intentText.includes('다른') || intentText.includes('2권')) {
       if (buildFlow.candidateRefreshCount >= 2 || !buildFlow.selectedTheme) {
         await appendAssistantAndStore('다른 2권 보기는 여기까지 가능해요. 현재 후보에서 골라 주세요.')
@@ -234,28 +296,93 @@ export async function handleBuildFlowInput(params: Omit<BuildFlowHandlerParams, 
       await appendAssistantAndStore('다른 2권을 준비했어요.', formatAbCandidateAttachments(candidates))
       return true
     }
-    const toAddTitles: string[] = []
-    if (intentText.includes('둘 다')) {
-      toAddTitles.push(buildFlow.candidates[0]?.title ?? '', buildFlow.candidates[1]?.title ?? '')
-    } else if (chooseA) {
-      toAddTitles.push(buildFlow.candidates[0]?.title ?? '')
-    } else if (chooseB) {
-      toAddTitles.push(buildFlow.candidates[1]?.title ?? '')
+
+    const removePicks = parseAbPick(intentText, 'remove')
+    if (removePicks.length > 0) {
+      const targets = titlesForAbPicks(removePicks, buildFlow.candidates)
+      if (targets.length === 0) {
+        await appendAssistantAndStore('A 빼기 / B 빼기 / 둘 다 빼기 중에서 선택해 주세요.')
+        return true
+      }
+      const { succeededTitles, failedTitles } = await runShoppingListRemovals(targets, runToolWithFallback)
+      if (succeededTitles.length === 0) {
+        await appendAssistantAndStore('리스트에서 해당 책을 찾지 못했어요. A/B 중 다시 선택해 주세요.')
+        return true
+      }
+      if (failedTitles.length > 0) {
+        await appendAssistantAndStore(
+          `일부만 뺐어요. 성공: ${succeededTitles.join(', ')} / 실패: ${failedTitles.join(', ')}.`,
+        )
+        return true
+      }
+      await appendAssistantAndStore(
+        `리스트에서 ${succeededTitles.join(', ')}을 뺐어요. 현재 ${getShoppingListCount()}권이에요.`,
+      )
+      return true
     }
-    const targets = toAddTitles.filter((title) => title.length > 0)
+
+    const addPicks = parseAbPick(intentText, 'add')
+    const targets = titlesForAbPicks(addPicks, buildFlow.candidates)
     if (targets.length === 0) {
       await appendAssistantAndStore('A 담기 / B 담기 / 둘 다 담기 중에서 선택해 주세요.')
       return true
     }
+    const succeededTitles: string[] = []
+    const failedTitles: string[] = []
     for (const title of targets) {
-      await runToolWithFallback({ name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${title}` } }, 'add_book')
+      const result = await runToolWithFallback(
+        { name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${title}` } },
+        'add_book',
+      )
+      if (result.ok) succeededTitles.push(title)
+      else failedTitles.push(title)
+    }
+    if (succeededTitles.length === 0) {
+      await appendAssistantAndStore('선택한 책을 리스트에 담지 못했어요. A/B 중 다시 선택하거나 다른 2권 보기를 시도해 주세요.')
+      return true
+    }
+    if (failedTitles.length > 0) {
+      await appendAssistantAndStore(
+        `일부만 담겼어요. 성공: ${succeededTitles.join(', ')} / 실패: ${failedTitles.join(
+          ', ',
+        )}. 실패한 책은 다시 시도하거나 다른 2권 보기로 바꿔볼 수 있어요.`,
+      )
+      return true
     }
     setBuildFlow((prev) => ({ ...prev, step: 'step4_review_confirm' }))
-    await appendAssistantAndStore(`현재 리스트는 ${shoppingListCount}권이에요. 이 리스트로 확정할까요?`)
+    await appendAssistantAndStore(`현재 리스트는 ${getShoppingListCount()}권이에요. 이 리스트로 확정할까요?`)
     return true
   }
 
   if (buildFlow.step === 'step4_review_confirm') {
+    const removePicks = parseAbPick(intentText, 'remove')
+    if (removePicks.length > 0) {
+      const targets = titlesForAbPicks(removePicks, buildFlow.candidates)
+      if (targets.length === 0) {
+        await appendAssistantAndStore('뺄 책을 A/B로 지정해 주세요. 예: "A 빼기".')
+        return true
+      }
+      const { succeededTitles, failedTitles } = await runShoppingListRemovals(targets, runToolWithFallback)
+      if (succeededTitles.length === 0) {
+        await appendAssistantAndStore('리스트에서 해당 책을 찾지 못했어요.')
+        return true
+      }
+      if (failedTitles.length > 0) {
+        await appendAssistantAndStore(
+          `일부만 뺐어요. 성공: ${succeededTitles.join(', ')} / 실패: ${failedTitles.join(', ')}.`,
+        )
+        return true
+      }
+      const count = getShoppingListCount()
+      if (count === 0) {
+        setBuildFlow((prev) => ({ ...prev, step: 'step3_ab_pick' }))
+        await appendAssistantAndStore('리스트가 비었어요. 다시 A/B 중에서 골라 주세요.')
+        return true
+      }
+      await appendAssistantAndStore(`리스트에서 ${succeededTitles.join(', ')}을 뺐어요. 현재 ${count}권이에요. 이 리스트로 확정할까요?`)
+      return true
+    }
+
     if (intentText.includes('확정') || /^진행/.test(intentText)) {
       setBuildFlow((prev) => ({ ...prev, step: 'confirmed' }))
       await appendAssistantAndStore('리스트 확정을 완료했어요. 이 목록으로 다음 단계를 진행할 수 있어요.')

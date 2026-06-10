@@ -15,7 +15,8 @@ export type Point2 = [number, number]
 
 export const FLOOR_HEIGHT_M = 3
 export const WALL_THICKNESS_M = 0.16
-export const PLAYER_RADIUS_M = 0.24
+/** 1.65m 기준 반경 0.24m를 키 1.55m에 비례 축소. */
+export const PLAYER_RADIUS_M = 0.24 * (1.55 / 1.65)
 
 export type FixtureKind = 'bookshelf' | 'counter' | 'displayLow'
 

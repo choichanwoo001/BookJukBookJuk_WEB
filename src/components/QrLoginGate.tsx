@@ -40,7 +40,7 @@ export default function QrLoginGate({ onLoggedIn }: QrLoginGateProps) {
       const ticketRes = await createQrLoginTicket()
       if (disposed) return
       if (!ticketRes.ok) {
-        setErrorMessage('QR 로그인 티켓 생성에 실패했어요. Supabase 설정을 확인해 주세요.')
+        setErrorMessage('QR 로그인 세션을 만들지 못했어요. Supabase 설정을 확인해 주세요.')
         setLoading(false)
         return
       }
@@ -88,7 +88,7 @@ export default function QrLoginGate({ onLoggedIn }: QrLoginGateProps) {
     setLoading(true)
     const ticketRes = await createQrLoginTicket()
     if (!ticketRes.ok) {
-      setErrorMessage('새 QR 티켓 생성에 실패했어요.')
+      setErrorMessage('QR 세션을 다시 만들지 못했어요.')
       setLoading(false)
       return
     }
@@ -100,16 +100,17 @@ export default function QrLoginGate({ onLoggedIn }: QrLoginGateProps) {
 
   return (
     <section className="qrLoginGate">
-      <h1>QR로 웹 로그인</h1>
-      <p>모바일 앱에서 QR(토큰)을 스캔하면 이 웹 화면이 자동으로 로그인됩니다.</p>
+      <p className="onboardingEyebrow">Returning reader</p>
+      <h1>QR로 다시 로그인</h1>
+      <p>모바일 앱에서 QR 토큰을 승인하면 이전 독서 기록을 불러와요.</p>
 
       {loading ? (
-        <p className="qrLoginHint">로그인 티켓 생성 중…</p>
+        <p className="qrLoginHint">로그인 세션을 만드는 중이에요.</p>
       ) : (
         <>
           <div className="qrLoginTokenBox">
-            <p className="qrLoginLabel">앱 QR 내용(딥링크)</p>
-            <code>{deepLink || '티켓 없음'}</code>
+            <p className="qrLoginLabel">QR 토큰 내용</p>
+            <code className="breakAnywhere">{deepLink || '세션 없음'}</code>
             {ticketExpiresAt && <p className="qrLoginHint">만료까지 {formatRemainMs(ticketExpiresAt)}</p>}
           </div>
 

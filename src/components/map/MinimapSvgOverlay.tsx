@@ -33,8 +33,9 @@ export function MinimapSvgOverlay({
   const hasNav = (navDimPath && navDimPath.length >= 2) || (navHighlightPath && navHighlightPath.length >= 2)
   if (!hasViewport && !playerPos && !hasNav) return null
 
+  // Three.js yaw=0은 -Z(미니맵 아래)를 향함. SVG 화살표 기본은 -v(미니맵 위=+Z)이므로 π 보정.
   const arrowAngleDeg = playerPos
-    ? (MAP_VIEW_YAW_OFFSET_RAD - playerPos.yaw) * (180 / Math.PI)
+    ? (MAP_VIEW_YAW_OFFSET_RAD + Math.PI - playerPos.yaw) * (180 / Math.PI)
     : 0
 
   return (

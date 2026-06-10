@@ -1,12 +1,10 @@
-import { Line } from '@react-three/drei'
+﻿import { Line } from '@react-three/drei'
 import { useMemo } from 'react'
-import { Color, DoubleSide } from 'three'
+import { Color } from 'three'
 import type { Point2 } from '../../data/floorPlan'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
 import {
   NAV_ARRIVAL_RADIUS_M,
-  NAV_ARRIVAL_RING_INNER,
-  NAV_ARRIVAL_RING_OUTER,
   NAV_HIGHLIGHT_DISTANCE_BLEND_FAR_M,
   NAV_LINE_COLOR_BRIGHT,
   NAV_LINE_COLOR_DIM,
@@ -42,7 +40,7 @@ function highlightColorOpacity(distanceM: number | null): { color: string; opaci
 }
 
 export function NavigationRouteMesh({ route }: { route: NavigationRouteVisual }) {
-  const { dimPath, highlightPath, highlightDistanceToGoalM, currentGoal } = route
+  const { dimPath, highlightPath, highlightDistanceToGoalM } = route
   const dimPts = toLinePoints(dimPath, NAV_ROUTE_Y)
   const hiPts = toLinePoints(highlightPath, NAV_ROUTE_Y + 0.002)
   const hiStyle = useMemo(
@@ -73,22 +71,6 @@ export function NavigationRouteMesh({ route }: { route: NavigationRouteVisual })
           depthWrite={false}
           renderOrder={2}
         />
-      )}
-      {currentGoal && (
-        <mesh
-          position={[currentGoal[0], NAV_ROUTE_Y + 0.001, currentGoal[1]]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          renderOrder={3}
-        >
-          <ringGeometry args={[NAV_ARRIVAL_RING_INNER, NAV_ARRIVAL_RING_OUTER, 48]} />
-          <meshBasicMaterial
-            color={hiStyle.color}
-            transparent
-            opacity={Math.min(0.92, hiStyle.opacity * 0.92)}
-            depthWrite={false}
-            side={DoubleSide}
-          />
-        </mesh>
       )}
     </group>
   )

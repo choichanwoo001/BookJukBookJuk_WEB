@@ -2,14 +2,19 @@
 """
 로컬 웹캠 손 제스처 실시간 테스트 (MediaPipe Tasks + rule-based).
 
-제스처:
-- stop: 손가락 전부 펼친 오픈 팜 → 정지
-- thumbs_up: 엄지만 펴고 나머지 접기
-- restart: 검지만 펴고 엄지·중·약·소는 접기 → 다시 시작·앞으로
-- thumbs_down, ok_sign (한 손)
+제스처 (이동체):
+- stop: 손가락 전부 펼친 오픈 팜 → 로봇 정지
+- follow_me: 주먹 → guidance (나 따라와)
+- lead_again: 검지+엄지 ㄴ자 → escort (다시 리드해)
+
+제스처 (책 리스트):
+- thumbs_up / thumbs_down → identify_book + ShoppingList
+
+기타:
+- ok_sign: 분류만 (동작 없음)
 
 동작:
-- 연속 같은 제스처가 CONFIRM_FRAMES 프레임이면 터미널에 [CONFIRMED] 출력
+- 연속 같은 제스처가 CONFIRM_FRAMES 프레임이면 [CONFIRMED] → 이동 제스처는 rosbridge 발행
 - 확정 후 COOLDOWN_FRAMES 동안 쿨다운
 
 종료: 화면 포커스 상태에서 q
@@ -32,10 +37,14 @@ from mediapipe.tasks.python import vision
 
 try:
     from .book_identifier import identify_book
+    from .gesture_classifiers import MOBILITY_GESTURES, classify_one_hand_gesture
     from .shopping_list import ShoppingList
+    from .verso_gesture_bridge import publish_verso_command
 except ImportError:
     from book_identifier import identify_book
+    from gesture_classifiers import MOBILITY_GESTURES, classify_one_hand_gesture
     from shopping_list import ShoppingList
+    from verso_gesture_bridge import publish_verso_command
 
 shopping_list = ShoppingList()
 is_identifying = False
@@ -44,9 +53,6 @@ is_identifying = False
 CAMERA_INDEX = 0
 CONFIRM_FRAMES = 15
 COOLDOWN_FRAMES = 45
-EXTEND_RATIO = 1.08
-THUMB_EXTEND_RATIO = 1.05
-OK_TOUCH_RATIO = 0.55
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 480
 
@@ -101,89 +107,6 @@ def draw_hand_label(frame: np.ndarray, lm: List[Any], text: str) -> None:
     cv2.putText(frame, text, (x + 8, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1, cv2.LINE_AA)
 
 
-def _dist(a: Any, b: Any) -> float:
-    return float(np.hypot(a.x - b.x, a.y - b.y))
-
-
-def finger_extended(lm: List[Any], tip_id: int, pip_id: int) -> bool:
-    w, tip, pip = lm[0], lm[tip_id], lm[pip_id]
-    return _dist(w, tip) > _dist(w, pip) * EXTEND_RATIO
-
-
-def thumb_extended(lm: List[Any]) -> bool:
-    w, tip, ip = lm[0], lm[4], lm[3]
-    return _dist(w, tip) > _dist(w, ip) * THUMB_EXTEND_RATIO
-
-
-def _all_fingers(lm: List[Any]) -> dict[str, bool]:
-    return {
-        "thumb": thumb_extended(lm),
-        "index": finger_extended(lm, 8, 6),
-        "middle": finger_extended(lm, 12, 10),
-        "ring": finger_extended(lm, 16, 14),
-        "pinky": finger_extended(lm, 20, 18),
-    }
-
-
-def _is_open_palm(lm: List[Any]) -> bool:
-    return all(_all_fingers(lm).values())
-
-
-def _is_ok_sign(lm: List[Any]) -> bool:
-    f = _all_fingers(lm)
-    touch = _dist(lm[4], lm[8]) < _dist(lm[5], lm[17]) * OK_TOUCH_RATIO
-    return touch and f["middle"] and f["ring"] and f["pinky"]
-
-
-def _is_thumb_pose_base(lm: List[Any]) -> bool:
-    f = _all_fingers(lm)
-    return (
-        f["thumb"]
-        and not f["index"]
-        and not f["middle"]
-        and not f["ring"]
-        and not f["pinky"]
-    )
-
-
-def _is_thumbs_up(lm: List[Any]) -> bool:
-    if not _is_thumb_pose_base(lm):
-        return False
-    return lm[4].y < lm[3].y and lm[4].y < lm[0].y
-
-
-def _is_index_only_restart(lm: List[Any]) -> bool:
-    """검지만 펼침(엄지·나머지 손가락 접음) — restart."""
-    f = _all_fingers(lm)
-    return (
-        f["index"]
-        and not f["middle"]
-        and not f["ring"]
-        and not f["pinky"]
-        and not f["thumb"]
-    )
-
-
-def _is_thumbs_down(lm: List[Any]) -> bool:
-    if not _is_thumb_pose_base(lm):
-        return False
-    return lm[4].y > lm[3].y and lm[4].y > lm[0].y
-
-
-def classify_one_hand_gesture(lm: List[Any]) -> Optional[str]:
-    if _is_open_palm(lm):
-        return "stop"
-    if _is_thumbs_up(lm):
-        return "thumbs_up"
-    if _is_thumbs_down(lm):
-        return "thumbs_down"
-    if _is_ok_sign(lm):
-        return "ok_sign"
-    if _is_index_only_restart(lm):
-        return "restart"
-    return None
-
-
 def main() -> None:
     global is_identifying
 
@@ -211,10 +134,10 @@ def main() -> None:
     fps_times: deque[float] = deque(maxlen=30)
     win = "gesture_test (q: quit)"
     print(
-        "웹캠 시작. 제스처: stop(손 전부 펴기) | thumbs_up(엄지만) | "
-        "restart(검지만) | thumbs_down | ok_sign"
+        "웹캠 시작. 이동: stop(손 전부) | follow_me(주먹) | lead_again(검지+엄지 ㄴ) | "
+        "책: thumbs_up / thumbs_down | ok_sign(분류만)"
     )
-    print(f"확정: 연속 {CONFIRM_FRAMES}프레임 동일 → [CONFIRMED] ... / 쿨다운 {COOLDOWN_FRAMES}프레임")
+    print(f"확정: 연속 {CONFIRM_FRAMES}프레임 동일 → [CONFIRMED] / 이동 제스처 → [VERSO] / 쿨다운 {COOLDOWN_FRAMES}프레임")
 
     while True:
         ok, frame = cap.read()
@@ -270,6 +193,12 @@ def main() -> None:
                     cooldown = COOLDOWN_FRAMES
                     streak = 0
                     streak_label = None
+
+                    mobility_payload = MOBILITY_GESTURES.get(confirmed)
+                    if mobility_payload is not None:
+                        sent = publish_verso_command(mobility_payload)
+                        if sent:
+                            print(f"[VERSO] sent {mobility_payload}", flush=True)
 
                     if confirmed == "thumbs_up" and not is_identifying:
                         is_identifying = True

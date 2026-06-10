@@ -1,8 +1,15 @@
 import { useCallback, useRef, useState } from 'react'
 import type { ToolResult } from '../../agent/types'
 
+export type ExistingListGateStatus =
+  | 'inactive'
+  | 'awaiting'
+  | 'confirmed'
+  | 'awaiting_nav'
+  | 'nav_started'
+
 export type ExistingListGate = {
-  status: 'inactive' | 'awaiting' | 'confirmed'
+  status: ExistingListGateStatus
   editCount: number
   hintShown: boolean
 }

@@ -41,6 +41,8 @@ export type TasteRecommendationData = {
   reasons: string[]
 }
 
+const BOOK_PREVIEW_SELECT = 'id,title,authors,cover_image_url,kdc_class_nm,sector'
+
 function mapBookRow(row: Record<string, unknown>): BookPreview {
   return {
     id: String(row.id ?? ''),
@@ -50,6 +52,10 @@ function mapBookRow(row: Record<string, unknown>): BookPreview {
     kdcClassName: String(row.kdc_class_nm ?? ''),
     sector: Number(row.sector ?? 0),
   }
+}
+
+function mapBookRows(rows: unknown[] | null | undefined): BookPreview[] {
+  return (rows ?? []).map((row) => mapBookRow(row as Record<string, unknown>))
 }
 
 function normalizedText(input: string): string {
@@ -132,20 +138,138 @@ function genreBoost(kdcClassName: string, topGenres: string[], profileStatus: Ta
   return profileStatus === 'weak' ? 0.2 : 0.1
 }
 
-export async function fetchLocationRecommendations(limit = 3): Promise<DbResult<BookPreview[]>> {
-  const supabase = getSupabaseClient()
-  if (!supabase) return notConfigured()
-  const { data, error } = await supabase
-    .from('books')
-    .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
-    .order('sector', { ascending: true })
-    .limit(limit)
-  if (error) return mapPostgrestError(error)
-  if (!data) return { ok: true, data: [] }
-  return { ok: true, data: data.map((row) => mapBookRow(row as Record<string, unknown>)) }
+function excludeBookIdSet(excludeBookIds?: readonly string[]): Set<string> {
+  const set = new Set<string>()
+  if (!excludeBookIds) return set
+  for (const id of excludeBookIds) {
+    const t = typeof id === 'string' ? id.trim() : ''
+    if (t.length > 0) set.add(t)
+  }
+  return set
 }
 
-export async function fetchRatingRecommendations(limit = 3): Promise<DbResult<BookPreview[]>> {
+/** 상위 정렬 목록에서 연속 호출마다 다른 limit개를 고르기 위한 슬라이딩 창. */
+export type TasteRecommendationDiversity = {
+  windowSize: number
+  round: number
+}
+
+function bookSignatureKey(book: BookPreview): string {
+  return `${normalizedText(book.title)}|${normalizedText(book.authors)}`
+}
+
+/**
+ * ranked는 score 내림차순. 같은 books.id는 최고 점수 행만 유지하고,
+ * 동일 제목·저자(정규화)인 다른 id 행은 첫 행만 유지한다.
+ */
+export function dedupeRankedBookEntries(
+  ranked: { book: BookPreview; score: number }[],
+): { book: BookPreview; score: number }[] {
+  const seenIds = new Set<string>()
+  const afterId: { book: BookPreview; score: number }[] = []
+  for (const entry of ranked) {
+    const id = entry.book.id.trim()
+    if (!id || seenIds.has(id)) continue
+    seenIds.add(id)
+    afterId.push(entry)
+  }
+  const seenSig = new Set<string>()
+  const out: { book: BookPreview; score: number }[] = []
+  for (const entry of afterId) {
+    const sig = bookSignatureKey(entry.book)
+    if (seenSig.has(sig)) continue
+    seenSig.add(sig)
+    out.push(entry)
+  }
+  return out
+}
+
+/** 순서를 유지한 채 id → 제목·저자 중복을 제거한다. */
+export function dedupeBookPreviewList(books: BookPreview[]): BookPreview[] {
+  const seenIds = new Set<string>()
+  const afterId: BookPreview[] = []
+  for (const book of books) {
+    const id = book.id.trim()
+    if (!id || seenIds.has(id)) continue
+    seenIds.add(id)
+    afterId.push(book)
+  }
+  const seenSig = new Set<string>()
+  const out: BookPreview[] = []
+  for (const book of afterId) {
+    const sig = bookSignatureKey(book)
+    if (seenSig.has(sig)) continue
+    seenSig.add(sig)
+    out.push(book)
+  }
+  return out
+}
+
+function pickUniqueBookPreviews(
+  books: BookPreview[],
+  limit: number,
+  exclude: Set<string>,
+): BookPreview[] {
+  const picked: BookPreview[] = []
+  const seenIds = new Set<string>()
+  const seenSig = new Set<string>()
+  for (const book of books) {
+    if (exclude.has(book.id)) continue
+    const id = book.id.trim()
+    if (!id || seenIds.has(id)) continue
+    const sig = bookSignatureKey(book)
+    if (seenSig.has(sig)) continue
+    seenIds.add(id)
+    seenSig.add(sig)
+    picked.push(book)
+    if (picked.length >= limit) break
+  }
+  return picked
+}
+
+export function pickDiverseSliceFromRanked(
+  filteredRanked: { book: BookPreview; score: number }[],
+  limit: number,
+  diversity?: TasteRecommendationDiversity,
+): BookPreview[] {
+  if (filteredRanked.length === 0) return []
+  if (!diversity || filteredRanked.length <= limit) {
+    return filteredRanked.slice(0, limit).map((e) => e.book)
+  }
+  const M = Math.max(limit, Math.min(diversity.windowSize, filteredRanked.length))
+  const window = filteredRanked.slice(0, M)
+  if (window.length <= limit) {
+    return window.map((e) => e.book)
+  }
+  const maxStart = window.length - limit
+  const start = diversity.round % (maxStart + 1)
+  return window.slice(start, start + limit).map((e) => e.book)
+}
+
+export async function fetchLocationRecommendations(
+  limit = 3,
+  excludeBookIds?: readonly string[],
+): Promise<DbResult<BookPreview[]>> {
+  const supabase = getSupabaseClient()
+  if (!supabase) return notConfigured()
+  const exclude = excludeBookIdSet(excludeBookIds)
+  const fetchCap = Math.max(limit * 10, 30)
+  const { data, error } = await supabase
+    .from('books')
+    .select(BOOK_PREVIEW_SELECT)
+    .order('sector', { ascending: true })
+    .limit(fetchCap)
+  if (error) return mapPostgrestError(error)
+  if (!data) return { ok: true, data: [] }
+  const rows = mapBookRows(data)
+  const picked = pickUniqueBookPreviews(rows, limit, exclude)
+  return { ok: true, data: picked }
+}
+
+export async function fetchRatingRecommendations(
+  limit = 3,
+  excludeBookIds?: readonly string[],
+): Promise<DbResult<BookPreview[]>> {
   const supabase = getSupabaseClient()
   if (!supabase) return notConfigured()
 
@@ -157,23 +281,36 @@ export async function fetchRatingRecommendations(limit = 3): Promise<DbResult<Bo
   if (ratingsError) return mapPostgrestError(ratingsError)
   if (!ratingsData) return { ok: true, data: [] }
 
-  const uniqueBookIds = Array.from(
-    new Set(
-      ratingsData
-        .map((row) => String((row as { books_id?: string }).books_id ?? ''))
-        .filter((id) => id.length > 0),
-    ),
-  ).slice(0, limit * 2)
+  const orderedUniqueIds: string[] = []
+  const seen = new Set<string>()
+  for (const row of ratingsData) {
+    const id = String((row as { books_id?: string }).books_id ?? '')
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    orderedUniqueIds.push(id)
+    if (orderedUniqueIds.length >= 80) break
+  }
 
-  if (uniqueBookIds.length === 0) return { ok: true, data: [] }
+  if (orderedUniqueIds.length === 0) return { ok: true, data: [] }
+  const candidateIds = orderedUniqueIds.slice(0, 50)
   const { data: booksData, error: booksError } = await supabase
     .from('books')
-    .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
-    .in('id', uniqueBookIds)
-    .limit(limit)
+    .select(BOOK_PREVIEW_SELECT)
+    .in('id', candidateIds)
   if (booksError) return mapPostgrestError(booksError)
   if (!booksData) return { ok: true, data: [] }
-  return { ok: true, data: booksData.map((row) => mapBookRow(row as Record<string, unknown>)) }
+
+  const bookMap = new Map<string, BookPreview>()
+  for (const row of booksData) {
+    const book = mapBookRow(row as Record<string, unknown>)
+    bookMap.set(book.id, book)
+  }
+  const exclude = excludeBookIdSet(excludeBookIds)
+  const orderedBooks = candidateIds
+    .map((id) => bookMap.get(id))
+    .filter((book): book is BookPreview => book !== undefined)
+  const picked = pickUniqueBookPreviews(orderedBooks, limit, exclude)
+  return { ok: true, data: picked }
 }
 
 export async function fetchUserTasteProfile(usersId: string): Promise<DbResult<TasteProfileSnapshot | null>> {
@@ -214,15 +351,18 @@ export async function fetchTasteRecommendations(
   usersId: string,
   limit = 3,
   seedLimit = 20,
+  excludeBookIds?: readonly string[],
+  diversity?: TasteRecommendationDiversity,
 ): Promise<DbResult<TasteRecommendationData>> {
   const supabase = getSupabaseClient()
   if (!supabase) return notConfigured()
+  const exclude = excludeBookIdSet(excludeBookIds)
   const profileResult = await fetchUserTasteProfile(usersId)
   if (!profileResult.ok) return profileResult
 
   const profile = profileResult.data
   if (!profile) {
-    const fallback = await fetchRatingRecommendations(limit)
+    const fallback = await fetchRatingRecommendations(limit, excludeBookIds)
     if (!fallback.ok) return fallback
     return {
       ok: true,
@@ -246,7 +386,7 @@ export async function fetchTasteRecommendations(
   const seedBookIds = seedEntries.map((entry) => entry.key).filter((id) => id.length > 0)
 
   if (seedBookIds.length === 0) {
-    const fallback = await fetchRatingRecommendations(limit)
+    const fallback = await fetchRatingRecommendations(limit, excludeBookIds)
     if (!fallback.ok) return fallback
     return {
       ok: true,
@@ -265,11 +405,11 @@ export async function fetchTasteRecommendations(
 
   const { data: seedBooksData, error: seedBooksError } = await supabase
     .from('books')
-    .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
+    .select(BOOK_PREVIEW_SELECT)
     .in('id', seedBookIds)
     .limit(Math.max(limit * 3, 12))
   if (seedBooksError) return mapPostgrestError(seedBooksError)
-  const seedBooks = (seedBooksData ?? []).map((row) => mapBookRow(row as Record<string, unknown>))
+  const seedBooks = mapBookRows(seedBooksData)
 
   const maxSeedWeight = seedEntries[0]?.weight || 1
   const seedWeightMap = new Map(seedEntries.map((entry) => [entry.key, entry.weight / maxSeedWeight]))
@@ -305,9 +445,11 @@ export async function fetchTasteRecommendations(
     })
     .sort((lhs, rhs) => rhs.score - lhs.score)
 
-  const picked = ranked.slice(0, Math.max(1, Math.min(limit, 10))).map((entry) => entry.book)
+  const dedupedRanked = dedupeRankedBookEntries(ranked)
+  const filteredRanked = dedupedRanked.filter((entry) => !exclude.has(entry.book.id))
+  const picked = pickDiverseSliceFromRanked(filteredRanked, limit, diversity)
   if (picked.length === 0) {
-    const locationFallback = await fetchLocationRecommendations(limit)
+    const locationFallback = await fetchLocationRecommendations(limit, excludeBookIds)
     if (!locationFallback.ok) return locationFallback
     return {
       ok: true,
@@ -355,7 +497,7 @@ export async function findBookByIsbnOrTitle(input: {
   if (isbn) {
     const { data, error } = await supabase
       .from('books')
-      .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
+      .select(BOOK_PREVIEW_SELECT)
       .eq('id', isbn)
       .maybeSingle()
     if (error) return mapPostgrestError(error)
@@ -366,7 +508,7 @@ export async function findBookByIsbnOrTitle(input: {
   if (title) {
     const { data, error } = await supabase
       .from('books')
-      .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
+      .select(BOOK_PREVIEW_SELECT)
       .ilike('title', `%${title}%`)
       .limit(1)
     if (error) return mapPostgrestError(error)
@@ -394,14 +536,13 @@ export async function findBookCandidatesByTitle(
   const partialToken = query.slice(0, Math.min(query.length, 6))
   const { data, error } = await supabase
     .from('books')
-    .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
+    .select(BOOK_PREVIEW_SELECT)
     .or(`title.ilike.%${query}%,title.ilike.%${partialToken}%`)
     .limit(20)
   if (error) return mapPostgrestError(error)
   if (!data) return { ok: true, data: [] }
 
-  const ranked = data
-    .map((row) => mapBookRow(row as Record<string, unknown>))
+  const ranked = mapBookRows(data)
     .map((book) => {
       const normalizedTitle = normalizedText(book.title)
       const score = Math.min(1, diceCoefficient(normalizedQuery, normalizedTitle) + startsWithBonus(normalizedQuery, normalizedTitle))
@@ -423,10 +564,10 @@ export async function searchBooksByTitle(query: string, limit = 5): Promise<DbRe
 
   const { data, error } = await supabase
     .from('books')
-    .select('id,title,authors,cover_image_url,kdc_class_nm,sector')
+    .select(BOOK_PREVIEW_SELECT)
     .ilike('title', `%${normalized}%`)
     .limit(Math.max(1, Math.min(limit, 10)))
   if (error) return mapPostgrestError(error)
   if (!data) return { ok: true, data: [] }
-  return { ok: true, data: data.map((row) => mapBookRow(row as Record<string, unknown>)) }
+  return { ok: true, data: mapBookRows(data) }
 }

@@ -1,5 +1,13 @@
 # book_recognition — 웹캠 책 표지 인식 · 제스처 쇼핑 리스트
 
+**웹 앱 채팅**은 Supabase(매장 DB 카탈로그)를 우선 사용하고, 카탈로그에 없을 때 `POST /identify`(이미지·`hintText`)로 **book_recognition** API fallback을 호출합니다. 채팅 패널의 **책 표지 인식** UI에서 웹캠 캡처 → 담기/빼기도 같은 API를 사용합니다.
+
+---
+
+이전: 웹 프론트에서 identify를 호출하지 않았으나, 2026-06 연동으로 복원됨.
+
+---
+
 서점/매장 시나리오를 가정한 **로컬 데모 모듈**입니다. 웹캠으로 책 표지를 등록한 뒤, **ORB 특징 매칭**으로 현재 화면의 책을 식별하고, **MediaPipe 손 제스처**로 리스트에 넣거나 뺍니다. 메타데이터는 **알라딘 TTB(ItemSearch) API**로 보강합니다.
 
 ---
@@ -12,8 +20,9 @@
 
 [런타임] gesture_test.py
   웹캠 프레임
-    ├─ MediaPipe Hand Landmarker → 제스처 분류 (thumbs_up / thumbs_down 등)
-    └─ 제스처 확정 시 → book_identifier.identify_book(frame)
+    ├─ MediaPipe Hand Landmarker → 제스처 분류
+    ├─ 이동 제스처 확정 → verso_gesture_bridge → rosbridge /verso/command
+    └─ thumbs_up/down 확정 → book_identifier.identify_book(frame)
                           ├─ ORB + BFMatcher: refs/ 이미지들과 특징점 매칭
                           │   (최다 inlier 수, 거리·개수 임계값 통과 시 제목 확정)
                           └─ search_aladin(제목) → ISBN, 저자, 가격, 표지 URL 등
@@ -23,7 +32,20 @@
 - **ORB (Oriented FAST and Rotated BRIEF)**: 조명·약간의 시점 변화에 비교적 강한 **로컬 특징**으로 표지를 기술합니다. 딥러닝 추론 없이 CPU에서 동작해 **경량·오프라인 매칭**에 적합합니다.
 - **BFMatcher (Hamming, crossCheck)**: 이진 기술자 간 **완전 탐색 매칭**으로 참조와 쿼리를 정렬합니다.
 - **알라딘 API**: ORB가 맞춘 **파일 stem(등록 시 제목)**을 검색어로 써서 상용 도서 DB와 연결합니다.
-- **제스처**: 연속 N프레임 동일 분류 시 **확정**, 이후 쿨다운으로 오인식을 줄입니다.
+- **제스처**: 연속 N프레임 동일 분류 시 **확정**, 이후 쿨다운으로 오인식을 줄입니다. 이동 제스처는 rosbridge로 Verso 로봇에 명령을 보냅니다.
+
+### 제스처 ↔ 동작
+
+| 제스처 | 손 모양 | 동작 |
+|--------|---------|------|
+| `stop` | 손가락 전부 펼침 (오픈 팜) | `{"action":"stop"}` → 로봇 정지 |
+| `follow_me` | 주먹 | `{"action":"set_mode","mode":"guidance"}` → 나 따라와 (사람 추적) |
+| `lead_again` | 검지+엄지 ㄴ자 | `{"action":"set_mode","mode":"escort"}` → 다시 리드해 (웨이포인트 주행) |
+| `thumbs_up` | 엄지만 | 책 표지 인식 후 리스트 추가 |
+| `thumbs_down` | 엄지 아래 | 책 표지 인식 후 리스트 제거 |
+| `ok_sign` | OK 사인 | 분류만 (동작 없음) |
+
+> **`lead_again`(escort)** 는 웹에서 `/verso/waypoints`가 이미 전송된 상태에서만 로봇이 주행을 재개합니다. waypoints 없이 `set_mode: escort`만 보내면 로봇이 무시할 수 있습니다. 자세한 프로토콜은 [`Verso_mobility/docs/web-robot-integration.md`](../Verso_mobility/docs/web-robot-integration.md) 참고.
 
 ---
 
@@ -34,26 +56,41 @@
 | `register.py` | `refs/`에 표지 이미지 등록 (캡처 + 제목 입력) |
 | `book_identifier.py` | ORB 매칭, 알라딘 검색, `identify_book()` |
 | `shopping_list.py` | 인메모리 리스트 add/remove/출력 |
-| `gesture_test.py` | 웹캠 + 제스처 루프, thumbs_up/down 시 식별·리스트 반영 |
+| `gesture_classifiers.py` | 손 랜드마크 규칙 기반 제스처 분류 (테스트 가능, mediapipe 불필요) |
+| `gesture_test.py` | 웹캠 + 제스처 루프, 이동 제스처 → rosbridge, thumbs_up/down → 식별·리스트 |
+| `verso_gesture_bridge.py` | rosbridge WebSocket으로 `/verso/command` 1회 발행 |
 | `api_server.py` | **HTTP `POST /identify`** — 웹 프론트에서 호출(이미지 base64 또는 `hintText`로 `search_aladin`만 사용) |
 | `refs/` | 등록된 표지 이미지 (저장소에는 `.gitkeep`만 두고, 실제 jpg/png는 로컬 생성) |
 
 **환경 변수**
 
 - `ALADIN_TTB_KEY`: 알라딘 TTB 키. 미설정 시 코드 내 기본 키가 사용될 수 있으므로, **배포·공개 저장소에서는 반드시 자신의 키로 교체**하세요.
+- `VERSO_ROSBRIDGE_URL`: 제스처 → 로봇 명령용 rosbridge 주소. 기본 `ws://127.0.0.1:9090`. 로봇 IP에 맞게 설정 (예: `ws://192.168.0.10:9090`).
 
 **실행 예시** (이 폴더 또는 패키지 경로에 맞게)
 
 ```bash
+# 웹 (표지 인식 API는 dev 서버에 내장)
+npm run dev
+
+npm run refs:demo                     # 시나리오 refs 4권 파일 존재 확인
+
+# Python 전체 데모 (선택)
 pip install -r requirements.txt
-python register.py                    # 또는 python -m book_recognition.register
-python gesture_test.py                # 또는 python -m book_recognition.gesture_test
+python register.py                    # 웹캠 수동 등록
+python gesture_test.py                # 제스처 + ORB 데모
+
+# 로봇 연동 (rosbridge가 떠 있을 때)
+set VERSO_ROSBRIDGE_URL=ws://로봇IP:9090   # Windows
+# export VERSO_ROSBRIDGE_URL=ws://로봇IP:9090  # macOS/Linux
+python -m book_recognition.gesture_test
 ```
 
 **HTTP identify (웹 연동)** — 리포지토리 **루트**에서:
 
 ```bash
-uvicorn book_recognition.api_server:app --host 127.0.0.1 --port 8787
+npm run dev
+# (선택) 독립 API: npm run api:identify  또는 Python uvicorn …
 ```
 
 - `POST http://127.0.0.1:8787/identify`  

@@ -97,7 +97,7 @@ function parseAladinJs(text) {
   return JSON.parse(s.slice(start, end + 1))
 }
 
-async function searchAladin(query) {
+export async function searchAladin(query) {
   const key = process.env.ALADIN_TTB_KEY?.trim() || 'ttbaracho01102229001'
   const url = new URL('http://www.aladin.co.kr/ttb/api/ItemSearch.aspx')
   url.searchParams.set('TTBKey', key)
@@ -117,13 +117,14 @@ async function searchAladin(query) {
   const items = data?.item
   const it = Array.isArray(items) ? items[0] : items
   if (!it || typeof it !== 'object') {
-    return { title: query, author: '', isbn13: null, price: null }
+    return { title: query, author: '', isbn13: null, price: null, cover: '' }
   }
   return {
     title: String(it.title ?? query),
     author: String(it.author ?? ''),
     isbn13: it.isbn13 ?? it.isbn ?? null,
     price: it.priceSales ?? it.priceStandard ?? it.price ?? null,
+    cover: String(it.cover ?? ''),
   }
 }
 

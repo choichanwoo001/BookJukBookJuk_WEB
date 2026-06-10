@@ -18,6 +18,13 @@ type SimilarReadersGateProps = {
 type BookTab = 'liked' | 'read'
 
 function Avatar({ profile }: { profile: ReaderProfile }) {
+  if (profile.avatarUrl) {
+    return (
+      <div className={`readerAvatar readerAvatar-${profile.avatarTone}`} aria-hidden>
+        <img className="readerAvatarImage" src={profile.avatarUrl} alt="" loading="lazy" />
+      </div>
+    )
+  }
   return (
     <div className={`readerAvatar readerAvatar-${profile.avatarTone}`} aria-hidden>
       <span>{profile.name.slice(0, 1)}</span>

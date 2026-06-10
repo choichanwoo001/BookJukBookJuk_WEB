@@ -30,6 +30,7 @@ export type ReaderProfile = {
   id: string
   name: string
   avatarTone: string
+  avatarUrl?: string
   tagline: string
   similarity: number
   reasons: string[]

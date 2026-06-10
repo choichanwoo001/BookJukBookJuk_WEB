@@ -16,7 +16,8 @@
     "map:diff-overlay": "node scripts/diffMapOverlay.mjs --base ver0_1.png --target ver2_1.png --write-web",
     "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts",
     "db:migrate": "node scripts/runSupabaseMigration.mjs",
-    "refs:demo": "node scripts/registerDemoBookRefs.mjs"
+    "refs:demo": "node scripts/registerDemoBookRefs.mjs",
+    "covers:reader": "node scripts/fetchReaderProfileCovers.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.32",

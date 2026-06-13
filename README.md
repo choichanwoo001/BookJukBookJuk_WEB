@@ -1,134 +1,122 @@
-# 산책 Web
+# ?�책 Web
 
-SLAM 기반 실내 맵을 웹 3D 공간으로 변환해 시각화하고, 사용자가 WASD로 이동하며 매대/벽/기둥을 확인할 수 있는 프로젝트입니다.
-
----
-
-## 1) 지금까지 작업 요약
-
-### 초기 단계
-- Vite + React + TypeScript 기반 웹 프런트엔드 프로젝트로 시작.
-- React Three Fiber(`@react-three/fiber`, `three`, `@react-three/drei`)를 도입해 3D 렌더링 환경 구성.
-
-### 1차 맵 구축
-- SLAM 결과물을 바탕으로 1차 맵 데이터를 생성.
-- 생성된 좌표를 사용해 3D 공간에서 기본 벽/바닥 구조 렌더링.
-
-### 이동/카메라 개선
-- WASD 이동 로직(`useWorldMovement`) 구현.
-- 단순 이동에서 끝나지 않고, 충돌(벽/매대/기둥)과 바닥 판정까지 반영.
-- 전체 보기(overview) + 3인칭 시점(third person) 전환 기능 추가.
-
-### 맵 데이터 정제 자동화
-- `scripts/processMap.mjs`를 중심으로 맵 추출 파이프라인 구축.
-- 이미지/PGM + YAML 메타데이터로부터 `src/data/mapData.ts`를 자동 생성.
-- `src/data/floorPlan.ts`에서 실사용 보정값(예: 제거 존, 바닥 채움)을 적용.
-
-### 현재 진행 중
-- `ver0.jpg`, `ver1.jpg` 기반으로 맵 재추출/보정 반복.
-- 벽 폴리라인/홀 처리, 매대 방향(yaw) 추정, 기둥 추출 안정화 작업 진행.
-- 제스처 인식 실험 흔적(`gesture_buy` 관련)은 정리/재구성 중.
+SLAM 기반 ?�내 맵을 ??3D 공간?�로 변?�해 ?�각?�하�? ?�용?��? WASD�??�동?�며 매�?/�?기둥???�인?????�는 ?�로?�트?�니??
 
 ---
 
-## 2) 시행착오와 해결 내용
+## 1) 지금까지 ?�업 ?�약
 
-### 시행착오 A: 맵 데이터가 코드와 안 맞는 문제
-- **문제**: 맵 이미지가 바뀌었는데 런타임 코드만 수정하다 보니 좌표 불일치 발생.
-- **해결**: `PGM(or 이미지) + YAML -> processMap -> mapData` 파이프라인을 고정하고, 맵 변경 시 재생성 원칙으로 정리.
+### 초기 ?�계
+- Vite + React + TypeScript 기반 ???�런?�엔???�로?�트�??�작.
+- React Three Fiber(`@react-three/fiber`, `three`, `@react-three/drei`)�??�입??3D ?�더�??�경 구성.
 
-### 시행착오 B: YAML 설정값 미스매치
-- **문제**: `image`, `resolution`, `origin`이 현재 이미지와 맞지 않으면 전체 맵 오프셋/스케일이 틀어짐.
-- **해결**: 재생성 전에 YAML 핵심 키를 먼저 검증하는 절차를 작업 루틴으로 고정.
+### 1�?�?구축
+- SLAM 결과물을 바탕?�로 1�?�??�이?��? ?�성.
+- ?�성??좌표�??�용??3D 공간?�서 기본 �?바닥 구조 ?�더�?
 
-### 시행착오 C: 노이즈 제거 시 구조물 유실
-- **문제**: 작은 wall 클러스터 제거 과정에서 실제 기둥/구조물까지 사라지는 경우 발생.
-- **해결**: 클러스터 크기만 보지 않고, 종횡비/채움률/경계 접촉 여부를 같이 판단해 pillar-like 컴포넌트를 보존.
+### ?�동/카메??개선
+- WASD ?�동 로직(`useWorldMovement`) 구현.
+- ?�순 ?�동?�서 ?�나지 ?�고, 충돌(�?매�?/기둥)�?바닥 ?�정까�? 반영.
+- ?�체 보기(overview) + 3?�칭 ?�점(third person) ?�환 기능 추�?.
 
-### 시행착오 D: 실내 폐곡선/홀 처리 오류
-- **문제**: 내부 공간과 홀(구멍) 경계가 엉키면 바닥/벽 메시가 깨짐.
-- **해결**: 루프 추출 후 면적 기준 외곽 루프 선택, 홀 루프 분리, 단축 세그먼트 제거 및 축 정렬(snap) 단계 추가.
+### �??�이???�제 ?�동??
+- `scripts/processMap.mjs`�?중심?�로 �?추출 ?�이?�라??구축.
+- ?��?지/PGM + YAML 메�??�이?�로부??`src/data/mapData.ts`�??�동 ?�성.
+- `src/data/floorPlan.ts`?�서 ?�사??보정�??? ?�거 �? 바닥 채�?)???�용.
 
-### 시행착오 E: 이동 체감 불안정
-- **문제**: 카메라 방향 기준 이동/월드 좌표 이동이 어긋나면 조작감이 어색하고 벽 끼임이 발생.
-- **해결**: yaw 기반 이동 벡터 변환 + x/z 축 분리 충돌 판정(slide) + 스폰 포인트 탐색 로직으로 안정화.
+### ?�재 진행 �?
+- `ver0.jpg`, `ver1.jpg` 기반?�로 �??�추�?보정 반복.
+- �??�리?�인/?� 처리, 매�? 방향(yaw) 추정, 기둥 추출 ?�정???�업 진행.
+- ?�스�??�식 ?�험 ?�적(`gesture_buy` 관???� ?�리/?�구??�?
 
 ---
 
-## 3) 현재 아키텍처
+## 2) ?�행착오?� ?�결 ?�용
+
+### ?�행착오 A: �??�이?��? 코드?� ??맞는 문제
+- **문제**: �??��?지가 바뀌었?�데 ?��???코드�??�정?�다 보니 좌표 불일�?발생.
+- **?�결**: `PGM(or ?��?지) + YAML -> processMap -> mapData` ?�이?�라?�을 고정?�고, �?변�????�생???�칙?�로 ?�리.
+
+### ?�행착오 B: YAML ?�정�?미스매치
+- **문제**: `image`, `resolution`, `origin`???�재 ?��?지?� 맞�? ?�으�??�체 �??�프???��??�이 ?�?�짐.
+- **?�결**: ?�생???�에 YAML ?�심 ?��? 먼�? 검증하???�차�??�업 루틴?�로 고정.
+
+### ?�행착오 C: ?�이�??�거 ??구조�??�실
+- **문제**: ?��? wall ?�러?�터 ?�거 과정?�서 ?�제 기둥/구조물까지 ?�라지??경우 발생.
+- **?�결**: ?�러?�터 ?�기�?보�? ?�고, 종횡�?채�?�?경계 ?�촉 ?��?�?같이 ?�단??pillar-like 컴포?�트�?보존.
+
+### ?�행착오 D: ?�내 ?�곡???� 처리 ?�류
+- **문제**: ?��? 공간�??�(구멍) 경계가 ?�키�?바닥/�?메시가 깨짐.
+- **?�결**: 루프 추출 ??면적 기�? ?�곽 루프 ?�택, ?� 루프 분리, ?�축 ?�그먼트 ?�거 �?�??�렬(snap) ?�계 추�?.
+
+### ?�행착오 E: ?�동 체감 불안??
+- **문제**: 카메??방향 기�? ?�동/?�드 좌표 ?�동???�긋?�면 조작감이 ?�색?�고 �??�임??발생.
+- **?�결**: yaw 기반 ?�동 벡터 변??+ x/z �?분리 충돌 ?�정(slide) + ?�폰 ?�인???�색 로직?�로 ?�정??
+
+---
+
+## 3) ?�재 ?�키?�처
 
 ```text
-맵 이미지(PGM/JPG) + b2floor_edited.yaml
+�??��?지(PGM/JPG) + b2floor_edited.yaml
   -> scripts/processMap.mjs
-  -> src/data/mapData.ts (자동 생성)
-  -> src/data/floorPlan.ts (수동 보정/필터)
-  -> src/components/Map3DView.tsx (렌더링 + 인터랙션)
-  -> src/hooks/useWorldMovement.ts (이동 + 충돌)
+  -> src/data/mapData.ts (?�동 ?�성)
+  -> src/data/floorPlan.ts (?�동 보정/?�터)
+  -> src/components/Map3DView.tsx (?�더�?+ ?�터?�션)
+  -> src/hooks/useWorldMovement.ts (?�동 + 충돌)
 ```
 
-핵심 원칙:
-- `src/data/mapData.ts`는 생성 파일이므로 수동 대규모 편집 금지.
-- 맵이 바뀌면 코드보다 먼저 `YAML` 확인 후 스크립트 재실행.
+?�심 ?�칙:
+- `src/data/mapData.ts`???�성 ?�일?��?�??�동 ?�규모 ?�집 금�?.
+- 맵이 바뀌면 코드보다 먼�? `YAML` ?�인 ???�크립트 ?�실??
 
 ---
 
-## 4) 실행 방법
+## 4) ?�행 방법
 
 ```bash
 npm install
 npm run dev
 ```
 
-빌드/정적 점검:
+빌드/?�적 ?��?:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-Windows PowerShell에서는 `npm.ps1` 실행 정책 차단을 피하기 위해 `npm.cmd`를 사용합니다.
+Windows PowerShell?�서??`npm.ps1` ?�행 ?�책 차단???�하�??�해 `npm.cmd`�??�용?�니??
 
 ```powershell
 npm.cmd run lint
 npm.cmd run build
 ```
 
-Codex 작업 중 검증 루틴은 [docs/codex-verification.md](docs/codex-verification.md)를 따릅니다.
+Codex ?�업 �?검�?루틴?� [docs/codex-verification.md](docs/codex-verification.md)�??�릅?�다.
 
-맵 데이터 재생성:
+�??�이???�생??
 
 ```bash
 node scripts/processMap.mjs
 ```
 
-ver0/ver1 차이 검출 JSON(파이썬 출력) 반영:
+ver0/ver1 차이 검�?JSON(?�이??출력) 반영:
 
 ```bash
 npm run fixtures:convert -- --input detected_fixtures.json
 ```
 
-이미지 2장 차이 기반으로 책장 자동 검출(`detectedFixtures.ts` 생성):
+?��?지 2??차이 기반?�로 책장 ?�동 검�?`detectedFixtures.ts` ?�성):
 
 ```bash
 npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --output src/data/detectedFixtures.ts
 ```
 
-디버그 마스크까지 함께 저장:
-
-```bash
-npm run fixtures:delta -- --base ver0_1.png --target ver2_1.png --debug-dir scripts/samples
-```
-
-샘플 JSON 스모크 테스트:
-
-```bash
-npm run fixtures:convert -- --input scripts/samples/detected_fixtures.sample.json --dry-run
-```
-
 ---
 
-## 5) 향후 정리 예정 항목
+## 5) ?�후 ?�리 ?�정 ??��
 
-- 제스처 인식 모듈 재통합 여부 확정(프론트 단독/별도 서비스 분리).
-- 맵 보정값(`floorPlan.ts`)의 수동 개입 지점을 더 줄이기 위한 자동화.
-- 테스트/검증 루틴(맵 재생성 -> 렌더 확인 -> 이동 충돌 확인) 문서화.
+- ?�스�??�식 모듈 ?�통???��? ?�정(?�론???�독/별도 ?�비??분리).
+- �?보정�?`floorPlan.ts`)???�동 개입 지?�을 ??줄이�??�한 ?�동??
+- ?�스??검�?루틴(�??�생??-> ?�더 ?�인 -> ?�동 충돌 ?�인) 문서??

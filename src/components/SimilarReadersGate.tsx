@@ -7,11 +7,9 @@ import AppButton from './AppButton'
 
 type SimilarReadersGateProps = {
   tasteSeed: TasteSeed | null
-  usersId: string | null
   plannedBooks: ShoppingListEntry[]
   onAddBooks: (books: ShoppingListEntry[]) => void
   onRemoveBooks: (books: ShoppingListEntry[]) => void
-  onClearPlannedBooks: () => void
   onStart: () => void
 }
 
@@ -57,17 +55,14 @@ function uniqueReaderBooks(profile: ReaderProfile) {
 
 export default function SimilarReadersGate({
   tasteSeed,
-  usersId,
   plannedBooks,
   onAddBooks,
   onRemoveBooks,
-  onClearPlannedBooks,
   onStart,
 }: SimilarReadersGateProps) {
   const rankedProfiles = useMemo(() => rankReaderProfiles(tasteSeed ?? defaultTasteSeed), [tasteSeed])
   const [selectedId, setSelectedId] = useState(rankedProfiles[0]?.id ?? '')
   const [activeTab, setActiveTab] = useState<BookTab>('liked')
-  const [statusOpen, setStatusOpen] = useState(false)
   const canStartWithPlannedBooks = plannedBooks.length > 0
   const selectedProfile = rankedProfiles.find((profile) => profile.id === selectedId) ?? rankedProfiles[0]
   const activeBooks = activeTab === 'liked' ? selectedProfile.likedBooks : selectedProfile.readBooks
@@ -163,9 +158,6 @@ export default function SimilarReadersGate({
                     이 독자 {readerPlannedCount}권 담기 취소
                   </AppButton>
                 )}
-                <span>
-                  이 탭 {activePlannedCount}/{activeBooks.length}권 담김
-                </span>
               </div>
             </div>
           </div>
@@ -252,37 +244,6 @@ export default function SimilarReadersGate({
             <span className="similarReadersStartCount">{plannedBooks.length}권</span>
           )}
         </AppButton>
-      </div>
-
-      <div
-        className={`similarReadersStatusDock${statusOpen ? ' similarReadersStatusDock-open' : ''}`}
-        onMouseLeave={() => setStatusOpen(false)}
-      >
-        <AppButton
-          variant="ghost"
-          size="sm"
-          className="similarReadersStatusTrigger"
-          aria-expanded={statusOpen}
-          aria-controls="similar-readers-status-panel"
-          onClick={() => setStatusOpen((open) => !open)}
-        >
-          {plannedBooks.length}권 담김
-        </AppButton>
-        <div
-          id="similar-readers-status-panel"
-          className="similarReadersStatusPanel"
-          role="region"
-          aria-label="세션 정보"
-        >
-          <p>
-            {usersId ? `연결된 사용자 ${usersId}` : `${tasteSeed?.tone ?? defaultTasteSeed.tone} 취향 분석`}
-          </p>
-          {plannedBooks.length > 0 && (
-            <AppButton variant="danger" size="sm" className="readerPlanClearButton" onClick={onClearPlannedBooks}>
-              {plannedBooks.length}권 전체 비우기
-            </AppButton>
-          )}
-        </div>
       </div>
     </section>
   )

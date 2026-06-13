@@ -1,10 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import ChatPanel from './ChatPanel'
 import { useChatAgent } from '../hooks/useChatAgent'
+import { gestureToAgentInput } from '../lib/gestureAgentInput'
 import { GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import type { ShoppingListEntry } from '../agent/types'
 import type { TasteSeed } from '../types/onboarding'
 import { subscribeMapCommand } from '../agent/runtime/agentEventBus'
+import { DemoModeWarningBanner } from './DemoModeWarningBanner'
 
 const Map3DView = lazy(() => import('./Map3DView'))
 
@@ -30,11 +32,13 @@ export function AppMainShell({
 
   useEffect(() => {
     return subscribeMapCommand((command) => {
-      if (command.type === 'START_NAVIGATION') setActivePane('map')
+      if (command.type === 'PREVIEW_ROUTE' || command.type === 'START_NAVIGATION') {
+        setActivePane('map')
+      }
     })
   }, [])
 
-  const { appendRecognitionMessage } = agent
+  const { appendRecognitionMessage, submitAgentInput } = agent
 
   const handleVoiceRecognized = useCallback(
     (transcript: string) => {
@@ -53,18 +57,25 @@ export function AppMainShell({
             ? ' → 표지 인식 후 빼기'
             : ''
       appendRecognitionMessage('gesture', `✋ 제스처 확정: ${label}${actionHint}`)
+
+      const agentText = gestureToAgentInput(gestureId)
+      if (agentText) {
+        void submitAgentInput(agentText, 'gesture')
+      }
     },
-    [appendRecognitionMessage],
+    [appendRecognitionMessage, submitAgentInput],
   )
 
   return (
     <main className="appShell">
+      <DemoModeWarningBanner plannedBooks={plannedBooks} />
       <section className="mapPane" onPointerDown={() => setActivePane('map')}>
         <Suspense fallback={<div className="map3DLoading" role="status">지도 불러오는 중...</div>}>
           <Map3DView
             activePane={activePane}
             onActivateMap={() => setActivePane('map')}
             busy={agent.busy}
+            ttsSpeaking={agent.ttsSpeaking}
             onBookCapture={agent.applyBookRecognitionCapture}
             onBookBrowse={agent.applyBookBrowseCapture}
             onGestureConfirmed={handleGestureConfirmed}
@@ -91,6 +102,8 @@ export function AppMainShell({
           listLoadMessage={agent.listLoadMessage}
           actionCard={agent.actionCard}
           onVoiceRecognized={handleVoiceRecognized}
+          tts={agent.tts}
+          ttsSpeaking={agent.ttsSpeaking}
         />
       </aside>
     </main>

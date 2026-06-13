@@ -72,10 +72,6 @@ function App() {
     setPlannedBooks((prev) => prev.filter((book) => !removeIds.has(book.booksId)))
   }
 
-  const clearPlannedBooks = () => {
-    setPlannedBooks([])
-  }
-
   if (onboardingStep === 'visit_choice') {
     return (
       <VisitChoiceGate
@@ -140,11 +136,9 @@ function App() {
     return (
       <SimilarReadersGate
         tasteSeed={tasteSeed}
-        usersId={usersId}
         plannedBooks={plannedBooks}
         onAddBooks={addPlannedBooks}
         onRemoveBooks={removePlannedBooks}
-        onClearPlannedBooks={clearPlannedBooks}
         onStart={() => {
           if (isDemoMode()) {
             setOnboardingStep('session_start')

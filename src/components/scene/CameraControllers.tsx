@@ -165,10 +165,12 @@ export function ThirdPersonCameraRig({
   yawRef,
   pitchRef,
   enabled,
+  snapOnMount = false,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   enabled: boolean
+  snapOnMount?: boolean
 }) {
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
@@ -188,13 +190,14 @@ export function ThirdPersonCameraRig({
     const pitch = pitchRef.current
     const cosPitch = Math.cos(pitch)
 
-    desiredPosition.set(
-      -Math.sin(yaw) * cosPitch,
-      -Math.sin(pitch),
-      -Math.cos(yaw) * cosPitch,
-    ).multiplyScalar(THIRD_PERSON_DISTANCE_M)
+    desiredPosition
+      .set(-Math.sin(yaw) * cosPitch, -Math.sin(pitch), -Math.cos(yaw) * cosPitch)
+      .multiplyScalar(THIRD_PERSON_DISTANCE_M)
     desiredPosition.y += THIRD_PERSON_TARGET_HEIGHT_M
-    desiredPosition.y = Math.min(THIRD_PERSON_MAX_CAMERA_Y_M, Math.max(THIRD_PERSON_MIN_CAMERA_Y_M, desiredPosition.y))
+    desiredPosition.y = Math.min(
+      THIRD_PERSON_MAX_CAMERA_Y_M,
+      Math.max(THIRD_PERSON_MIN_CAMERA_Y_M, desiredPosition.y),
+    )
 
     lookTargetRef.current.set(
       Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
@@ -215,6 +218,11 @@ export function ThirdPersonCameraRig({
     camera.up.set(0, -1, 0)
     camera.lookAt(lookTargetRef.current)
   })
+
+  useLayoutEffect(() => {
+    if (!snapOnMount || !enabled) return
+    snapOnNextFrameRef.current = true
+  }, [enabled, snapOnMount])
 
   return null
 }

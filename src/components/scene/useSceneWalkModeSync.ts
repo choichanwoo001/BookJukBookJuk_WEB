@@ -1,4 +1,4 @@
-import { useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect } from 'react'
 import type { MutableRefObject } from 'react'
 import type { Group } from 'three'
 import {
@@ -6,6 +6,8 @@ import {
   MAP_VIEW_YAW_OFFSET_RAD,
   THIRD_PERSON_LOCKED_PITCH,
 } from '../../config/constants'
+import { ENTRANCE_SPAWN } from '../../data/floorPlan'
+import { subscribeMapCommand } from '../../agent/runtime/agentEventBus'
 import type { ViewMode } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
 
@@ -34,6 +36,18 @@ export function useSceneWalkModeSync({
   characterYawRef?: MutableRefObject<number>
   syncFromScenarioPreview?: boolean
 }) {
+  useEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type !== 'START_NAVIGATION') return
+      const wx = -ENTRANCE_SPAWN[0]
+      const wz = -ENTRANCE_SPAWN[1]
+      storedWorldPositionRef.current = [wx, wz]
+      if (playerWorldXzRef) {
+        playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+      }
+    })
+  }, [playerWorldXzRef, storedWorldPositionRef])
+
   useLayoutEffect(() => {
     let raf = 0
     let attempts = 0

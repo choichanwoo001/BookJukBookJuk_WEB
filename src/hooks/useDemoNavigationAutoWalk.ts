@@ -36,18 +36,35 @@ export function useDemoNavigationAutoWalk({
   const distanceRef = useRef(0)
   const masterPathRef = useRef<Point2[]>([])
   const totalLengthRef = useRef(0)
+  const pendingStartRef = useRef(false)
+
+  useEffect(() => {
+    if (!enabled) {
+      setActive(false)
+      return
+    }
+    if (pendingStartRef.current) {
+      pendingStartRef.current = false
+      setActive(true)
+    }
+  }, [enabled])
 
   useEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type === 'START_NAVIGATION' && isDemoMode()) {
         distanceRef.current = 0
-        setActive(true)
+        pendingStartRef.current = true
+        if (enabled) {
+          pendingStartRef.current = false
+          setActive(true)
+        }
       }
       if (command.type === 'PAUSE_MOBILITY') {
+        pendingStartRef.current = false
         setActive(false)
       }
     })
-  }, [])
+  }, [enabled])
 
   useEffect(() => {
     if (!highlightPath || highlightPath.length < 2) return
@@ -93,5 +110,5 @@ export function useDemoNavigationAutoWalk({
     }
   })
 
-  return active
+  return active && enabled
 }

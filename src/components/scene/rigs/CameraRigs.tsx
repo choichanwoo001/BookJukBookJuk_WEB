@@ -1,5 +1,7 @@
+import { useRef } from 'react'
 import type { RefObject } from 'react'
 import { Group } from 'three'
+import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import { PerspectiveCamera } from '@react-three/drei'
 import {
   FIRST_PERSON_EYE_HEIGHT_M,
@@ -22,6 +24,33 @@ import { MinimapViewportReporter } from '../MinimapViewportReporter'
 import type { MinimapUvPoint } from '../MinimapViewportReporter'
 import type { ViewMode } from '../../../types/scene'
 import { ForwardArrowUpdater } from '../reporters/SceneReporters'
+import { useAssertDefaultCamera } from '../../../hooks/useAssertDefaultCamera'
+
+function WalkModeCamera({
+  walkFov,
+  position,
+  rotation,
+  cameraKey,
+}: {
+  walkFov: number
+  position?: [number, number, number]
+  rotation?: [number, number, number]
+  cameraKey: string
+}) {
+  const cameraRef = useRef<ThreePerspectiveCamera | null>(null)
+  useAssertDefaultCamera(cameraRef, true)
+
+  return (
+    <PerspectiveCamera
+      ref={cameraRef}
+      key={cameraKey}
+      makeDefault
+      fov={walkFov}
+      {...(position ? { position } : {})}
+      {...(rotation ? { rotation } : {})}
+    />
+  )
+}
 
 type WalkRigProps = {
   mode: 'firstPerson' | 'thirdPerson'
@@ -60,12 +89,11 @@ export function WalkRig({
   if (mode === 'firstPerson') {
     return (
       <>
-        <PerspectiveCamera
-          key="first-person-camera"
-          makeDefault
+        <WalkModeCamera
+          cameraKey="first-person-camera"
+          walkFov={walkFov}
           position={[0, FIRST_PERSON_EYE_HEIGHT_M, 0]}
           rotation={[0, 0, 0]}
-          fov={walkFov}
         />
         <FirstPersonCameraRig
           yawRef={yawRef}
@@ -90,15 +118,12 @@ export function WalkRig({
 
   return (
     <>
-      <PerspectiveCamera
-        key="third-person-camera"
-        makeDefault
-        fov={walkFov}
-      />
+      <WalkModeCamera cameraKey="third-person-camera" walkFov={walkFov} />
       <ThirdPersonCameraRig
         yawRef={yawRef}
         pitchRef={pitchRef}
         enabled={controlsEnabled}
+        snapOnMount
       />
       <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
       <MouseLookController

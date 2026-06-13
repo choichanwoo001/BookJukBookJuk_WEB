@@ -220,27 +220,21 @@ function ChatPanel({
           />
         )}
 
-        {busy && (
-          <div className="chatBusyRow" aria-live="polite">
-            <span className="chatSpinner" aria-hidden />
-            처리 중
-          </div>
-        )}
-
         {actionCard && <ChatActionCard card={actionCard} disabled={busy} onSelect={(inputText) => void submitUserText(inputText)} />}
 
         <div ref={messageListRef} className="chatMessages">
           {messages.length === 0 ? (
             showNavStartGuide ? (
-              <section className="chatEmptyGuide" aria-label="경로 안내 시작">
-                <h2 className="chatEmptyGuideTitle">{CHAT_NAV_START_GUIDE.title}</h2>
-                <p className="chatEmptyGuideText">{buildNavStartPrompt(cartItems.length)}</p>
-                <div className="chatEmptyGuideActions" aria-label="안내 시작 예시">
+              <section className="chatNavStartPrompt" aria-label="경로 안내 시작">
+                <article className="chatBubble assistant breakAnywhere">
+                  <div>{buildNavStartPrompt(cartItems.length)}</div>
+                </article>
+                <div className="chatNavStartQuickReplies" aria-label="빠른 답변">
                   {CHAT_NAV_START_GUIDE.examples.map((example) => (
                     <button
                       key={example}
                       type="button"
-                      className="chatEmptyGuideButton"
+                      className="chatNavStartQuickReply"
                       onClick={() => void handleGuideExample(example)}
                       disabled={busy}
                     >
@@ -306,21 +300,29 @@ function ChatPanel({
         )}
 
         <div className="chatVoiceBar">
-          <button
-            type="button"
-            className="chatTtsToggle"
-            data-enabled={tts.enabled}
-            onClick={() => tts.setEnabled(!tts.enabled)}
-            aria-pressed={tts.enabled}
-            aria-label={tts.enabled ? '음성 응답 끄기' : '음성 응답 켜기'}
-          >
-            {tts.enabled ? '음성 켜짐' : '음성 꺼짐'}
-          </button>
-          {ttsSpeaking && (
-            <span className="chatTtsSpeaking" aria-live="polite">
-              읽는 중
-            </span>
+          {busy && (
+            <div className="chatBusyRow chatBusyRowVoice" aria-live="polite">
+              <span className="chatSpinner" aria-hidden />
+              처리 중
+            </div>
           )}
+          <div className="chatVoiceBarControls">
+            <button
+              type="button"
+              className="chatTtsToggle"
+              data-enabled={tts.enabled}
+              onClick={() => tts.setEnabled(!tts.enabled)}
+              aria-pressed={tts.enabled}
+              aria-label={tts.enabled ? '음성 응답 끄기' : '음성 응답 켜기'}
+            >
+              {tts.enabled ? '음성 켜짐' : '음성 꺼짐'}
+            </button>
+            {ttsSpeaking && (
+              <span className="chatTtsSpeaking" aria-live="polite">
+                읽는 중
+              </span>
+            )}
+          </div>
         </div>
 
         <form className="chatForm" onSubmit={handleSubmit}>

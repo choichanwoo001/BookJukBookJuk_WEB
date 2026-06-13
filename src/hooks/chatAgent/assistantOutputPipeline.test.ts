@@ -19,6 +19,7 @@ function publishReadyNavSync(overrides: Partial<Parameters<typeof publishNavigat
     isWalkMode: true,
     navigationSpawnReady: true,
     ttsSpeaking: false,
+    mobilityHold: false,
     ...overrides,
   })
 }
@@ -113,7 +114,7 @@ describe('createAssistantOutputPipeline', () => {
     })
 
     publishReadyNavSync({
-      mobilityPhase: 'intro',
+      mobilityPhase: 'calculating',
       isAutoWalking: false,
       activeLeg: 0,
     })
@@ -128,6 +129,35 @@ describe('createAssistantOutputPipeline', () => {
 
     await pending
     expect(appendAssistant).toHaveBeenCalledWith('이동 중 소개', undefined)
+    pipeline.dispose()
+  })
+
+  it('sets mobility hold around destination arrival narration', async () => {
+    const appendAssistant = vi.fn(async () => undefined)
+    const onMobilityHoldChange = vi.fn()
+    const pipeline = createAssistantOutputPipeline({
+      appendAssistant,
+      speakAndWait: vi.fn(async () => undefined),
+      isTtsEnabled: () => true,
+      onMobilityHoldChange,
+    })
+
+    const pending = pipeline.enqueue({
+      text: '서가에 도착했어요.',
+      gate: { kind: 'on_shelf_arrived', leg: 0 },
+    })
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 0,
+      poolIndex: 1,
+    })
+    publishReadyNavSync({ activeLeg: 0 })
+
+    await pending
+    expect(onMobilityHoldChange).toHaveBeenNthCalledWith(1, true)
+    expect(onMobilityHoldChange).toHaveBeenLastCalledWith(false)
     pipeline.dispose()
   })
 })

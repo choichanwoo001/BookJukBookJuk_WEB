@@ -18,7 +18,8 @@ import {
 import {
   AGENT_MAP_EVENT_VERSION,
   dispatchDwellEvent,
-  dispatchPreviewRoute,
+  dispatchSetDirectGoals,
+  dispatchPreviewNavPlan,
   dispatchStartNavigation,
   subscribeDwellEvent,
   subscribeMapCommand,
@@ -55,9 +56,10 @@ import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
 import { useDemoOrchestrator } from './useDemoOrchestrator'
-import { DEMO_SCENARIO_ROUTE_KEYS, demoPoolIndicesForKeys } from '../data/demoScenario'
+import { fixtureRobotDirectGoals } from '../data/fixtureRobotRoute'
 import { useToolRunner } from './chatAgent/useToolRunner'
 import { useChatAgentSession } from './chatAgent/useChatAgentSession'
+import { completeCheckoutPurchase } from '../agent/tools/checkoutCompletion'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -171,12 +173,13 @@ export function useChatAgent(options: {
   const dwellKeyRef = useRef<string | null>(null)
   const tts = useTts()
   const [pipelineTtsSpeaking, setPipelineTtsSpeaking] = useState(false)
+  const [mobilityHold, setMobilityHold] = useState(false)
   const pipelineRef = useRef<AssistantOutputPipeline | null>(null)
   const ttsSpeaking = tts.speaking || pipelineTtsSpeaking
   const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
   const shouldAutoLoadShelf = !hasInitialShoppingList
   const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
-  const navPromptShownRef = useRef(false)
+  const checkoutArrivalHandledRef = useRef(false)
   useLayoutEffect(() => {
     contextRef.current = context
   }, [context])
@@ -281,6 +284,7 @@ export function useChatAgent(options: {
         speakAndWait: tts.speakAndWait,
         isTtsEnabled: tts.isEnabled,
         onTtsSpeakingChange: setPipelineTtsSpeaking,
+        onMobilityHoldChange: setMobilityHold,
       }),
     [tts.isEnabled, tts.speakAndWait],
   )
@@ -313,6 +317,8 @@ export function useChatAgent(options: {
   useEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type !== 'START_NAVIGATION') return
+      checkoutArrivalHandledRef.current = false
+      setMobilityHold(false)
       tts.cancel()
       pipelineRef.current?.resetNavRun()
     })
@@ -320,27 +326,51 @@ export function useChatAgent(options: {
 
   useEffect(() => {
     if (!activeUsersId || !sessionReady || !hasInitialShoppingList) return
-    if (navPromptShownRef.current) return
     if (existingListGateRef.current.status !== 'inactive') return
 
-    navPromptShownRef.current = true
-    updateExistingListGate({ status: 'awaiting_nav' })
-
     const count = options.initialShoppingList?.length ?? 0
-    if (isDemoMode()) {
-      dispatchPreviewRoute(demoPoolIndicesForKeys(DEMO_SCENARIO_ROUTE_KEYS))
+    const navPrompt = buildNavStartPrompt(count)
+    if (messagesRef.current.some((message) => message.role === 'assistant' && message.text === navPrompt)) {
+      return
     }
 
-    void appendAssistantAndStore(buildNavStartPrompt(count))
+    updateExistingListGate({ status: 'awaiting_nav' })
+    dispatchPreviewNavPlan(fixtureRobotDirectGoals())
+    void appendAssistantDirectRef.current(navPrompt)
   }, [
     activeUsersId,
-    appendAssistantAndStore,
     existingListGateRef,
     hasInitialShoppingList,
     options.initialShoppingList,
     sessionReady,
     updateExistingListGate,
   ])
+
+  useEffect(() => {
+    return subscribeDwellEvent((event) => {
+      if (event.type !== 'CHECKOUT_ARRIVED') return
+      if (checkoutArrivalHandledRef.current) return
+      const cartItems =
+        contextRef.current.cartItems.length > 0
+          ? contextRef.current.cartItems
+          : contextRef.current.shoppingList
+      if (cartItems.length === 0) return
+
+      checkoutArrivalHandledRef.current = true
+      void (async () => {
+        const result = await completeCheckoutPurchase(toolExecutionContext)
+        if (result.ok) {
+          await enqueueAssistant({
+            text: result.message,
+            gate: { kind: 'on_checkout_arrived' },
+          })
+        } else {
+          await appendAssistantAndStore(result.message)
+          checkoutArrivalHandledRef.current = false
+        }
+      })()
+    })
+  }, [appendAssistantAndStore, enqueueAssistant, toolExecutionContext])
 
   const appendRecognitionMessage = useCallback((kind: RecognitionKind, text: string) => {
     const message: AgentMessage = {
@@ -354,7 +384,6 @@ export function useChatAgent(options: {
   }, [])
 
   const {
-    startShelfVisitFromList,
     handleBrowseCapture: handleDemoBrowseCapture,
     handleDwellFeedback: handleDemoDwellFeedback,
     handleAlternativeAccepted: handleDemoAlternativeAccepted,
@@ -366,6 +395,7 @@ export function useChatAgent(options: {
     enqueueAssistant,
     enqueueAssistantMany,
     setContext,
+    enabled: false,
   })
 
   /**
@@ -436,6 +466,7 @@ export function useChatAgent(options: {
             setMessages,
           })
           updateExistingListGate({ status: 'awaiting_nav' })
+          dispatchPreviewNavPlan(fixtureRobotDirectGoals())
           await appendAssistantAndStore(
             '리스트를 확정했어요. 안내를 시작할까요? "진행" 또는 "오케이"라고 답해 주세요.',
           )
@@ -463,10 +494,8 @@ export function useChatAgent(options: {
             setMessages,
           })
           updateExistingListGate({ status: 'nav_started' })
+          dispatchSetDirectGoals(fixtureRobotDirectGoals())
           dispatchStartNavigation()
-          if (isDemoMode()) {
-            startShelfVisitFromList(cartForNav)
-          }
           void enqueueAssistant({
             text: '안내를 시작할게요.',
             gate: { kind: 'after_nav_ready' },
@@ -739,7 +768,6 @@ export function useChatAgent(options: {
       handleDemoAlternativeAccepted,
       handleDemoDwellFeedback,
       confirmDemoNavToBook,
-      startShelfVisitFromList,
     ],
   )
 
@@ -846,5 +874,6 @@ export function useChatAgent(options: {
     actionCard,
     tts,
     ttsSpeaking,
+    mobilityHold,
   }
 }

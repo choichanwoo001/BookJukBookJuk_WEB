@@ -262,6 +262,47 @@
   height: 0;
 }
 
+.chatNavStartPrompt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.55rem;
+  width: 100%;
+  max-width: 90%;
+}
+
+.chatNavStartQuickReplies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  padding-left: 0.15rem;
+}
+
+.chatNavStartQuickReply {
+  border: 1px solid var(--bj-border-dark-strong);
+  border-radius: 999px;
+  background: var(--bj-accent-bg);
+  color: var(--bj-warm-cream);
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chatNavStartQuickReply:hover:not(:disabled),
+.chatNavStartQuickReply:focus-visible {
+  background: var(--bj-accent-bg-strong);
+  border-color: var(--bj-accent-strong);
+  color: var(--bj-text-on-dark);
+  outline: none;
+}
+
+.chatNavStartQuickReply:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .chatEmptyGuide {
   width: 100%;
   max-width: 460px;
@@ -565,13 +606,24 @@
 
 .chatVoiceBar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
   padding: 0.3rem 0.85rem;
   background: var(--bj-bg-panel);
   border-top: 1px solid var(--bj-border-dark);
   flex-shrink: 0;
+}
+
+.chatVoiceBarControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.chatBusyRowVoice {
+  padding: 0.15rem 0 0;
 }
 
 .chatTtsToggle {

@@ -30,9 +30,14 @@ export type AssistantOutputPipelineDeps = {
   speakAndWait: (text: string) => Promise<void>
   isTtsEnabled: () => boolean
   onTtsSpeakingChange?: (speaking: boolean) => void
+  onMobilityHoldChange?: (held: boolean) => void
 }
 
 type PendingArrival = { kind: 'shelf'; leg: number } | { kind: 'checkout' }
+
+function isDestinationArrivalGate(gate: OutputGate): boolean {
+  return gate.kind === 'on_shelf_arrived' || gate.kind === 'on_checkout_arrived'
+}
 
 function gateMatches(
   gate: OutputGate,
@@ -111,6 +116,9 @@ export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps)
 
     processing = true
     const item = queue.shift()!
+    if (isDestinationArrivalGate(item.gate)) {
+      deps.onMobilityHoldChange?.(true)
+    }
   consumeArrivalGate(item.gate, pendingArrivals)
     if (item.gate.kind === 'on_walk_started') {
       enRouteLegs.delete(item.gate.leg)
@@ -135,6 +143,9 @@ export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps)
         }
       } finally {
         if (speechHoldActive) deps.onTtsSpeakingChange?.(false)
+        if (isDestinationArrivalGate(item.gate)) {
+          deps.onMobilityHoldChange?.(false)
+        }
         item.onComplete?.()
         processing = false
         tryProcess()

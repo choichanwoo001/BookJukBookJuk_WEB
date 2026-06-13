@@ -35,6 +35,8 @@ export function useChatAgentSession({
   shouldAutoLoadShelf: boolean
 }) {
   const conversationIdRef = useRef<string | null>(null)
+  const conversationOwnerRef = useRef<string | null>(null)
+  const conversationInitGenerationRef = useRef(0)
   const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
   const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
   const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
@@ -63,18 +65,29 @@ export function useChatAgentSession({
 
   useEffect(() => {
     if (!activeUsersId) return
+
+    const userChanged =
+      conversationOwnerRef.current !== null && conversationOwnerRef.current !== activeUsersId
+    if (userChanged) {
+      setMessages([])
+      conversationIdRef.current = null
+      setReadyForUsersId(null)
+    } else if (conversationOwnerRef.current === null) {
+      setMessages([])
+    }
+    conversationOwnerRef.current = activeUsersId
+
+    const generation = ++conversationInitGenerationRef.current
     let disposed = false
     const initializeConversation = async () => {
-      setMessages([])
       const conversationId = await createConversation(activeUsersId)
-      if (disposed) return
+      if (disposed || generation !== conversationInitGenerationRef.current) return
       conversationIdRef.current = conversationId
       setReadyForUsersId(activeUsersId)
     }
     void initializeConversation()
     return () => {
       disposed = true
-      conversationIdRef.current = null
     }
   }, [activeUsersId, setMessages])
 

@@ -1,4 +1,5 @@
 import type { Point2 } from '../../data/floorPlan'
+import type { NavigationMobilityPhase } from '../../types/navigationMobility'
 import type { DwellBookCandidate } from '../types'
 
 /** Event bus schema version (W18). */
@@ -27,6 +28,21 @@ export type AgentMapSnapshot = {
   arrivedLeg: number | null
 }
 
+/** Movement state for chat/narration sync (W19). */
+export type NavigationSyncState = {
+  version: number
+  navigationActive: boolean
+  mobilityPhase: NavigationMobilityPhase
+  activeLeg: number | null
+  distanceToGoalM: number | null
+  highlightPathLengthM: number | null
+  isAutoWalking: boolean
+  isManualWalking: boolean
+  isWalkMode: boolean
+  navigationSpawnReady: boolean
+  ttsSpeaking: boolean
+}
+
 type TypedBusEvent<T> = {
   dispatch: (detail: T) => void
   subscribe: (handler: (detail: T) => void) => () => void
@@ -48,14 +64,55 @@ function createTypedBusEvent<T>(eventName: string): TypedBusEvent<T> {
   }
 }
 
-const mapCommandBus = createTypedBusEvent<AgentMapCommand>('agent:map-command')
+const MAP_COMMAND_EVENT = 'agent:map-command'
+
+const STICKY_MAP_COMMAND_TYPES = new Set<AgentMapCommand['type']>([
+  'PREVIEW_ROUTE',
+  'START_NAVIGATION',
+])
+
+let stickyMapCommands: AgentMapCommand[] = []
+
+function updateStickyMapCommands(command: AgentMapCommand): void {
+  if (!STICKY_MAP_COMMAND_TYPES.has(command.type)) return
+
+  if (command.type === 'PREVIEW_ROUTE') {
+    stickyMapCommands = stickyMapCommands.filter((c) => c.type !== 'START_NAVIGATION')
+  }
+  if (command.type === 'START_NAVIGATION') {
+    stickyMapCommands = stickyMapCommands.filter((c) => c.type !== 'PREVIEW_ROUTE')
+  }
+
+  stickyMapCommands = stickyMapCommands.filter((c) => c.type !== command.type)
+  stickyMapCommands.push(command)
+}
+
+/** Test-only: reset sticky replay state between tests. */
+export function resetStickyMapCommandsForTest(): void {
+  stickyMapCommands = []
+}
+
+const mapCommandBus = createTypedBusEvent<AgentMapCommand>(MAP_COMMAND_EVENT)
 const mapSnapshotBus = createTypedBusEvent<AgentMapSnapshot>('agent:map-snapshot')
+const navSyncBus = createTypedBusEvent<NavigationSyncState>('agent:nav-sync')
 const dwellEventBus = createTypedBusEvent<AgentDwellEvent>('agent:dwell-event')
 
-export const dispatchMapCommand = mapCommandBus.dispatch
-export const subscribeMapCommand = mapCommandBus.subscribe
+export function dispatchMapCommand(command: AgentMapCommand): void {
+  updateStickyMapCommands(command)
+  mapCommandBus.dispatch(command)
+}
+
+export function subscribeMapCommand(handler: (command: AgentMapCommand) => void): () => void {
+  for (const command of stickyMapCommands) {
+    handler(command)
+  }
+  return mapCommandBus.subscribe(handler)
+}
+
 export const publishMapSnapshot = mapSnapshotBus.dispatch
 export const subscribeMapSnapshot = mapSnapshotBus.subscribe
+export const publishNavigationSync = navSyncBus.dispatch
+export const subscribeNavigationSync = navSyncBus.subscribe
 export const dispatchDwellEvent = dwellEventBus.dispatch
 export const subscribeDwellEvent = dwellEventBus.subscribe
 

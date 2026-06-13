@@ -84,17 +84,25 @@ export const NAV_HIGHLIGHT_DISTANCE_BLEND_FAR_M = 14
 export const NAV_GOAL_MARGIN_M = 0.55
 /** 경로 세그먼트 보행 검사 시 샘플 간격 (m). 벽·unknown 누락 방지용. */
 export const NAV_SEGMENT_SAMPLE_STEP_M = 0.1
+/** 표시용 곡선 리샘플 간격 (m). */
+export const NAV_PATH_DISPLAY_SAMPLE_STEP_M = 0.12
+/** Catmull-Rom control point 최소 간격 (m). */
+export const NAV_PATH_SMOOTH_MIN_POINT_SPACING_M = 0.35
 /** 바닥 경로 라인 두께 (픽셀, drei Line). */
-export const NAV_LINE_WIDTH_PX = 4
-export const NAV_LINE_OPACITY_DIM = 0.22
+export const NAV_LINE_WIDTH_PX = 6
+export const NAV_LINE_OPACITY_DIM = 0.34
 export const NAV_LINE_OPACITY_BRIGHT = 0.95
 /** 멀리 있을 때 밝은 선 투명도(하이라이트 거리 보간 끝단). */
 export const NAV_LINE_OPACITY_HIGHLIGHT_FAR = 0.78
-export const NAV_LINE_COLOR_DIM = '#a07840'
-export const NAV_LINE_COLOR_BRIGHT = '#e6be5a'
+export const NAV_LINE_COLOR_DIM = '#4aa3ff'
+export const NAV_LINE_COLOR_BRIGHT = '#fff06a'
 /** 멀리 있을 때 밝은 선이 보간되는 색. */
-export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#ffd18a'
-export const NAV_ROUTE_Y = 0.04
+export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#5ee7ff'
+export const NAV_ROUTE_Y = 0.08
+
+// --- Scenario route playback (미리보기 자동 이동) ---
+export const SCENARIO_PLAYBACK_SPEED_MPS = 3.5
+export const SCENARIO_STOP_DWELL_S = 1.2
 
 // --- Overview Pan ---
 export const OVERVIEW_PAN_SPEED = 0.002

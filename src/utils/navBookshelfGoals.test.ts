@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  floorRects,
   pillarRects,
   PLAYER_RADIUS_M,
-  wallRects as baseWallRects,
 } from '../data/floorPlan'
 import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 import { NAV_GOAL_MARGIN_M, NAV_GRID_CELL_M } from '../config/constants'
@@ -15,7 +13,7 @@ import {
 } from './navBookshelfGoals'
 import { pickCheckoutGoalFromWorld } from './counterNavigation'
 import { findPathWorldGrid, isSegmentWalkableWorld, type WorldBounds } from './gridPathfinding'
-import { isWalkablePoint, type WalkabilityContext } from './walkability'
+import { createNavWalkabilityContext, isWalkablePoint, type WalkabilityContext } from './walkability'
 
 function buildContext(): {
   ctx: WalkabilityContext
@@ -30,13 +28,10 @@ function buildContext(): {
     minZ: bounds.minZ,
     maxZ: bounds.maxZ,
   }
-  const ctx: WalkabilityContext = {
-    floorRects,
-    wallRects: baseWallRects,
-    bookshelfRects: buildNavBookshelfRects(mainInstances, bookshelfOverlayLayerInstances),
-    pillarRects,
-    playerRadiusM: PLAYER_RADIUS_M,
-  }
+  const ctx = createNavWalkabilityContext(
+    buildNavBookshelfRects(mainInstances, bookshelfOverlayLayerInstances),
+    { pillarRects, playerRadiusM: PLAYER_RADIUS_M },
+  )
   return {
     ctx,
     bounds: navBounds,

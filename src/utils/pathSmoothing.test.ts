@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { buildDemoScenarioRoute } from './demoScenarioRoute'
+import { buildFixtureRobotRoute } from '../data/fixtureRobotRoute'
 import { isSegmentWalkableWorld } from './gridPathfinding'
 import { pathLengthM } from './pathSampling'
 import { getPathForDisplay, smoothPathForDisplay } from './pathSmoothing'
-import type { WalkabilityContext } from './walkability'
+import { createNavWalkabilityContext } from './walkability'
+import { buildNavBookshelfRects } from './missionShelfPool'
+import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
+import { NAV_SEGMENT_SAMPLE_STEP_M } from '../config/constants'
 
 describe('smoothPathForDisplay', () => {
   it('returns short paths unchanged', () => {
@@ -78,26 +82,15 @@ describe('smoothPathForDisplay', () => {
   })
 
   it('keeps straight display segments walkable when a context is provided', () => {
-    const ctx: WalkabilityContext = {
-      floorRects: [{ cx: 2, cz: 1, w: 8, d: 6 }],
-      wallRects: [],
-      bookshelfRects: [],
-      pillarRects: [],
-      playerRadiusM: 0,
-    }
-    const path: [number, number][] = [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [2, 1],
-      [2, 2],
-      [3, 2],
-    ]
+    const ctx = createNavWalkabilityContext(
+      buildNavBookshelfRects([], bookshelfOverlayLayerInstances),
+    )
+    const path = buildFixtureRobotRoute().worldPath.slice(0, 12)
 
     const straight = getPathForDisplay(path, 'straight', { ctx })
 
     for (let i = 1; i < straight.length; i++) {
-      expect(isSegmentWalkableWorld(straight[i - 1], straight[i], ctx, 0.1)).toBe(true)
+      expect(isSegmentWalkableWorld(straight[i - 1], straight[i], ctx, NAV_SEGMENT_SAMPLE_STEP_M)).toBe(true)
     }
-  })
+  }, 30_000)
 })

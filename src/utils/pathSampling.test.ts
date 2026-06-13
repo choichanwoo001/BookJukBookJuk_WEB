@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildDemoScenarioRoute } from './demoScenarioRoute'
 import {
   buildRouteMasterPath,
+  pathHeadingAtPoint,
   pathLengthM,
   projectPointOntoPathDistance,
   samplePathAtDistance,
@@ -43,6 +44,13 @@ describe('pathSampling', () => {
     expect(afterIntro).toBeCloseTo(1.1, 5)
     const sample = samplePathAtDistance(path, afterIntro)
     expect(sample?.point[0]).toBeCloseTo(1.1, 5)
+  })
+
+  it('pathHeadingAtPoint returns tangent heading at projected point', () => {
+    const path: [number, number][] = [[0, 0], [10, 0], [10, 10]]
+    expect(pathHeadingAtPoint(path, [5, 0])).toBeCloseTo(0, 5)
+    expect(pathHeadingAtPoint(path, [10, 5])).toBeCloseTo(Math.PI / 2, 5)
+    expect(pathHeadingAtPoint(path, [0, 0])).toBeCloseTo(0, 5)
   })
 
   it('buildRouteMasterPath concatenates demo scenario segments', () => {

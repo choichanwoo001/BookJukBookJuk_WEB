@@ -17,7 +17,7 @@ import {
 } from '../utils/gridPathfinding'
 import { pickReachableBookshelfGoalWorld } from '../utils/navBookshelfGoals'
 import type { WalkabilityContext } from '../utils/walkability'
-import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent } from '../agent/runtime/agentEventBus'
+import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent, subscribeNavigationSync } from '../agent/runtime/agentEventBus'
 
 export type NavigationRouteVisual = {
   /** Full fixed route plan for minimap/overview display. */
@@ -122,6 +122,9 @@ export function useNavigationRoute(args: {
   const leg0StartRef = useRef<Point2 | null>(null)
   const leg0FindingDoneRef = useRef(false)
   const arrivalCooldown = useRef(false)
+  const pendingLegAdvanceRef = useRef(false)
+  const awaitingHoldAtLegRef = useRef<number | null>(null)
+  const mobilityHoldRef = useRef(false)
   const [highlightDistanceToGoalM, setHighlightDistanceToGoalM] = useState<number | null>(null)
   const lastHighlightDistRef = useRef<number | null>(null)
 
@@ -156,8 +159,21 @@ export function useNavigationRoute(args: {
     leg0StartRef.current = null
     leg0FindingDoneRef.current = false
     lastHighlightDistRef.current = null
+    pendingLegAdvanceRef.current = false
+    awaitingHoldAtLegRef.current = null
     startTransition(() => setHighlightDistanceToGoalM(null))
   }, [missionKey])
+
+  useEffect(() => {
+    return subscribeNavigationSync((sync) => {
+      mobilityHoldRef.current = sync.mobilityHold
+      if (!sync.mobilityHold && pendingLegAdvanceRef.current) {
+        pendingLegAdvanceRef.current = false
+        awaitingHoldAtLegRef.current = null
+        startTransition(() => setActiveLeg((a) => Math.min(a + 1, goalsRef.current.length)))
+      }
+    })
+  }, [])
 
   useEffect(() => {
     if (leg0LockedRef.current) return
@@ -225,6 +241,10 @@ export function useNavigationRoute(args: {
         setHighlightDistanceToGoalM(d)
       }
       if (d < NAV_ARRIVAL_RADIUS_M) {
+        if (awaitingHoldAtLegRef.current === leg) {
+          raf = requestAnimationFrame(tick)
+          return
+        }
         if (!arrivalCooldown.current) {
           arrivalCooldown.current = true
           const arrivedLeg = leg
@@ -239,7 +259,13 @@ export function useNavigationRoute(args: {
           if (leg === 0 && leg0PathRef.current.length > 0) {
             startTransition(() => setFrozenLeg0([...leg0PathRef.current]))
           }
-          startTransition(() => setActiveLeg((a) => Math.min(a + 1, goalsRef.current.length)))
+          awaitingHoldAtLegRef.current = leg
+          pendingLegAdvanceRef.current = true
+          if (!mobilityHoldRef.current) {
+            pendingLegAdvanceRef.current = false
+            awaitingHoldAtLegRef.current = null
+            startTransition(() => setActiveLeg((a) => Math.min(a + 1, goalsRef.current.length)))
+          }
           window.setTimeout(() => {
             arrivalCooldown.current = false
           }, 650)

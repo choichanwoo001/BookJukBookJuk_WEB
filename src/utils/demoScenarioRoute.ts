@@ -1,9 +1,5 @@
 import {
-  floorRects,
-  pillarRects,
-  PLAYER_RADIUS_M,
   ENTRANCE_SPAWN,
-  wallRects as baseWallRects,
 } from '../data/floorPlan'
 import type { Point2 } from '../data/floorPlan'
 import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
@@ -18,7 +14,7 @@ import {
   isSegmentWalkableWorld,
   type WorldBounds,
 } from './gridPathfinding'
-import type { WalkabilityContext } from './walkability'
+import { createNavWalkabilityContext, type WalkabilityContext } from './walkability'
 
 export type DemoScenarioStopKind = 'spawn' | 'book' | 'checkout'
 
@@ -85,13 +81,7 @@ function buildDefaultNavContext(): {
   }
   const pool = buildMissionShelfPool(mainInstances, bookshelfOverlayLayerInstances)
   const navBookshelfRects = buildNavBookshelfRects(mainInstances, bookshelfOverlayLayerInstances)
-  const ctx: WalkabilityContext = {
-    floorRects,
-    wallRects: baseWallRects,
-    bookshelfRects: navBookshelfRects,
-    pillarRects,
-    playerRadiusM: PLAYER_RADIUS_M,
-  }
+  const ctx = createNavWalkabilityContext(navBookshelfRects)
   return { ctx, bounds: navBounds, pool }
 }
 

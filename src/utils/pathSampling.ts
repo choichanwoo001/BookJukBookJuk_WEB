@@ -101,3 +101,10 @@ export function projectPointOntoPathDistance(path: Point2[], point: Point2): num
 
   return bestDistance
 }
+
+/** Heading (rad) along the path tangent at the closest point to `point`. */
+export function pathHeadingAtPoint(path: Point2[], point: Point2): number | null {
+  if (path.length < 2) return null
+  const distance = projectPointOntoPathDistance(path, point)
+  return samplePathAtDistance(path, distance)?.headingRad ?? null
+}

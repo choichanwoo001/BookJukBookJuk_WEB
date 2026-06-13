@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 
-import { isDemoMode } from '../config/demoMode'
+import { isDemoMode as readIsDemoMode } from '../config/demoMode'
 
 import {
 
@@ -73,6 +73,8 @@ type DemoOrchestratorDeps = {
   enqueueAssistantMany: (items: PipelineItem[]) => void
 
   setContext: (patch: Partial<import('../agent/types').AgentContext>) => void
+
+  enabled?: boolean
 
 }
 
@@ -155,6 +157,10 @@ export function useDemoOrchestrator(deps: DemoOrchestratorDeps) {
   const autoScenarioTimersRef = useRef<number[]>([])
 
   const depsRef = useRef(deps)
+
+  function isDemoMode() {
+    return (depsRef.current.enabled ?? true) && readIsDemoMode()
+  }
 
   useEffect(() => {
 

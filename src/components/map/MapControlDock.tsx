@@ -1,5 +1,6 @@
 import type { ViewMode } from '../../types/scene'
 import type { VersoConnectionState } from '../../lib/verso/types'
+import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
 import { MapViewButtons } from './MapViewButtons'
 import { VersoConnectionPanel } from './VersoConnectionPanel'
 
@@ -10,10 +11,11 @@ export type MapControlDockProps = {
   isFullscreen: boolean
   onToggleFullscreen: () => void
   onResetOnboarding: () => void
-  onOpenScenarioRoute: () => void
   mode: ViewMode
   isEdit: boolean
   onModeChange: (next: ViewMode) => void
+  routePathDisplayMode: RoutePathDisplayMode
+  onRoutePathDisplayModeChange: (next: RoutePathDisplayMode) => void
   versoConnectionState: VersoConnectionState
   onVersoConnect: (url: string) => void
   onVersoDisconnect: () => void
@@ -26,10 +28,11 @@ export function MapControlDock({
   isFullscreen,
   onToggleFullscreen,
   onResetOnboarding,
-  onOpenScenarioRoute,
   mode,
   isEdit,
   onModeChange,
+  routePathDisplayMode,
+  onRoutePathDisplayModeChange,
   versoConnectionState,
   onVersoConnect,
   onVersoDisconnect,
@@ -54,15 +57,28 @@ export function MapControlDock({
           <button type="button" onClick={onResetOnboarding}>
             처음으로
           </button>
-          <button type="button" onClick={onOpenScenarioRoute}>
-            시나리오 경로
-          </button>
         </div>
         <MapViewButtons
           mode={mode}
           isEdit={isEdit}
           onModeChange={onModeChange}
         />
+        <div className="mapRoutePathButtons" aria-label="경로 표시 방식">
+          <button
+            type="button"
+            data-active={routePathDisplayMode === 'curved'}
+            onClick={() => onRoutePathDisplayModeChange('curved')}
+          >
+            곡선
+          </button>
+          <button
+            type="button"
+            data-active={routePathDisplayMode === 'straight'}
+            onClick={() => onRoutePathDisplayModeChange('straight')}
+          >
+            직선
+          </button>
+        </div>
         <VersoConnectionPanel
           connectionState={versoConnectionState}
           onConnect={onVersoConnect}

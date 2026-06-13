@@ -49,6 +49,7 @@ export function buildVersoRouteVisual(
   const currentGoal = highlightPath.length > 0 ? highlightPath[highlightPath.length - 1] : null
 
   return {
+    planPath: [...dimPath, ...highlightPath],
     dimPath,
     highlightPath,
     highlightDistanceToGoalM: null,

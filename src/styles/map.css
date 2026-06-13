@@ -305,6 +305,32 @@
   min-width: 0;
 }
 
+.mapRoutePathButtons {
+  order: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem;
+  border: 1px solid var(--bj-border-dark);
+  border-radius: 10px;
+  background: var(--bj-bg-overlay);
+}
+
+.mapRoutePathButtons button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--bj-text-on-dark);
+  border-radius: 8px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.mapRoutePathButtons button[data-active='true'] {
+  border-color: var(--bj-accent-strong);
+  background: var(--bj-accent-bg-strong);
+}
+
 .mapLayerToggle {
   display: inline-flex;
   align-items: center;
@@ -855,4 +881,42 @@
   .scenarioRoutePlannerHeader {
     flex-direction: column;
   }
+}
+
+.navigationMobilityHud {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 130;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(12, 10, 8, 0.82);
+  border: 1px solid rgba(120, 200, 255, 0.35);
+  color: #d8ecff;
+  font-size: 0.82rem;
+  pointer-events: none;
+}
+
+.navigationMobilityHudLabel {
+  white-space: nowrap;
+}
+
+.demoModeWarningBanner {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding: 0.55rem 0.85rem;
+  background: rgba(120, 40, 24, 0.92);
+  border-bottom: 1px solid rgba(255, 180, 140, 0.35);
+  color: #ffe8dc;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.demoModeWarningBannerCode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
 }

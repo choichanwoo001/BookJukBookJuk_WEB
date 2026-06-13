@@ -1,4 +1,4 @@
--- BookJukBookJuk: 초기 스키마 (1회 실행 전용)
+-- 산책: 초기 스키마 (1회 실행 전용)
 --
 -- Supabase Dashboard → SQL Editor 에서 이 파일 전체를 붙여넣어 실행하세요.
 -- 또는 (psql + DATABASE_URL 설정 시): npm run db:migrate

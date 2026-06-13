@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const completeDemoPurchaseMock = vi.hoisted(() => vi.fn())
 const buildLocalReceiptMock = vi.hoisted(() => vi.fn())
 const tryPublishVersoCommandMock = vi.hoisted(() => vi.fn())
+const dispatchMapCommandMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../../lib/supabase/env', () => ({
   getDefaultUserId: () => 'demo-user',
@@ -23,7 +24,7 @@ vi.mock('../../lib/verso/versoCommandBridge', () => ({
 
 vi.mock('../runtime/agentEventBus', () => ({
   AGENT_MAP_EVENT_VERSION: 1,
-  dispatchMapCommand: vi.fn(),
+  dispatchMapCommand: dispatchMapCommandMock,
   dispatchDwellEvent: vi.fn(),
 }))
 
@@ -32,7 +33,7 @@ vi.mock('../../config/demoMode', () => ({
 }))
 
 import { checkoutTool } from './checkoutTool'
-import type { AgentContext, CartItem, Receipt, ToolExecutionContext } from '../types'
+import type { AgentContext, CartItem, ToolExecutionContext } from '../types'
 
 const item: CartItem = {
   booksId: 'book-1',
@@ -71,6 +72,7 @@ describe('checkoutTool', () => {
     completeDemoPurchaseMock.mockReset()
     buildLocalReceiptMock.mockReset()
     tryPublishVersoCommandMock.mockReset()
+    dispatchMapCommandMock.mockReset()
     tryPublishVersoCommandMock.mockReturnValue(true)
   })
 
@@ -83,50 +85,21 @@ describe('checkoutTool', () => {
     expect(completeDemoPurchaseMock).not.toHaveBeenCalled()
   })
 
-  it('moves to checkout, creates a receipt, clears cart, and ends dwell feedback', async () => {
-    const receipt: Receipt = {
-      receiptId: 'receipt-1',
-      usersId: 'user-1',
-      items: [item],
-      purchasedAt: '2026-06-06T00:00:00.000Z',
-      qrPayload: 'bookjuk://receipt?receiptId=receipt-1&usersId=user-1',
-    }
-    completeDemoPurchaseMock.mockResolvedValue({ ok: true, data: receipt })
-
+  it('moves to checkout and defers purchase completion until arrival', async () => {
     const exec = makeCtx([item])
     const result = await checkoutTool.run({}, exec)
 
     expect(result.ok).toBe(true)
     expect(tryPublishVersoCommandMock).toHaveBeenCalledWith('go_checkout')
-    expect(completeDemoPurchaseMock).toHaveBeenCalledWith({ usersId: 'user-1', items: [item] })
-    expect(exec.getContext().checkoutStatus).toBe('completed')
-    expect(exec.getContext().receipt).toEqual(receipt)
-    expect(exec.getContext().cartItems).toEqual([])
-    expect(exec.getContext().shoppingList).toEqual([])
-    expect(exec.getContext().pendingDwellBook).toBeNull()
-    expect(exec.getContext().awaitingDwellFeedback).toBe(false)
-  })
-
-  it('falls back to a local receipt when Supabase is not configured', async () => {
-    const localReceipt: Receipt = {
-      receiptId: 'local-1',
-      usersId: 'user-1',
-      items: [item],
-      purchasedAt: '2026-06-06T00:00:00.000Z',
-      qrPayload: 'bookjuk://receipt?receiptId=local-1&usersId=user-1',
-    }
-    completeDemoPurchaseMock.mockResolvedValue({
-      ok: false,
-      errorCode: 'SUPABASE_NOT_CONFIGURED',
-      message: 'not configured',
-    })
-    buildLocalReceiptMock.mockReturnValue(localReceipt)
-
-    const exec = makeCtx([item])
-    const result = await checkoutTool.run({}, exec)
-
-    expect(result.ok).toBe(true)
-    expect(buildLocalReceiptMock).toHaveBeenCalledWith('user-1', [item])
-    expect(exec.getContext().receipt).toEqual(localReceipt)
+    expect(dispatchMapCommandMock).toHaveBeenCalledWith({ type: 'GO_CHECKOUT', version: 1 })
+    expect(completeDemoPurchaseMock).not.toHaveBeenCalled()
+    expect(buildLocalReceiptMock).not.toHaveBeenCalled()
+    expect(result.data).toEqual({ deferred: true })
+    expect(exec.getContext().checkoutStatus).toBe('going_to_counter')
+    expect(exec.getContext().receipt).toBeNull()
+    expect(exec.getContext().cartItems).toEqual([item])
+    expect(exec.getContext().shoppingList).toEqual([item])
+    expect(exec.getContext().pendingDwellBook).toEqual(expect.objectContaining({ booksId: item.booksId }))
+    expect(exec.getContext().awaitingDwellFeedback).toBe(true)
   })
 })

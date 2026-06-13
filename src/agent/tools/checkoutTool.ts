@@ -2,7 +2,6 @@ import { tryPublishVersoCommand } from '../../lib/verso/versoCommandBridge'
 import { AGENT_MAP_EVENT_VERSION, dispatchMapCommand } from '../runtime/agentEventBus'
 import type { ToolDefinition } from './types'
 import { checkoutNavigationMessage, completeCheckoutPurchase } from './checkoutCompletion'
-import { isDemoMode } from '../../config/demoMode'
 
 export const checkoutTool: ToolDefinition = {
   name: 'checkoutTool',
@@ -25,16 +24,12 @@ export const checkoutTool: ToolDefinition = {
     const published = tryPublishVersoCommand('go_checkout')
     dispatchMapCommand({ type: 'GO_CHECKOUT', version: AGENT_MAP_EVENT_VERSION })
 
-    if (isDemoMode()) {
-      return {
-        ok: true,
-        toolName: 'checkoutTool',
-        message: checkoutNavigationMessage(published),
-        data: { deferred: true },
-      }
+    return {
+      ok: true,
+      toolName: 'checkoutTool',
+      message: checkoutNavigationMessage(published),
+      data: { deferred: true },
     }
-
-    return completeCheckoutPurchase(ctx)
   },
 }
 

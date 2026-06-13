@@ -7,6 +7,7 @@ import { ConfirmationCard } from './ConfirmationCard'
 import { useSpeechInput } from '../hooks/useSpeechInput'
 import type { UseTtsReturn } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
+import { buildNavStartPrompt, CHAT_NAV_START_GUIDE } from '../hooks/chatAgent/messages'
 import type { AgentContext, AgentMessage, ChatActionCard as ChatActionCardModel } from '../agent/types'
 
 const chatEmptyGuideExamples = ['추천해줘', '책 검색 데미안', '책 추가 데미안', '계산하러 가자'] as const
@@ -84,6 +85,11 @@ function ChatPanel({
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
   const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
+  const showNavStartGuide =
+    messages.length === 0 &&
+    cartItems.length > 0 &&
+    context.checkoutStatus !== 'completed' &&
+    context.state !== 'SESSION_END'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -225,25 +231,45 @@ function ChatPanel({
 
         <div ref={messageListRef} className="chatMessages">
           {messages.length === 0 ? (
-            <section className="chatEmptyGuide" aria-label="채팅 시작 안내">
-              <h2 className="chatEmptyGuideTitle">무엇을 도와드릴까요?</h2>
-              <p className="chatEmptyGuideText">
-                책 추천, 도서 검색, 장바구니 담기/삭제, 경로 안내, 계산대 이동을 도와드릴 수 있어요.
-              </p>
-              <div className="chatEmptyGuideActions" aria-label="예시 요청">
-                {chatEmptyGuideExamples.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    className="chatEmptyGuideButton"
-                    onClick={() => void handleGuideExample(example)}
-                    disabled={busy}
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </section>
+            showNavStartGuide ? (
+              <section className="chatEmptyGuide" aria-label="경로 안내 시작">
+                <h2 className="chatEmptyGuideTitle">{CHAT_NAV_START_GUIDE.title}</h2>
+                <p className="chatEmptyGuideText">{buildNavStartPrompt(cartItems.length)}</p>
+                <div className="chatEmptyGuideActions" aria-label="안내 시작 예시">
+                  {CHAT_NAV_START_GUIDE.examples.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      className="chatEmptyGuideButton"
+                      onClick={() => void handleGuideExample(example)}
+                      disabled={busy}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <section className="chatEmptyGuide" aria-label="채팅 시작 안내">
+                <h2 className="chatEmptyGuideTitle">무엇을 도와드릴까요?</h2>
+                <p className="chatEmptyGuideText">
+                  책 추천, 도서 검색, 장바구니 담기/삭제, 경로 안내, 계산대 이동을 도와드릴 수 있어요.
+                </p>
+                <div className="chatEmptyGuideActions" aria-label="예시 요청">
+                  {chatEmptyGuideExamples.map((example) => (
+                    <button
+                      key={example}
+                      type="button"
+                      className="chatEmptyGuideButton"
+                      onClick={() => void handleGuideExample(example)}
+                      disabled={busy}
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )
           ) : messages.map((message) => (
             <article
               key={message.id}

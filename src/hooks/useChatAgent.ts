@@ -50,7 +50,7 @@ import { mergePlannedToolCall } from './chatAgent/toolCallMerge'
 import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
-import { CHAT_AGENT_MESSAGES } from './chatAgent/messages'
+import { buildNavStartPrompt, CHAT_AGENT_MESSAGES } from './chatAgent/messages'
 import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
@@ -77,10 +77,6 @@ const initialContextValue = (): AgentContext => ({
 })
 
 const initialMessages: AgentMessage[] = []
-
-function buildNavStartPrompt(bookCount: number): string {
-  return `책 ${bookCount}권이 준비됐어요. 준비되시면 "시작" 또는 "오케이"라고 답해 주세요.`
-}
 
 function extractRecommendationTitles(result: ToolResult | null): string[] {
   if (!result?.ok || result.toolName !== 'recommendationTool') return []
@@ -446,11 +442,20 @@ export function useChatAgent(options: {
           return
         }
 
-        if (
-          existingListGateRef.current.status === 'awaiting_nav' &&
+        const cartForNav =
+          contextRef.current.cartItems.length > 0
+            ? contextRef.current.cartItems
+            : contextRef.current.shoppingList
+        const canStartNavigationFromProceed =
           !contextRef.current.pendingConfirmation &&
-          isProceedToken(intentText)
-        ) {
+          isProceedToken(intentText) &&
+          existingListGateRef.current.status !== 'nav_started' &&
+          cartForNav.length > 0 &&
+          (existingListGateRef.current.status === 'awaiting_nav' ||
+            existingListGateRef.current.status === 'inactive' ||
+            existingListGateRef.current.status === 'confirmed')
+
+        if (canStartNavigationFromProceed) {
           await appendUserMessageAndStore({
             text: normalized,
             conversationId: conversationIdRef.current,
@@ -460,11 +465,7 @@ export function useChatAgent(options: {
           updateExistingListGate({ status: 'nav_started' })
           dispatchStartNavigation()
           if (isDemoMode()) {
-            const list =
-              contextRef.current.cartItems.length > 0
-                ? contextRef.current.cartItems
-                : contextRef.current.shoppingList
-            startShelfVisitFromList(list)
+            startShelfVisitFromList(cartForNav)
           }
           void enqueueAssistant({
             text: '안내를 시작할게요.',

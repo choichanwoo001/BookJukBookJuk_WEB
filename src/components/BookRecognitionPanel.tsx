@@ -80,7 +80,6 @@ export function BookRecognitionPanel({
   }, [isActive, start, stop])
 
   const previewLabel = gesture.previewGesture ? GESTURE_LABELS_KO[gesture.previewGesture] : null
-  const captureDisabled = busy || identifying || !isActive
 
   return (
     <div
@@ -113,7 +112,7 @@ export function BookRecognitionPanel({
         )}
         {isActive && !gestureEnabled && (
           <div className="bookRecognitionGestureOverlay" aria-live="polite">
-            <span className="bookRecognitionGestureChip muted">표지를 맞춘 뒤 담기/빼기</span>
+            <span className="bookRecognitionGestureChip muted">제스처 켜기 후 엄지로 담기·빼기</span>
           </div>
         )}
         {isActive && gestureEnabled && (
@@ -135,22 +134,6 @@ export function BookRecognitionPanel({
       </div>
 
       <div className="bookRecognitionActions">
-        <button
-          type="button"
-          className="bookRecognitionActionButton"
-          onClick={() => runCapture('add', 'ui')}
-          disabled={captureDisabled}
-        >
-          담기
-        </button>
-        <button
-          type="button"
-          className="bookRecognitionActionButton"
-          onClick={() => runCapture('remove', 'ui')}
-          disabled={captureDisabled}
-        >
-          빼기
-        </button>
         <button
           type="button"
           className="bookRecognitionGestureToggle"

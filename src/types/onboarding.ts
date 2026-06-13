@@ -3,6 +3,7 @@ export type VisitType = 'first' | 'returning'
 export type OnboardingStep =
   | 'visit_choice'
   | 'balance_game'
+  | 'taste_analysis'
   | 'qr_login'
   | 'similar_readers'
   | 'llm_required'

@@ -32,7 +32,7 @@ export function AppMainShell({
 
   useEffect(() => {
     return subscribeMapCommand((command) => {
-      if (command.type === 'PREVIEW_ROUTE' || command.type === 'START_NAVIGATION') {
+      if (command.type === 'PREVIEW_ROUTE' || command.type === 'PREVIEW_NAV_PLAN' || command.type === 'START_NAVIGATION') {
         setActivePane('map')
       }
     })
@@ -76,6 +76,7 @@ export function AppMainShell({
             onActivateMap={() => setActivePane('map')}
             busy={agent.busy}
             ttsSpeaking={agent.ttsSpeaking}
+            mobilityHold={agent.mobilityHold}
             onBookCapture={agent.applyBookRecognitionCapture}
             onBookBrowse={agent.applyBookBrowseCapture}
             onGestureConfirmed={handleGestureConfirmed}

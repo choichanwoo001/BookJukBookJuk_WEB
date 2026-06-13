@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppMainShell } from './components/AppMainShell'
 import BalanceGameGate from './components/BalanceGameGate'
+import TasteAnalysisGate from './components/TasteAnalysisGate'
 import QrLoginGate from './components/QrLoginGate'
 import SimilarReadersGate from './components/SimilarReadersGate'
 import VisitChoiceGate from './components/VisitChoiceGate'
@@ -82,20 +83,28 @@ function App() {
     )
   }
 
+  const goToReaderRecommendations = () => {
+    if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
+      setOnboardingStep('llm_required')
+    } else {
+      setOnboardingStep('similar_readers')
+    }
+  }
+
   if (onboardingStep === 'balance_game') {
     return (
       <BalanceGameGate
         onComplete={(nextTasteSeed) => {
           setTasteSeed(nextTasteSeed)
           setUsersId('first-visit-guest')
-          if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
-            setOnboardingStep('llm_required')
-          } else {
-            setOnboardingStep('similar_readers')
-          }
+          setOnboardingStep('taste_analysis')
         }}
       />
     )
+  }
+
+  if (onboardingStep === 'taste_analysis' && tasteSeed) {
+    return <TasteAnalysisGate onComplete={goToReaderRecommendations} />
   }
 
   if (onboardingStep === 'qr_login') {

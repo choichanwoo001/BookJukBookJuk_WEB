@@ -485,6 +485,73 @@
   font-size: 1.4rem;
 }
 
+/* ── Taste analysis loading (after balance game) ── */
+
+.tasteAnalysisGate {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: clamp(2rem, 5vw, 4rem) 1.25rem;
+}
+
+.tasteAnalysisGate .onboardingIntro {
+  width: min(640px, 100%);
+  text-align: center;
+}
+
+.tasteAnalysisBody {
+  margin-top: clamp(1.5rem, 3vw, 2.25rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.tasteAnalysisStatusRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.tasteAnalysisSpinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(45, 57, 40, 0.18);
+  border-top-color: var(--bj-btn-primary-hover);
+  border-radius: 50%;
+  animation: tasteAnalysisSpin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes tasteAnalysisSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.tasteAnalysisMessage {
+  margin: 0;
+  color: var(--onboarding-text-secondary);
+  font-size: var(--onboarding-text-body);
+  line-height: var(--onboarding-line-height);
+}
+
+.tasteAnalysisProgress {
+  height: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f0ebe3;
+}
+
+.tasteAnalysisProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--bj-btn-primary-hover);
+  transition: width 0.45s ease;
+}
+
 .similarReadersPage {
   position: relative;
   display: flex;

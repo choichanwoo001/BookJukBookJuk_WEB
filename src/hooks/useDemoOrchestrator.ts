@@ -184,6 +184,10 @@ export function useDemoOrchestrator(deps: DemoOrchestratorDeps) {
 
       autoScenarioTimersRef.current = autoScenarioTimersRef.current.filter((id) => id !== timer)
 
+      const context = depsRef.current.toolExecutionContext.getContext()
+
+      if (context?.mobilityPaused) return
+
       void fn()
 
     }, delayMs)
@@ -238,7 +242,25 @@ export function useDemoOrchestrator(deps: DemoOrchestratorDeps) {
 
     demoStateRef.current = { ...demoStateRef.current, step }
 
-  }, [])
+  }, [resetArrivalGate])
+
+
+
+  useEffect(() => {
+
+    if (!isDemoMode()) return
+
+    return subscribeMapCommand((command) => {
+
+      if (command.type !== 'PAUSE_MOBILITY') return
+
+      resetArrivalGate()
+
+      depsRef.current.setContext({ mobilityPaused: true })
+
+    })
+
+  }, [resetArrivalGate])
 
 
 
@@ -539,6 +561,10 @@ export function useDemoOrchestrator(deps: DemoOrchestratorDeps) {
     if (!isDemoMode()) return
 
     return subscribeDwellEvent(async (event) => {
+
+      const context = depsRef.current.toolExecutionContext.getContext()
+
+      if (context?.mobilityPaused) return
 
       if (event.type === 'SHELF_ARRIVED') {
 

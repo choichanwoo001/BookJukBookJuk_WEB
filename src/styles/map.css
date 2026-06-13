@@ -889,17 +889,36 @@
   left: 50%;
   transform: translateX(-50%);
   z-index: 130;
-  padding: 0.45rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem 0.45rem 0.75rem;
   border-radius: 999px;
   background: rgba(12, 10, 8, 0.82);
   border: 1px solid rgba(120, 200, 255, 0.35);
   color: #d8ecff;
   font-size: 0.82rem;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .navigationMobilityHudLabel {
   white-space: nowrap;
+}
+
+.navigationMobilityHudStop {
+  flex-shrink: 0;
+  padding: 0.28rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 120, 100, 0.55);
+  background: rgba(120, 28, 20, 0.88);
+  color: #ffe8e0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.navigationMobilityHudStop:hover {
+  background: rgba(150, 36, 24, 0.95);
 }
 
 .demoModeWarningBanner {

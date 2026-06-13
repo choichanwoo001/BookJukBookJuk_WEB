@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import {
   AGENT_MAP_EVENT_VERSION,
@@ -35,6 +35,17 @@ export function useMapViewState({
   const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
   const [minimapPlayerPos, setMinimapPlayerPos] = useState<MinimapPlayerPosition | null>(null)
   const [routeDisplaySurface, setRouteDisplaySurface] = useState<RouteDisplaySurface>('main')
+  const navigationActiveRef = useRef(false)
+  const modeRef = useRef(mode)
+  const prevWalkModeRef = useRef(prevWalkMode)
+
+  useEffect(() => {
+    modeRef.current = mode
+  }, [mode])
+
+  useEffect(() => {
+    prevWalkModeRef.current = prevWalkMode
+  }, [prevWalkMode])
 
   const isEdit = mode === 'edit'
   const isOverviewLike = mode === 'overview' || mode === 'edit'
@@ -81,20 +92,20 @@ export function useMapViewState({
         handleNewMission()
       }
       if (command.type === 'PREVIEW_ROUTE') {
+        if (navigationActiveRef.current) return
         setPrevWalkMode('thirdPerson')
         setMode('overview')
         setRouteDisplaySurface('main')
         handleNewMission()
       }
       if (command.type === 'START_NAVIGATION') {
+        navigationActiveRef.current = true
         startNavigationView()
       }
-      if (command.type === 'PAUSE_MOBILITY' && (mode === 'firstPerson' || mode === 'thirdPerson')) {
-        setPrevWalkMode(mode)
-        setMode('overview')
-      }
-      if (command.type === 'RESUME_MOBILITY' && mode === 'overview') {
-        setMode(prevWalkMode)
+      if (command.type === 'RESUME_MOBILITY') {
+        if (modeRef.current === 'overview') {
+          setMode(prevWalkModeRef.current)
+        }
       }
       if (command.type === 'GO_CHECKOUT') {
         setPrevWalkMode('thirdPerson')
@@ -102,7 +113,7 @@ export function useMapViewState({
         setRouteDisplaySurface('main')
       }
     })
-  }, [handleNewMission, mode, prevWalkMode, startNavigationView])
+  }, [handleNewMission, startNavigationView])
 
   useEffect(() => {
     publishMapSnapshot({

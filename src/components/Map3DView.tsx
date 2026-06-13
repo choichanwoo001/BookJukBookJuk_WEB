@@ -45,6 +45,7 @@ import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
 import { NAVIGATION_MOBILITY_PHASE_LABELS } from '../types/navigationMobility'
 import { useScenarioRoutePreview } from '../hooks/useScenarioRoutePreview'
+import { tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
 import { buildDemoScenarioRoute } from '../utils/demoScenarioRoute'
 import { pathLengthM } from '../utils/pathSampling'
 import type { RoutePathDisplayMode } from '../utils/pathSmoothing'
@@ -194,8 +195,10 @@ function Map3DView({
 
   const {
     demoNavigationActive,
+    demoMobilityPaused,
     handleMobilityPhaseChange,
     mobilityPhase,
+    pauseDemoMobility,
     scenarioDirectGoals,
     scenarioPlaybackHeadingRef,
     scenarioRoutePreviewActive,
@@ -204,6 +207,20 @@ function Map3DView({
     setMinimapPlayerPos,
     startNavigationView,
   })
+
+  const prevDemoNavigationActiveRef = useRef(false)
+  useEffect(() => {
+    const justStarted = demoNavigationActive && !prevDemoNavigationActiveRef.current
+    prevDemoNavigationActiveRef.current = demoNavigationActive
+    if (justStarted && mode !== 'firstPerson' && mode !== 'thirdPerson') {
+      startNavigationView()
+    }
+  }, [demoNavigationActive, mode, startNavigationView])
+
+  const handlePauseDemoMobility = useCallback(() => {
+    tryPublishVersoCommand('stop')
+    pauseDemoMobility()
+  }, [pauseDemoMobility])
 
   const agentMission = useAgentMission(missionVersion)
 
@@ -275,7 +292,7 @@ function Map3DView({
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
     bounds: navBounds,
-    suppressDwellEvents: scenarioRoutePreviewActive || !navigationSpawnReady,
+    suppressDwellEvents: scenarioRoutePreviewActive || !navigationSpawnReady || demoMobilityPaused,
   })
 
   const {
@@ -491,11 +508,20 @@ function Map3DView({
           onClose={() => setScenarioRouteOpen(false)}
         />
 
-        {demoNavigationActive && mobilityPhase !== 'idle' && (
+        {isDemoMode() && demoNavigationActive && !demoMobilityPaused && (
           <div className="navigationMobilityHud" role="status">
             <span className="navigationMobilityHudLabel">
-              {NAVIGATION_MOBILITY_PHASE_LABELS[mobilityPhase]}
+              {mobilityPhase !== 'idle'
+                ? NAVIGATION_MOBILITY_PHASE_LABELS[mobilityPhase]
+                : '데모 안내 중…'}
             </span>
+            <button
+              type="button"
+              className="navigationMobilityHudStop"
+              onClick={handlePauseDemoMobility}
+            >
+              정지
+            </button>
           </div>
         )}
 

@@ -135,3 +135,7 @@ export function dispatchStartNavigation(): void {
 export function dispatchPreviewRoute(poolIndices: number[]): void {
   dispatchMapCommand({ type: 'PREVIEW_ROUTE', version: AGENT_MAP_EVENT_VERSION, poolIndices })
 }
+
+export function dispatchPauseMobility(): void {
+  dispatchMapCommand({ type: 'PAUSE_MOBILITY', version: AGENT_MAP_EVENT_VERSION })
+}

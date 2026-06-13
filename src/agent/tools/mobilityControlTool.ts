@@ -1,5 +1,5 @@
 import { tryPublishVersoCommand } from '../../lib/verso/versoCommandBridge'
-import { AGENT_MAP_EVENT_VERSION, dispatchMapCommand } from '../runtime/agentEventBus'
+import { AGENT_MAP_EVENT_VERSION, dispatchMapCommand, dispatchPauseMobility } from '../runtime/agentEventBus'
 import type { ToolDefinition } from './types'
 import { validateMobilityArgs } from './toolValidators'
 
@@ -13,7 +13,7 @@ export const mobilityControlTool: ToolDefinition = {
     if (action === 'pause') {
       ctx.setContext({ mobilityPaused: true })
       const published = tryPublishVersoCommand('stop')
-      dispatchMapCommand({ type: 'PAUSE_MOBILITY', version: AGENT_MAP_EVENT_VERSION })
+      dispatchPauseMobility()
       return {
         ok: true,
         toolName: 'mobilityControlTool',

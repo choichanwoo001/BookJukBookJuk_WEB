@@ -15,6 +15,7 @@ vi.mock('../agent/tools/checkoutCompletion', () => ({
 import {
   AGENT_MAP_EVENT_VERSION,
   dispatchDwellEvent,
+  dispatchPauseMobility,
 } from '../agent/runtime/agentEventBus'
 import { DEMO_BOOKS, demoBookToEntry } from '../data/demoScenario'
 import {
@@ -122,6 +123,90 @@ describe('useDemoOrchestrator arrival-gated messages', () => {
 
     expect(completeCheckoutPurchaseMock).toHaveBeenCalledTimes(1)
     expect(deps.enqueueAssistant).toHaveBeenCalledTimes(1)
+    unmount()
+  })
+})
+
+describe('useDemoOrchestrator pause', () => {
+  beforeEach(() => {
+    completeCheckoutPurchaseMock.mockReset()
+  })
+
+  it('sets mobilityPaused and ignores dwell events after PAUSE_MOBILITY', async () => {
+    const deps = makeDeps()
+    deps.toolExecutionContext.getContext = vi.fn().mockReturnValue({
+      mobilityPaused: false,
+      cartItems: [],
+      shoppingList: [],
+    })
+
+    const { result, unmount } = renderHook(() => useDemoOrchestrator(deps))
+    result.current.startShelfVisitFromList([demoBookToEntry(DEMO_BOOKS.book1)])
+
+    dispatchPauseMobility()
+
+    expect(deps.setContext).toHaveBeenCalledWith({ mobilityPaused: true })
+
+    deps.toolExecutionContext.getContext = vi.fn().mockReturnValue({
+      mobilityPaused: true,
+      cartItems: [],
+      shoppingList: [],
+    })
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 0,
+      poolIndex: DEMO_BOOKS.book1.poolIndex,
+    })
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(deps.enqueueAssistantMany).not.toHaveBeenCalled()
+    unmount()
+  })
+
+  it('does not run scheduled auto-scenario callbacks after PAUSE_MOBILITY', async () => {
+    vi.useFakeTimers()
+    const deps = makeDeps()
+    deps.toolExecutionContext.getContext = vi.fn().mockReturnValue({
+      mobilityPaused: false,
+      cartItems: [],
+      shoppingList: [],
+      pendingDwellBook: null,
+    })
+
+    const { result, unmount } = renderHook(() => useDemoOrchestrator(deps))
+    result.current.startShelfVisitFromList([
+      demoBookToEntry(DEMO_BOOKS.book1),
+      demoBookToEntry(DEMO_BOOKS.serendipity),
+    ])
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 1,
+      poolIndex: DEMO_BOOKS.serendipity.poolIndex,
+    })
+
+    await vi.waitFor(() => {
+      expect(deps.enqueueAssistant).toHaveBeenCalled()
+    })
+
+    const callsBeforePause = deps.enqueueAssistant.mock.calls.length
+
+    dispatchPauseMobility()
+    deps.toolExecutionContext.getContext = vi.fn().mockReturnValue({
+      mobilityPaused: true,
+      cartItems: [],
+      shoppingList: [],
+      pendingDwellBook: { title: 'test', booksId: 'x', authors: [], isbn: null },
+    })
+
+    await vi.advanceTimersByTimeAsync(2000)
+
+    expect(deps.enqueueAssistant.mock.calls.length).toBe(callsBeforePause)
+    vi.useRealTimers()
     unmount()
   })
 })

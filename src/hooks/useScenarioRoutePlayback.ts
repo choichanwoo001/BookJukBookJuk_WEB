@@ -106,6 +106,10 @@ export function useScenarioRoutePlayback({
         stopPlayback()
         return
       }
+      if (command.type === 'PAUSE_MOBILITY') {
+        stopPlayback()
+        return
+      }
       if (command.type !== 'PREVIEW_ROUTE') return
       pendingPreviewRef.current = true
       if (!enabled) return

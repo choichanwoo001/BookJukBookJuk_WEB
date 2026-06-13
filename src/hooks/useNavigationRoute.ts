@@ -1,6 +1,6 @@
 import type { RefObject } from 'react'
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
-import type { Point2 } from '../data/floorPlan'
+import { ENTRANCE_SPAWN, type Point2 } from '../data/floorPlan'
 import type { FixtureRenderInstance } from '../types/scene'
 import {
   NAV_ARRIVAL_RADIUS_M,
@@ -15,12 +15,15 @@ import {
   simplifyPathCollinear,
   type WorldBounds,
 } from '../utils/gridPathfinding'
-import { pickBookshelfGoalWorld } from '../utils/navBookshelfGoals'
+import { pickReachableBookshelfGoalWorld } from '../utils/navBookshelfGoals'
 import type { WalkabilityContext } from '../utils/walkability'
 import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent } from '../agent/runtime/agentEventBus'
 
 export type NavigationRouteVisual = {
+  /** Full fixed route plan for minimap/overview display. */
+  planPath: Point2[]
   dimPath: Point2[]
+  /** Current forward guidance leg for the 3D navigation surface. */
   highlightPath: Point2[]
   /** 플레이어~현재 하이라이트 목표 거리(m). 밝은 선 색·투명도 보간용. */
   highlightDistanceToGoalM: number | null
@@ -43,6 +46,8 @@ export function useNavigationRoute(args: {
   ctx: WalkabilityContext
   bounds: WorldBounds
   cellSize?: number
+  /** 미리보기 재생 중 SHELF_ARRIVED 등 dwell 이벤트 발행 억제 */
+  suppressDwellEvents?: boolean
 }): NavigationRouteVisual | null {
   const {
     missionIndices,
@@ -53,20 +58,32 @@ export function useNavigationRoute(args: {
     playerXzRef,
     ctx,
     bounds,
+    suppressDwellEvents = false,
   } = args
   const cellSize = args.cellSize ?? NAV_GRID_CELL_M
 
   const goals = useMemo(() => {
     if (directGoals && directGoals.length > 0) return directGoals
     const out: Point2[] = []
+    let previous: Point2 | null = playerXzRef.current ?? ENTRANCE_SPAWN
     for (const idx of missionIndices) {
       const inst = bookshelfInstances[idx]
       if (!inst || inst.kind !== 'bookshelf') continue
-      const g = pickBookshelfGoalWorld(inst, ctx, bounds, cellSize, NAV_GOAL_MARGIN_M)
-      if (g) out.push(g)
+      const g = pickReachableBookshelfGoalWorld(
+        inst,
+        previous,
+        ctx,
+        bounds,
+        cellSize,
+        NAV_GOAL_MARGIN_M,
+      )
+      if (g) {
+        out.push(g)
+        previous = g
+      }
     }
     return out
-  }, [directGoals, missionIndices, bookshelfInstances, ctx, bounds, cellSize])
+  }, [directGoals, missionIndices, bookshelfInstances, ctx, bounds, cellSize, playerXzRef])
 
   const missionKey = `${missionVersion}:${directGoals?.length ? `d:${directGoals.length}` : missionIndices.join(',')}`
 
@@ -111,6 +128,11 @@ export function useNavigationRoute(args: {
   const activeLegRef = useRef(activeLeg)
   const goalsRef = useRef(goals)
   const poolIndicesRef = useRef(missionPoolIndices ?? missionIndices)
+  const suppressDwellRef = useRef(suppressDwellEvents)
+
+  useEffect(() => {
+    suppressDwellRef.current = suppressDwellEvents
+  }, [suppressDwellEvents])
 
   useEffect(() => {
     poolIndicesRef.current = missionPoolIndices ?? missionIndices
@@ -206,12 +228,14 @@ export function useNavigationRoute(args: {
         if (!arrivalCooldown.current) {
           arrivalCooldown.current = true
           const arrivedLeg = leg
-          dispatchDwellEvent({
-            type: 'SHELF_ARRIVED',
-            version: AGENT_MAP_EVENT_VERSION,
-            legIndex: arrivedLeg,
-            poolIndex: poolIndicesRef.current[arrivedLeg] ?? null,
-          })
+          if (!suppressDwellRef.current) {
+            dispatchDwellEvent({
+              type: 'SHELF_ARRIVED',
+              version: AGENT_MAP_EVENT_VERSION,
+              legIndex: arrivedLeg,
+              poolIndex: poolIndicesRef.current[arrivedLeg] ?? null,
+            })
+          }
           if (leg === 0 && leg0PathRef.current.length > 0) {
             startTransition(() => setFrozenLeg0([...leg0PathRef.current]))
           }
@@ -255,6 +279,7 @@ export function useNavigationRoute(args: {
     if (goals.length === 0) return null
     const cg = activeLeg < goals.length ? goals[activeLeg] : null
     return {
+      planPath: dimPath,
       dimPath,
       highlightPath,
       highlightDistanceToGoalM,

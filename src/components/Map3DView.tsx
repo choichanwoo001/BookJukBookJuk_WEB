@@ -14,7 +14,12 @@ import { useNavigationRoute } from '../hooks/useNavigationRoute'
 import { useAgentMission } from '../hooks/useAgentMission'
 import { resolveMissionPoolIndices } from '../utils/bookShelfNavigation'
 import { checkoutDirectGoals } from '../utils/counterNavigation'
-import { subscribeMapCommand, AGENT_MAP_EVENT_VERSION, dispatchDwellEvent } from '../agent/runtime/agentEventBus'
+import {
+  subscribeMapCommand,
+  AGENT_MAP_EVENT_VERSION,
+  dispatchDwellEvent,
+  publishNavigationSync,
+} from '../agent/runtime/agentEventBus'
 import { isDemoMode } from '../config/demoMode'
 import {
   FIXED_SELECTION_RADIUS_M,
@@ -38,6 +43,11 @@ import { ScenarioRoutePlannerPanel } from './map/ScenarioRoutePlannerPanel'
 import { useMapViewState } from '../hooks/useMapViewState'
 import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
+import { NAVIGATION_MOBILITY_PHASE_LABELS } from '../types/navigationMobility'
+import { useScenarioRoutePreview } from '../hooks/useScenarioRoutePreview'
+import { buildDemoScenarioRoute } from '../utils/demoScenarioRoute'
+import { pathLengthM } from '../utils/pathSampling'
+import type { RoutePathDisplayMode } from '../utils/pathSmoothing'
 
 function buildStaticInstances(): FixtureRenderInstance[] {
   const counters = counterInstances.map<FixtureRenderInstance>((item) => ({
@@ -82,10 +92,12 @@ function Map3DView({
   isFullscreen,
   onToggleFullscreen,
   onResetOnboarding,
+  ttsSpeaking = false,
 }: {
   activePane: 'map' | 'chat'
   onActivateMap: () => void
   busy: boolean
+  ttsSpeaking?: boolean
   onBookCapture: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
@@ -105,15 +117,41 @@ function Map3DView({
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
   const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(null)
   const [checkoutGoals, setCheckoutGoals] = useState<Point2[] | null>(null)
+  const [routePathDisplayMode, setRoutePathDisplayMode] =
+    useState<RoutePathDisplayMode>('curved')
   const checkoutArrivedRef = useRef(false)
   const playerWorldXzRef = useRef<Point2 | null>(null)
   const navigationActiveLegRef = useRef<number | null>(null)
+  const [navigationSpawnReady, setNavigationSpawnReady] = useState(true)
+  const [movementSync, setMovementSync] = useState({
+    isManualWalking: false,
+    isAutoWalking: false,
+  })
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const { spanX: minimapSpanX, spanZ: minimapSpanZ } = useMemo(() => getMinimapWorldBounds(), [])
   const forwardArrowRef = useRef<HTMLDivElement>(null)
 
   const handleMinimapViewportUv = useCallback((quad: MinimapUvPoint[] | null) => {
     setMinimapViewportUv(quad)
+  }, [])
+
+  const handleNavigationSpawnReady = useCallback(() => {
+    setNavigationSpawnReady(true)
+  }, [])
+
+  const handleMovementSyncSample = useCallback(
+    (sample: { isManualWalking: boolean; isAutoWalking: boolean }) => {
+      setMovementSync(sample)
+    },
+    [],
+  )
+
+  useEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type === 'START_NAVIGATION') {
+        setNavigationSpawnReady(false)
+      }
+    })
   }, [])
 
   const {
@@ -140,16 +178,31 @@ function Map3DView({
     mode,
     isEdit,
     missionVersion,
+    routeDisplaySurface,
     minimapPlayerPos,
     setMinimapPlayerPos,
     walkFov,
     handleViewModeChange,
     handleMinimapToggle,
     handleWalkFovChange,
+    startNavigationView,
   } = useMapViewState({
     playerWorldXzRef,
     activeLegRef: navigationActiveLegRef,
     clearSelection,
+  })
+
+  const {
+    demoNavigationActive,
+    handleMobilityPhaseChange,
+    mobilityPhase,
+    scenarioDirectGoals,
+    scenarioPlaybackHeadingRef,
+    scenarioRoutePreviewActive,
+  } = useScenarioRoutePreview({
+    playerWorldXzRef,
+    setMinimapPlayerPos,
+    startNavigationView,
   })
 
   const agentMission = useAgentMission(missionVersion)
@@ -196,12 +249,13 @@ function Map3DView({
   )
 
   const directGoals = useMemo(() => {
+    if (scenarioDirectGoals && scenarioDirectGoals.length > 0) return scenarioDirectGoals
     if (agentMission.directGoals && agentMission.directGoals.length > 0) {
       return agentMission.directGoals
     }
     if (checkoutGoals && checkoutGoals.length > 0) return checkoutGoals
     return null
-  }, [agentMission.directGoals, checkoutGoals])
+  }, [scenarioDirectGoals, agentMission.directGoals, checkoutGoals])
 
   useEffect(() => {
     return subscribeMapCommand((command) => {
@@ -221,6 +275,7 @@ function Map3DView({
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
     bounds: navBounds,
+    suppressDwellEvents: scenarioRoutePreviewActive || !navigationSpawnReady,
   })
 
   const {
@@ -235,10 +290,70 @@ function Map3DView({
     [versoStatus, versoPath],
   )
   const displayRoute = robotRoute ?? navigationRoute
+  const isWalkMode = mode === 'firstPerson' || mode === 'thirdPerson'
+  const demoScenarioRoute = useMemo(() => {
+    if (!scenarioRoutePreviewActive || demoNavigationActive) return null
+    return buildDemoScenarioRoute()
+  }, [demoNavigationActive, scenarioRoutePreviewActive])
+  const showScenarioPlanOnMain =
+    scenarioRoutePreviewActive && !demoNavigationActive && !isWalkMode
+  const showMinimapNavigation = !showScenarioPlanOnMain && (demoNavigationActive || isWalkMode)
+  const mainScenarioRoute = showScenarioPlanOnMain ? demoScenarioRoute : null
+  const mainNavigationRoute =
+    showScenarioPlanOnMain
+      ? null
+      : routeDisplaySurface === 'main' || isWalkMode
+        ? displayRoute
+        : null
+  const minimapNavDimPath = showScenarioPlanOnMain
+    ? null
+    : showMinimapNavigation
+      ? displayRoute?.planPath ?? null
+      : null
+  const minimapNavHighlightPath = showScenarioPlanOnMain
+    ? null
+    : showMinimapNavigation
+      ? displayRoute?.highlightPath ?? null
+      : null
+
+  const minimapViewportForPanel = isWalkMode ? null : minimapViewportUv
 
   useEffect(() => {
     navigationActiveLegRef.current = navigationRoute?.activeLeg ?? null
   }, [navigationRoute?.activeLeg])
+
+  const highlightPathLengthM = useMemo(() => {
+    const path = navigationRoute?.highlightPath
+    if (!path || path.length < 2) return null
+    return pathLengthM(path)
+  }, [navigationRoute?.highlightPath])
+
+  useEffect(() => {
+    publishNavigationSync({
+      version: AGENT_MAP_EVENT_VERSION,
+      navigationActive: demoNavigationActive,
+      mobilityPhase,
+      activeLeg: navigationRoute?.activeLeg ?? null,
+      distanceToGoalM: navigationRoute?.highlightDistanceToGoalM ?? null,
+      highlightPathLengthM,
+      isAutoWalking: movementSync.isAutoWalking,
+      isManualWalking: movementSync.isManualWalking,
+      isWalkMode,
+      navigationSpawnReady,
+      ttsSpeaking,
+    })
+  }, [
+    demoNavigationActive,
+    highlightPathLengthM,
+    isWalkMode,
+    mobilityPhase,
+    movementSync.isAutoWalking,
+    movementSync.isManualWalking,
+    navigationRoute?.activeLeg,
+    navigationRoute?.highlightDistanceToGoalM,
+    navigationSpawnReady,
+    ttsSpeaking,
+  ])
 
   useEffect(() => {
     if (!checkoutGoals?.length || !navigationRoute) return
@@ -319,7 +434,20 @@ function Map3DView({
           onMinimapViewportUv={handleMinimapViewportUv}
           onPlayerPosition={setMinimapPlayerPos}
           playerWorldXzRef={playerWorldXzRef}
-          navigationRoute={displayRoute}
+          navigationRoute={mainNavigationRoute}
+          scenarioRoute={mainScenarioRoute}
+          routePathDisplayMode={routePathDisplayMode}
+          walkabilityCtx={navCtx}
+          navigationRouteVariant={isWalkMode ? 'nav' : 'preview'}
+          navHighlightPath={navigationRoute?.highlightPath ?? null}
+          navCurrentGoal={navigationRoute?.currentGoal ?? null}
+          demoNavigationActive={demoNavigationActive}
+          scenarioRoutePreviewActive={scenarioRoutePreviewActive}
+          ttsSpeaking={ttsSpeaking}
+          onMobilityPhaseChange={handleMobilityPhaseChange}
+          onMovementSyncSample={handleMovementSyncSample}
+          onNavigationSpawnReady={handleNavigationSpawnReady}
+          scenarioPlaybackHeadingRef={scenarioPlaybackHeadingRef}
           robotSyncActive={robotSyncActive}
           robotStatus={versoStatus}
         />
@@ -348,10 +476,13 @@ function Map3DView({
           mode={mode}
           spanX={minimapSpanX}
           spanZ={minimapSpanZ}
-          viewportUv={minimapViewportUv}
-          playerPos={minimapPlayerPos}
-          navDimPath={displayRoute?.dimPath ?? null}
-          navHighlightPath={displayRoute?.highlightPath ?? null}
+          viewportUv={minimapViewportForPanel}
+          playerPos={showScenarioPlanOnMain ? null : minimapPlayerPos}
+          navDimPath={minimapNavDimPath}
+          navHighlightPath={minimapNavHighlightPath}
+          navSegmentPaths={null}
+          walkabilityCtx={navCtx}
+          pathDisplayMode={routePathDisplayMode}
           onClick={handleMinimapToggle}
         />
 
@@ -360,6 +491,14 @@ function Map3DView({
           onClose={() => setScenarioRouteOpen(false)}
         />
 
+        {demoNavigationActive && mobilityPhase !== 'idle' && (
+          <div className="navigationMobilityHud" role="status">
+            <span className="navigationMobilityHudLabel">
+              {NAVIGATION_MOBILITY_PHASE_LABELS[mobilityPhase]}
+            </span>
+          </div>
+        )}
+
         <MapControlDock
           visible={controlsVisible}
           onToggleVisible={() => setControlsVisible((v) => !v)}
@@ -367,10 +506,11 @@ function Map3DView({
           isFullscreen={isFullscreen}
           onToggleFullscreen={onToggleFullscreen}
           onResetOnboarding={onResetOnboarding}
-          onOpenScenarioRoute={() => setScenarioRouteOpen(true)}
           mode={mode}
           isEdit={isEdit}
           onModeChange={handleViewModeChange}
+          routePathDisplayMode={routePathDisplayMode}
+          onRoutePathDisplayModeChange={setRoutePathDisplayMode}
           versoConnectionState={versoConnectionState}
           onVersoConnect={setVersoActiveUrl}
           onVersoDisconnect={() => setVersoActiveUrl(null)}

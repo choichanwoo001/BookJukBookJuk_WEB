@@ -17,6 +17,8 @@ import type { ViewMode } from '../types/scene'
 
 type MinimapPlayerPosition = { u: number; v: number; yaw: number }
 
+export type RouteDisplaySurface = 'main' | 'minimap'
+
 export function useMapViewState({
   playerWorldXzRef,
   activeLegRef,
@@ -32,6 +34,7 @@ export function useMapViewState({
   const [missionVersion, setMissionVersion] = useState(0)
   const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
   const [minimapPlayerPos, setMinimapPlayerPos] = useState<MinimapPlayerPosition | null>(null)
+  const [routeDisplaySurface, setRouteDisplaySurface] = useState<RouteDisplaySurface>('main')
 
   const isEdit = mode === 'edit'
   const isOverviewLike = mode === 'overview' || mode === 'edit'
@@ -65,6 +68,13 @@ export function useMapViewState({
     else setFirstPersonFov(v)
   }, [mode])
 
+  const startNavigationView = useCallback(() => {
+    setPrevWalkMode('thirdPerson')
+    setMode('thirdPerson')
+    setRouteDisplaySurface('main')
+    handleNewMission()
+  }, [handleNewMission])
+
   useEffect(() => {
     return subscribeMapCommand((command: AgentMapCommand) => {
       if (command.type === 'REPLAN_SHORTEST') {
@@ -73,12 +83,11 @@ export function useMapViewState({
       if (command.type === 'PREVIEW_ROUTE') {
         setPrevWalkMode('thirdPerson')
         setMode('overview')
+        setRouteDisplaySurface('main')
         handleNewMission()
       }
       if (command.type === 'START_NAVIGATION') {
-        setPrevWalkMode('thirdPerson')
-        setMode('thirdPerson')
-        handleNewMission()
+        startNavigationView()
       }
       if (command.type === 'PAUSE_MOBILITY' && (mode === 'firstPerson' || mode === 'thirdPerson')) {
         setPrevWalkMode(mode)
@@ -90,9 +99,10 @@ export function useMapViewState({
       if (command.type === 'GO_CHECKOUT') {
         setPrevWalkMode('thirdPerson')
         setMode('overview')
+        setRouteDisplaySurface('main')
       }
     })
-  }, [handleNewMission, mode, prevWalkMode])
+  }, [handleNewMission, mode, prevWalkMode, startNavigationView])
 
   useEffect(() => {
     publishMapSnapshot({
@@ -109,6 +119,7 @@ export function useMapViewState({
     isEdit,
     isOverviewLike,
     missionVersion,
+    routeDisplaySurface,
     minimapPlayerPos,
     setMinimapPlayerPos,
     walkFov,
@@ -116,16 +127,19 @@ export function useMapViewState({
     handleViewModeChange,
     handleMinimapToggle,
     handleWalkFovChange,
+    startNavigationView,
   }), [
     mode,
     isEdit,
     isOverviewLike,
     missionVersion,
+    routeDisplaySurface,
     minimapPlayerPos,
     walkFov,
     handleNewMission,
     handleViewModeChange,
     handleMinimapToggle,
     handleWalkFovChange,
+    startNavigationView,
   ])
 }

@@ -7,6 +7,7 @@ import {
   DEMO_BOOKS,
 
   DEMO_PLANNED_BOOK_KEYS,
+  DEMO_SCENARIO_ROUTE_KEYS,
 
   type DemoBookDef,
 
@@ -119,7 +120,7 @@ export function beginDemoNavigationFromShoppingList(entries: ShoppingListEntry[]
 
   const keys = resolveDemoMissionKeys(entries)
 
-  const firstLeg: DemoBookKey[] = keys.includes('book1') ? ['book1'] : keys.slice(0, 1)
+  const firstLeg: DemoBookKey[] = keys.length > 0 ? [...DEMO_SCENARIO_ROUTE_KEYS] : []
 
   if (firstLeg.length > 0) dispatchDemoMissionForKeys(firstLeg)
 
@@ -189,50 +190,41 @@ function buildDemoRecommendationToolResult(entries: ShoppingListEntry[]): ToolRe
 
 
 
+export function claimTransitMonologueLeg(
+  state: DemoOrchestratorState,
+  activeLeg: number,
+): { claimed: boolean; nextState: DemoOrchestratorState } {
+  if (activeLeg === state.transitLegAnnounced) {
+    return { claimed: false, nextState: state }
+  }
+  return {
+    claimed: true,
+    nextState: { ...state, transitLegAnnounced: activeLeg },
+  }
+}
+
 export async function maybeAnnounceTransitMonologue(args: {
-
   state: DemoOrchestratorState
-
   activeLeg: number
-
   title: string
-
   authors: string
-
   description?: string
-
   demoStep: DemoStep
-
 }): Promise<{ message: string | null; nextState: DemoOrchestratorState }> {
-
-  if (args.activeLeg === args.state.transitLegAnnounced) {
-
-    return { message: null, nextState: args.state }
-
+  const { claimed, nextState } = claimTransitMonologueLeg(args.state, args.activeLeg)
+  if (!claimed) {
+    return { message: null, nextState }
   }
 
   const message = await generateTransitMonologue({
-
     title: args.title,
-
     authors: args.authors,
-
     description: args.description,
-
     demoStep: args.demoStep,
-
     legIndex: args.activeLeg,
-
   })
 
-  return {
-
-    message,
-
-    nextState: { ...args.state, transitLegAnnounced: args.activeLeg },
-
-  }
-
+  return { message, nextState }
 }
 
 

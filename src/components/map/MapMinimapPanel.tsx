@@ -2,7 +2,9 @@ import type { Point2 } from '../../data/floorPlan'
 import type { ViewMode } from '../../types/scene'
 import type { MinimapUvPoint } from '../scene/MinimapViewportReporter'
 import type { MinimapPlayerPos } from '../scene/SceneContent'
-import { MinimapSvgOverlay } from './MinimapSvgOverlay'
+import { MinimapSvgOverlay, type MinimapNavSegmentPath } from './MinimapSvgOverlay'
+import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
+import type { WalkabilityContext } from '../../utils/walkability'
 
 export type MapMinimapPanelProps = {
   mode: ViewMode
@@ -12,6 +14,9 @@ export type MapMinimapPanelProps = {
   playerPos: MinimapPlayerPos | null
   navDimPath: Point2[] | null
   navHighlightPath: Point2[] | null
+  navSegmentPaths?: MinimapNavSegmentPath[] | null
+  walkabilityCtx?: WalkabilityContext
+  pathDisplayMode?: RoutePathDisplayMode
   onClick: () => void
 }
 
@@ -23,6 +28,9 @@ export function MapMinimapPanel({
   playerPos,
   navDimPath,
   navHighlightPath,
+  navSegmentPaths,
+  walkabilityCtx,
+  pathDisplayMode = 'curved',
   onClick,
 }: MapMinimapPanelProps) {
   return (
@@ -44,6 +52,9 @@ export function MapMinimapPanel({
             playerPos={playerPos}
             navDimPath={navDimPath}
             navHighlightPath={navHighlightPath}
+            navSegmentPaths={navSegmentPaths}
+            walkabilityCtx={walkabilityCtx}
+            pathDisplayMode={pathDisplayMode}
             markerScale={1}
           />
         </span>

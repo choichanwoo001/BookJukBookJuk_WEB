@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
+import { useFrame } from '@react-three/fiber'
 import { Group } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { isEditableDomTarget } from '../../utils/domTarget'
@@ -9,7 +10,9 @@ import {
   floorRects,
   floorFillRects,
   FLOOR_HEIGHT_M,
+  ENTRANCE_SPAWN,
 } from '../../data/floorPlan'
+import { subscribeMapCommand } from '../../agent/runtime/agentEventBus'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
 import { syncPlayerPositionFromWorldRef, useGuidanceIntroMotion } from '../../hooks/useGuidanceIntroMotion'
@@ -56,9 +59,19 @@ import { WalkRig, OverviewRig } from './rigs/CameraRigs'
 import { useScenePickHandlers } from './useScenePickHandlers'
 import { useSceneWalkModeSync } from './useSceneWalkModeSync'
 import { useVersoRobotSync } from '../../hooks/useVersoRobotSync'
+import { useDemoNavigationAutoWalk } from '../../hooks/useDemoNavigationAutoWalk'
 import type { VersoStatus } from '../../lib/verso/types'
 import { NavigationRouteMesh } from './NavigationRouteMesh'
+import { ScenarioRouteSegmentsMesh } from './ScenarioRouteSegmentsMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
+import type { DemoScenarioRoute } from '../../utils/demoScenarioRoute'
+import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
+import type { WalkabilityContext } from '../../utils/walkability'
+import { ScenarioRouteStopMarkers } from './ScenarioRouteStopMarkers'
+import {
+  resolveNavigationMobilityPhase,
+  type NavigationMobilityPhase,
+} from '../../types/navigationMobility'
 
 export type { MinimapPlayerPos }
 
@@ -80,6 +93,19 @@ export function SceneContent({
   onPlayerPosition,
   playerWorldXzRef,
   navigationRoute,
+  navigationRouteVariant = 'preview',
+  routePathDisplayMode = 'curved',
+  scenarioRoute = null,
+  walkabilityCtx,
+  navHighlightPath = null,
+  navCurrentGoal = null,
+  demoNavigationActive = false,
+  scenarioRoutePreviewActive = false,
+  ttsSpeaking = false,
+  onMobilityPhaseChange,
+  onMovementSyncSample,
+  onNavigationSpawnReady,
+  scenarioPlaybackHeadingRef,
   robotSyncActive = false,
   robotStatus = null,
 }: {
@@ -100,6 +126,19 @@ export function SceneContent({
   onPlayerPosition?: (pos: MinimapPlayerPos | null) => void
   playerWorldXzRef?: RefObject<Point2 | null>
   navigationRoute?: NavigationRouteVisual | null
+  navigationRouteVariant?: 'preview' | 'nav'
+  routePathDisplayMode?: RoutePathDisplayMode
+  scenarioRoute?: DemoScenarioRoute | null
+  walkabilityCtx?: WalkabilityContext
+  navHighlightPath?: Point2[] | null
+  navCurrentGoal?: Point2 | null
+  demoNavigationActive?: boolean
+  scenarioRoutePreviewActive?: boolean
+  ttsSpeaking?: boolean
+  onMobilityPhaseChange?: (phase: NavigationMobilityPhase) => void
+  onMovementSyncSample?: (sample: { isManualWalking: boolean; isAutoWalking: boolean }) => void
+  onNavigationSpawnReady?: () => void
+  scenarioPlaybackHeadingRef?: RefObject<number | null>
   robotSyncActive?: boolean
   robotStatus?: VersoStatus | null
 }) {
@@ -123,7 +162,7 @@ export function SceneContent({
   const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
-  const controlsEnabled = activePane === 'map'
+  const controlsEnabled = activePane === 'map' || demoNavigationActive
   const counterRenderInstances = useMemo(() => {
     const counters = staticFixtureInstances.filter((inst) => inst.kind === 'counter')
     return counters.filter((c) => !isCounterOverlaidByBookshelfOverlayLayer(c))
@@ -152,6 +191,18 @@ export function SceneContent({
     },
   })
 
+  const demoAutoWalkActive = useDemoNavigationAutoWalk({
+    worldRef,
+    yawRef,
+    characterYawRef,
+    playerPositionRef,
+    highlightPath: navHighlightPath,
+    currentGoal: navCurrentGoal,
+    enabled: isWalkMode && demoNavigationActive && !robotSyncActive,
+    pauseForIntro: guidanceIntroActive,
+    pauseForSpeech: ttsSpeaking,
+  })
+
   useWorldMovement(
     worldRef,
     yawRef,
@@ -163,7 +214,7 @@ export function SceneContent({
     },
     characterYawRef,
     walkMovingRef,
-    controlsEnabled && !robotSyncActive && !guidanceIntroActive,
+    controlsEnabled && !robotSyncActive && !guidanceIntroActive && !demoAutoWalkActive,
     playerPositionRef,
   )
 
@@ -186,7 +237,63 @@ export function SceneContent({
     pitchRef,
     prevWalkModeRef,
     preserveHeadingOnEnter: robotSyncActive,
+    playerWorldXzRef,
+    scenarioPlaybackHeadingRef,
+    characterYawRef,
+    syncFromScenarioPreview: scenarioRoutePreviewActive && !demoNavigationActive,
   })
+
+  const highlightPathLength = navHighlightPath?.length ?? 0
+  const mobilityPhase = useMemo(
+    () =>
+      resolveNavigationMobilityPhase({
+        demoNavigationActive,
+        guidanceIntroActive,
+        demoAutoWalkActive,
+        highlightPathLength,
+      }),
+    [demoAutoWalkActive, demoNavigationActive, guidanceIntroActive, highlightPathLength],
+  )
+
+  useEffect(() => {
+    onMobilityPhaseChange?.(mobilityPhase)
+  }, [mobilityPhase, onMobilityPhaseChange])
+
+  useEffect(() => {
+    onMovementSyncSample?.({
+      isManualWalking: walkMovingRef.current,
+      isAutoWalking: demoAutoWalkActive,
+    })
+  }, [demoAutoWalkActive, onMovementSyncSample])
+
+  const prevManualWalkingRef = useRef(false)
+  useFrame(() => {
+    const moving = walkMovingRef.current
+    if (moving === prevManualWalkingRef.current) return
+    prevManualWalkingRef.current = moving
+    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: demoAutoWalkActive })
+  })
+
+  useLayoutEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type !== 'START_NAVIGATION') return
+      const wx = -ENTRANCE_SPAWN[0]
+      const wz = -ENTRANCE_SPAWN[1]
+      storedWorldPositionRef.current = [wx, wz]
+      playerPositionRef.current[0] = ENTRANCE_SPAWN[0]
+      playerPositionRef.current[1] = ENTRANCE_SPAWN[1]
+      if (playerWorldXzRef) {
+        playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+      }
+      if (worldRef.current) {
+        worldRef.current.position.set(wx, 0, wz)
+      }
+      if (scenarioPlaybackHeadingRef) {
+        scenarioPlaybackHeadingRef.current = null
+      }
+      onNavigationSpawnReady?.()
+    })
+  }, [onNavigationSpawnReady, playerWorldXzRef, scenarioPlaybackHeadingRef])
 
   useEffect(() => {
     if (!isWalkMode) return
@@ -383,8 +490,24 @@ export function SceneContent({
           onPointerDown={pillarPickHandler}
         />
         <BookstoreLights floorRenderRects={floorRects} />
-        {navigationRoute && (
-          <NavigationRouteMesh route={navigationRoute} />
+        {scenarioRoute ? (
+          <>
+            <ScenarioRouteSegmentsMesh
+              route={scenarioRoute}
+              walkabilityCtx={walkabilityCtx}
+              pathDisplayMode={routePathDisplayMode}
+            />
+            <ScenarioRouteStopMarkers route={scenarioRoute} activeStopIndex={-1} />
+          </>
+        ) : (
+          navigationRoute && (
+            <NavigationRouteMesh
+              route={navigationRoute}
+              variant={navigationRouteVariant}
+              walkabilityCtx={walkabilityCtx}
+              pathDisplayMode={routePathDisplayMode}
+            />
+          )
         )}
         {selections.map((selection) => (
           <group key={selection.id} userData={{ excludeCameraCollision: true }}>

@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .book_identifier import identify_book, search_aladin
 
-app = FastAPI(title="BookJuk book recognition", version="0.1.0")
+app = FastAPI(title="산책 책 인식", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,

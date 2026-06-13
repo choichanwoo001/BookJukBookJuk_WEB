@@ -119,4 +119,4 @@ MediaPipe 모델은 최초 실행 시 `book_recognition/.models/` 아래로 내�
 
 ## 4. 이 저장소에서의 위치
 
-본 디렉터리는 [BookJukBookJuk_WEB](https://github.com/choichanwoo001/BookJukBookJuk_WEB)의 **React + Three.js 실내 맵**과 별도 실행되는 **Python 실험/데모**입니다. 맵 시각화와 향후 통합 아키텍처를 한 저장소에서 추적하기 위해 포함되었습니다.
+본 디렉터리는 [산책 Web](https://github.com/choichanwoo001/BookJukBookJuk_WEB) 저장소의 **React + Three.js 실내 맵**과 별도 실행되는 **Python 실험/데모**입니다. 맵 시각화와 향후 통합 아키텍처를 한 저장소에서 추적하기 위해 포함되었습니다.

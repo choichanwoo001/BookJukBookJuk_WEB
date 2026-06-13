@@ -1,6 +1,6 @@
 # 손 제스처 정리
 
-BookJukBookJuk 웹캠 제스처 데모(`book_recognition/gesture_test.py`)에서 인식하는 **손 제스처 6종**과 각각의 동작을 정리한 문서입니다.
+산책 웹캠 제스처 데모(`book_recognition/gesture_test.py`)에서 인식하는 **손 제스처 6종**과 각각의 동작을 정리한 문서입니다.
 
 > **범위:** Python 로컬 데모만 해당합니다. 웹 React 앱에는 브라우저 제스처 루프가 없고, 책 표지 인식은 버튼 + HTTP `/identify`로 동작합니다.
 

@@ -1,5 +1,5 @@
 import type { HandLandmarker } from '@mediapipe/tasks-vision'
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 import {
   classifyOneHandGesture,
   GESTURE_COOLDOWN_FRAMES,
@@ -42,6 +42,20 @@ export function useGestureRecognition({
   const streakRef = useRef(0)
   const streakLabelRef = useRef<GestureId | null>(null)
   const cooldownRef = useRef(0)
+  const previewGestureRef = useRef<GestureId | null>(null)
+  const previewStreakRef = useRef(0)
+  const lastVideoTimeRef = useRef(-1)
+
+  const setPreview = useCallback((gesture: GestureId | null, streak: number) => {
+    if (previewGestureRef.current !== gesture) {
+      previewGestureRef.current = gesture
+      setPreviewGesture(gesture)
+    }
+    if (previewStreakRef.current !== streak) {
+      previewStreakRef.current = streak
+      setPreviewStreak(streak)
+    }
+  }, [])
 
   useEffect(() => {
     onConfirmedRef.current = onConfirmed
@@ -49,11 +63,11 @@ export function useGestureRecognition({
 
   useEffect(() => {
     if (!isActive || !enabled) {
-      setPreviewGesture(null)
-      setPreviewStreak(0)
+      setPreview(null, 0)
       streakRef.current = 0
       streakLabelRef.current = null
       cooldownRef.current = 0
+      lastVideoTimeRef.current = -1
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
@@ -72,7 +86,7 @@ export function useGestureRecognition({
         const landmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
           runningMode: 'VIDEO',
-          numHands: 2,
+          numHands: 1,
         })
         if (cancelled) {
           landmarker.close()
@@ -97,6 +111,11 @@ export function useGestureRecognition({
         rafRef.current = requestAnimationFrame(tick)
         return
       }
+      if (video.currentTime === lastVideoTimeRef.current) {
+        rafRef.current = requestAnimationFrame(tick)
+        return
+      }
+      lastVideoTimeRef.current = video.currentTime
 
       const result = landmarker.detectForVideo(video, performance.now())
       let gestureName: GestureId | null = null
@@ -114,13 +133,11 @@ export function useGestureRecognition({
         cooldownRef.current -= 1
         streakRef.current = 0
         streakLabelRef.current = null
-        setPreviewGesture(null)
-        setPreviewStreak(0)
+        setPreview(null, 0)
       } else if (gestureName === null) {
         streakRef.current = 0
         streakLabelRef.current = null
-        setPreviewGesture(null)
-        setPreviewStreak(0)
+        setPreview(null, 0)
       } else {
         if (gestureName === streakLabelRef.current) {
           streakRef.current += 1
@@ -128,16 +145,14 @@ export function useGestureRecognition({
           streakRef.current = 1
           streakLabelRef.current = gestureName
         }
-        setPreviewGesture(gestureName)
-        setPreviewStreak(streakRef.current)
+        setPreview(gestureName, streakRef.current)
 
         if (streakRef.current >= GESTURE_CONFIRM_FRAMES && streakLabelRef.current !== null) {
           const confirmed = streakLabelRef.current
           cooldownRef.current = GESTURE_COOLDOWN_FRAMES
           streakRef.current = 0
           streakLabelRef.current = null
-          setPreviewGesture(null)
-          setPreviewStreak(0)
+          setPreview(null, 0)
           onConfirmedRef.current(confirmed)
         }
       }
@@ -155,8 +170,9 @@ export function useGestureRecognition({
       }
       landmarkerRef.current?.close?.()
       landmarkerRef.current = null
+      lastVideoTimeRef.current = -1
     }
-  }, [enabled, isActive, videoRef])
+  }, [enabled, isActive, setPreview, videoRef])
 
   return { previewGesture, previewStreak, loading, error }
 }

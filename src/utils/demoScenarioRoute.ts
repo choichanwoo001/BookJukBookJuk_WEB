@@ -11,7 +11,7 @@ import { DEMO_BOOKS, DEMO_SCENARIO_ROUTE_KEYS, type DemoBookKey } from '../data/
 import { NAV_GOAL_MARGIN_M, NAV_GRID_CELL_M } from '../config/constants'
 import { buildMissionShelfPool, buildNavBookshelfRects } from './missionShelfPool'
 import { getMinimapWorldBounds } from './minimapBounds'
-import { pickBookshelfGoalWorld } from './navBookshelfGoals'
+import { pickReachableBookshelfGoalWorld } from './navBookshelfGoals'
 import { pickCheckoutGoalFromWorld } from './counterNavigation'
 import {
   findPathWorldGrid,
@@ -97,13 +97,14 @@ function buildDefaultNavContext(): {
 
 function goalForPoolIndex(
   poolIndex: number,
+  from: Point2 | null,
   pool: ReturnType<typeof buildMissionShelfPool>,
   ctx: WalkabilityContext,
   bounds: WorldBounds,
 ): Point2 | null {
   const inst = pool[poolIndex]
   if (!inst || inst.kind !== 'bookshelf') return null
-  return pickBookshelfGoalWorld(inst, ctx, bounds, NAV_GRID_CELL_M, NAV_GOAL_MARGIN_M)
+  return pickReachableBookshelfGoalWorld(inst, from, ctx, bounds, NAV_GRID_CELL_M, NAV_GOAL_MARGIN_M)
 }
 
 function computeSegmentPath(
@@ -160,12 +161,13 @@ export function buildDemoScenarioRoute(
     goal: [...ENTRANCE_SPAWN],
   })
   order++
+  let previousGoal: Point2 = [...ENTRANCE_SPAWN]
 
   for (const bookKey of DEMO_SCENARIO_ROUTE_KEYS) {
     const def = DEMO_BOOKS[bookKey]
     const poolIndex = poolIndexOverrides?.[bookKey] ?? def.poolIndex
     const inst = pool[poolIndex]
-    const goal = goalForPoolIndex(poolIndex, pool, ctx, bounds)
+    const goal = goalForPoolIndex(poolIndex, previousGoal, pool, ctx, bounds)
     if (!goal) continue
     stops.push({
       id: bookKey,
@@ -178,6 +180,7 @@ export function buildDemoScenarioRoute(
       shelfCx: inst?.cx,
       shelfCz: inst?.cz,
     })
+    previousGoal = goal
     order++
   }
 

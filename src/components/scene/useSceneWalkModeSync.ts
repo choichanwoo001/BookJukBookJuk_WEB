@@ -7,6 +7,7 @@ import {
   THIRD_PERSON_LOCKED_PITCH,
 } from '../../config/constants'
 import type { ViewMode } from '../../types/scene'
+import type { Point2 } from '../../data/floorPlan'
 
 export function useSceneWalkModeSync({
   mode,
@@ -16,6 +17,10 @@ export function useSceneWalkModeSync({
   pitchRef,
   prevWalkModeRef,
   preserveHeadingOnEnter = false,
+  playerWorldXzRef,
+  scenarioPlaybackHeadingRef,
+  characterYawRef,
+  syncFromScenarioPreview = false,
 }: {
   mode: ViewMode
   worldRef: MutableRefObject<Group | null>
@@ -24,6 +29,10 @@ export function useSceneWalkModeSync({
   pitchRef: MutableRefObject<number>
   prevWalkModeRef: MutableRefObject<'firstPerson' | 'thirdPerson' | null>
   preserveHeadingOnEnter?: boolean
+  playerWorldXzRef?: MutableRefObject<Point2 | null>
+  scenarioPlaybackHeadingRef?: MutableRefObject<number | null>
+  characterYawRef?: MutableRefObject<number>
+  syncFromScenarioPreview?: boolean
 }) {
   useLayoutEffect(() => {
     let raf = 0
@@ -55,13 +64,24 @@ export function useSceneWalkModeSync({
       // 오버뷰/편집에서 워크 모드로 들어올 때만 저장 좌표 복원.
       // 1인칭↔3인칭 전환 시 월드를 되돌리면 이동 위치가 튀고 카메라가 바닥에서 다시 보간된다.
       if (enteringWalk) {
+        if (syncFromScenarioPreview && playerWorldXzRef?.current) {
+          const [x, z] = playerWorldXzRef.current
+          storedWorldPositionRef.current = [-x, -z]
+        }
         worldRef.current.position.set(
           storedWorldPositionRef.current[0],
           0,
           storedWorldPositionRef.current[1],
         )
         if (!preserveHeadingOnEnter) {
-          yawRef.current = MAP_VIEW_YAW_OFFSET_RAD
+          const previewHeading = scenarioPlaybackHeadingRef?.current
+          yawRef.current =
+            previewHeading != null && syncFromScenarioPreview
+              ? previewHeading
+              : MAP_VIEW_YAW_OFFSET_RAD
+          if (characterYawRef) {
+            characterYawRef.current = yawRef.current + Math.PI
+          }
         }
         pitchRef.current = mode === 'firstPerson' ? FIRST_PERSON_DEFAULT_PITCH : THIRD_PERSON_LOCKED_PITCH
       } else if (prev !== mode) {
@@ -73,5 +93,17 @@ export function useSceneWalkModeSync({
 
     apply()
     return () => cancelAnimationFrame(raf)
-  }, [mode, pitchRef, preserveHeadingOnEnter, prevWalkModeRef, storedWorldPositionRef, worldRef, yawRef])
+  }, [
+    mode,
+    pitchRef,
+    playerWorldXzRef,
+    preserveHeadingOnEnter,
+    prevWalkModeRef,
+    scenarioPlaybackHeadingRef,
+    storedWorldPositionRef,
+    characterYawRef,
+    syncFromScenarioPreview,
+    worldRef,
+    yawRef,
+  ])
 }

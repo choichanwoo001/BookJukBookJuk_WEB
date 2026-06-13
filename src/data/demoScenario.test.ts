@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEMO_BOOKS,
   DEMO_PLANNED_BOOK_KEYS,
+  DEMO_SCENARIO_ROUTE_KEYS,
   demoBookToEntry,
   demoRefCoverUrl,
   findDemoBookByTitle,
@@ -57,12 +58,12 @@ describe('demoScenario', () => {
     expect(keys).toEqual(['book1', 'book2'])
   })
 
-  it('begins shelf visit with book1 only', () => {
+  it('begins shelf visit with the full automatic demo route', () => {
     const keys = beginDemoNavigationFromShoppingList([
       { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
       { booksId: 'demo-book-adult', title: '어른이 된다는 것', authors: '우치다 타츠루', coverImageUrl: '' },
     ])
-    expect(keys).toEqual(['book1'])
+    expect(keys).toEqual(DEMO_SCENARIO_ROUTE_KEYS)
   })
 })
 

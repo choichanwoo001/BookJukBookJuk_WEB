@@ -167,6 +167,7 @@ export function ThirdPersonOcclusionFader({
 
     const castRay = (origin: Vector3, direction: Vector3, far: number, applyNormalFilter: boolean) => {
       raycaster.set(origin, direction)
+      raycaster.camera = camera
       raycaster.far = far
       raycaster.near = 0
       const hits = raycaster.intersectObject(world, true)

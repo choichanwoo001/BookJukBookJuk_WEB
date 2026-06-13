@@ -15,7 +15,8 @@ import {
 import { subscribeMapCommand } from '../../agent/runtime/agentEventBus'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
-import { syncPlayerPositionFromWorldRef, useGuidanceIntroMotion } from '../../hooks/useGuidanceIntroMotion'
+import { syncPlayerPositionFromWorldRef } from '../../utils/playerWorldSync'
+import { pathHeadingAtPoint } from '../../utils/pathSampling'
 import {
   bookshelfOverlayLayerInstances,
   counterOverlayLayerInstances,
@@ -101,13 +102,14 @@ export function SceneContent({
   navCurrentGoal = null,
   demoNavigationActive = false,
   scenarioRoutePreviewActive = false,
-  ttsSpeaking = false,
+  mobilityHold = false,
   onMobilityPhaseChange,
   onMovementSyncSample,
   onNavigationSpawnReady,
   scenarioPlaybackHeadingRef,
   robotSyncActive = false,
   robotStatus = null,
+  robotLiveStatusRef,
 }: {
   mode: ViewMode
   activePane: 'map' | 'chat'
@@ -134,13 +136,14 @@ export function SceneContent({
   navCurrentGoal?: Point2 | null
   demoNavigationActive?: boolean
   scenarioRoutePreviewActive?: boolean
-  ttsSpeaking?: boolean
+  mobilityHold?: boolean
   onMobilityPhaseChange?: (phase: NavigationMobilityPhase) => void
   onMovementSyncSample?: (sample: { isManualWalking: boolean; isAutoWalking: boolean }) => void
   onNavigationSpawnReady?: () => void
   scenarioPlaybackHeadingRef?: RefObject<number | null>
   robotSyncActive?: boolean
   robotStatus?: VersoStatus | null
+  robotLiveStatusRef?: RefObject<VersoStatus | null>
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
@@ -151,6 +154,8 @@ export function SceneContent({
   const mouseLookDraggingRef = useRef(false)
   const walkMovingRef = useRef(false)
   const playerPositionRef = useRef<[number, number]>([...INITIAL_PLAYER_POS])
+  const navigationInitialHeadingRef = useRef<number | null>(null)
+  const pathYawAppliedRef = useRef(false)
   const prevWalkModeRef = useRef<'firstPerson' | 'thirdPerson' | null>(null)
   const isFirstPerson = mode === 'firstPerson'
   const isThirdPerson = mode === 'thirdPerson'
@@ -178,19 +183,6 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
-  const guidanceIntroActive = useGuidanceIntroMotion({
-    worldRef,
-    yawRef,
-    characterYawRef,
-    playerPositionRef,
-    enabled: isWalkMode && controlsEnabled && !robotSyncActive,
-    collisionOverrides: {
-      floorRects,
-      wallRects: baseWallRects,
-      bookshelfRects: bookshelfCollisionRects,
-    },
-  })
-
   const demoAutoWalkActive = useDemoNavigationAutoWalk({
     worldRef,
     yawRef,
@@ -199,8 +191,6 @@ export function SceneContent({
     highlightPath: navHighlightPath,
     currentGoal: navCurrentGoal,
     enabled: isWalkMode && demoNavigationActive && !robotSyncActive,
-    pauseForIntro: guidanceIntroActive,
-    pauseForSpeech: ttsSpeaking,
   })
 
   useWorldMovement(
@@ -214,13 +204,14 @@ export function SceneContent({
     },
     characterYawRef,
     walkMovingRef,
-    controlsEnabled && !robotSyncActive && !guidanceIntroActive && !demoAutoWalkActive,
+    controlsEnabled && !robotSyncActive && !demoAutoWalkActive && !mobilityHold,
     playerPositionRef,
   )
 
   useVersoRobotSync({
     robotSyncActive,
     status: robotStatus,
+    liveStatusRef: robotLiveStatusRef,
     worldRef,
     storedWorldPositionRef,
     playerWorldXzRef,
@@ -241,18 +232,35 @@ export function SceneContent({
     scenarioPlaybackHeadingRef,
     characterYawRef,
     syncFromScenarioPreview: scenarioRoutePreviewActive && !demoNavigationActive,
+    navigationHeadingRef: navigationInitialHeadingRef,
   })
 
+  const applyPathAlignedYaw = useCallback((path: Point2[] | null | undefined) => {
+    if (!path || path.length < 2) return
+    const pos = playerPositionRef.current
+    const heading = pathHeadingAtPoint(path, [pos[0], pos[1]])
+    if (heading == null) return
+    navigationInitialHeadingRef.current = heading
+    yawRef.current = heading
+    characterYawRef.current = heading + Math.PI
+    pathYawAppliedRef.current = true
+  }, [])
+
+  useEffect(() => {
+    if (pathYawAppliedRef.current) return
+    applyPathAlignedYaw(navHighlightPath ?? navigationRoute?.highlightPath ?? navigationRoute?.planPath)
+  }, [applyPathAlignedYaw, navHighlightPath, navigationRoute?.highlightPath, navigationRoute?.planPath])
+
   const highlightPathLength = navHighlightPath?.length ?? 0
+  const robotAutoWalkActive = robotSyncActive && Boolean(robotStatus?.isMoving) && !mobilityHold
   const mobilityPhase = useMemo(
     () =>
       resolveNavigationMobilityPhase({
         demoNavigationActive,
-        guidanceIntroActive,
-        demoAutoWalkActive,
+        demoAutoWalkActive: demoAutoWalkActive || robotAutoWalkActive,
         highlightPathLength,
       }),
-    [demoAutoWalkActive, demoNavigationActive, guidanceIntroActive, highlightPathLength],
+    [demoAutoWalkActive, demoNavigationActive, highlightPathLength, robotAutoWalkActive],
   )
 
   useEffect(() => {
@@ -262,16 +270,16 @@ export function SceneContent({
   useEffect(() => {
     onMovementSyncSample?.({
       isManualWalking: walkMovingRef.current,
-      isAutoWalking: demoAutoWalkActive,
+      isAutoWalking: demoAutoWalkActive || robotAutoWalkActive,
     })
-  }, [demoAutoWalkActive, onMovementSyncSample])
+  }, [demoAutoWalkActive, onMovementSyncSample, robotAutoWalkActive])
 
   const prevManualWalkingRef = useRef(false)
   useFrame(() => {
     const moving = walkMovingRef.current
     if (moving === prevManualWalkingRef.current) return
     prevManualWalkingRef.current = moving
-    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: demoAutoWalkActive })
+    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: demoAutoWalkActive || robotAutoWalkActive })
   })
 
   useLayoutEffect(() => {
@@ -291,6 +299,8 @@ export function SceneContent({
       if (scenarioPlaybackHeadingRef) {
         scenarioPlaybackHeadingRef.current = null
       }
+      pathYawAppliedRef.current = false
+      navigationInitialHeadingRef.current = null
       onNavigationSpawnReady?.()
     })
   }, [onNavigationSpawnReady, playerWorldXzRef, scenarioPlaybackHeadingRef])
@@ -378,6 +388,7 @@ export function SceneContent({
           mode={isFirstPerson ? 'firstPerson' : 'thirdPerson'}
           walkFov={walkFov}
           controlsEnabled={controlsEnabled}
+          robotFollowMode={robotSyncActive && isThirdPerson}
           yawRef={yawRef}
           pitchRef={pitchRef}
           characterYawRef={characterYawRef}

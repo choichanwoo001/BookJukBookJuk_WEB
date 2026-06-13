@@ -23,6 +23,7 @@ export function useSceneWalkModeSync({
   scenarioPlaybackHeadingRef,
   characterYawRef,
   syncFromScenarioPreview = false,
+  navigationHeadingRef,
 }: {
   mode: ViewMode
   worldRef: MutableRefObject<Group | null>
@@ -35,6 +36,7 @@ export function useSceneWalkModeSync({
   scenarioPlaybackHeadingRef?: MutableRefObject<number | null>
   characterYawRef?: MutableRefObject<number>
   syncFromScenarioPreview?: boolean
+  navigationHeadingRef?: MutableRefObject<number | null>
 }) {
   useEffect(() => {
     return subscribeMapCommand((command) => {
@@ -89,10 +91,11 @@ export function useSceneWalkModeSync({
         )
         if (!preserveHeadingOnEnter) {
           const previewHeading = scenarioPlaybackHeadingRef?.current
+          const navHeading = navigationHeadingRef?.current
           yawRef.current =
             previewHeading != null && syncFromScenarioPreview
               ? previewHeading
-              : MAP_VIEW_YAW_OFFSET_RAD
+              : navHeading ?? MAP_VIEW_YAW_OFFSET_RAD
           if (characterYawRef) {
             characterYawRef.current = yawRef.current + Math.PI
           }
@@ -117,6 +120,7 @@ export function useSceneWalkModeSync({
     storedWorldPositionRef,
     characterYawRef,
     syncFromScenarioPreview,
+    navigationHeadingRef,
     worldRef,
     yawRef,
   ])

@@ -10,6 +10,10 @@ import {
   THIRD_PERSON_LOOK_AHEAD_M,
   THIRD_PERSON_MIN_CAMERA_Y_M,
   THIRD_PERSON_MAX_CAMERA_Y_M,
+  THIRD_PERSON_FOLLOW_YAW_LAMBDA,
+  THIRD_PERSON_ROBOT_FOLLOW_YAW_LAMBDA,
+  THIRD_PERSON_ROBOT_FOLLOW_POSITION_LAMBDA,
+  THIRD_PERSON_ROBOT_LOOK_LAMBDA,
   FIRST_PERSON_EYE_HEIGHT_M,
   MOUSE_LOOK_SENSITIVITY,
   MOUSE_LOOK_PITCH_MIN,
@@ -24,6 +28,17 @@ import {
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
 import { overviewPanDy, overviewYawInput } from '../../utils/overviewDisplayFlip'
+
+function normalizeAngle(angle: number) {
+  let normalized = angle
+  while (normalized > Math.PI) normalized -= Math.PI * 2
+  while (normalized < -Math.PI) normalized += Math.PI * 2
+  return normalized
+}
+
+function lerpAngle(current: number, target: number, alpha: number) {
+  return current + normalizeAngle(target - current) * alpha
+}
 
 export function CameraZoomController({
   enabled,
@@ -166,30 +181,52 @@ export function ThirdPersonCameraRig({
   pitchRef,
   enabled,
   snapOnMount = false,
+  robotFollowMode = false,
 }: {
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   enabled: boolean
   snapOnMount?: boolean
+  robotFollowMode?: boolean
 }) {
   const desiredPositionRef = useRef(new Vector3())
   const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const displayLookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const displayYawRef = useRef(0)
   const snapOnNextFrameRef = useRef(true)
 
   useLayoutEffect(() => {
     snapOnNextFrameRef.current = true
-  }, [enabled])
+    displayYawRef.current = yawRef.current
+  }, [enabled, yawRef])
 
   useFrame((state, delta) => {
     if (!enabled) return
     const camera = state.camera
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
 
-    const desiredPosition = desiredPositionRef.current
-    const yaw = yawRef.current
+    const yawLambda = robotFollowMode
+      ? THIRD_PERSON_ROBOT_FOLLOW_YAW_LAMBDA
+      : THIRD_PERSON_FOLLOW_YAW_LAMBDA
+    const positionLambda = robotFollowMode
+      ? THIRD_PERSON_ROBOT_FOLLOW_POSITION_LAMBDA
+      : 10
+    const lookLambda = robotFollowMode
+      ? THIRD_PERSON_ROBOT_LOOK_LAMBDA
+      : 10
+
+    if (snapOnNextFrameRef.current) {
+      displayYawRef.current = yawRef.current
+    } else {
+      const yawAlpha = 1 - Math.exp(-delta * yawLambda)
+      displayYawRef.current = lerpAngle(displayYawRef.current, yawRef.current, yawAlpha)
+    }
+
+    const yaw = displayYawRef.current
     const pitch = pitchRef.current
     const cosPitch = Math.cos(pitch)
 
+    const desiredPosition = desiredPositionRef.current
     desiredPosition
       .set(-Math.sin(yaw) * cosPitch, -Math.sin(pitch), -Math.cos(yaw) * cosPitch)
       .multiplyScalar(THIRD_PERSON_DISTANCE_M)
@@ -205,18 +242,24 @@ export function ThirdPersonCameraRig({
       Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
     )
 
+    const snapDistanceSq = robotFollowMode
+      ? THIRD_PERSON_DISTANCE_M * THIRD_PERSON_DISTANCE_M * 4
+      : THIRD_PERSON_DISTANCE_M * THIRD_PERSON_DISTANCE_M
     const shouldSnap =
       snapOnNextFrameRef.current
-      || camera.position.distanceToSquared(desiredPosition) > THIRD_PERSON_DISTANCE_M * THIRD_PERSON_DISTANCE_M
+      || camera.position.distanceToSquared(desiredPosition) > snapDistanceSq
     if (shouldSnap) {
       camera.position.copy(desiredPosition)
+      displayLookTargetRef.current.copy(lookTargetRef.current)
       snapOnNextFrameRef.current = false
     } else {
-      const lerpAlpha = 1 - Math.exp(-delta * 10)
-      camera.position.lerp(desiredPosition, lerpAlpha)
+      const positionAlpha = 1 - Math.exp(-delta * positionLambda)
+      camera.position.lerp(desiredPosition, positionAlpha)
+      const lookAlpha = 1 - Math.exp(-delta * lookLambda)
+      displayLookTargetRef.current.lerp(lookTargetRef.current, lookAlpha)
     }
     camera.up.set(0, -1, 0)
-    camera.lookAt(lookTargetRef.current)
+    camera.lookAt(displayLookTargetRef.current)
   })
 
   useLayoutEffect(() => {

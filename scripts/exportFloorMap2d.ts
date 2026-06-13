@@ -2,14 +2,14 @@
  * 3D FloorPolygonMesh와 동일한 바닥(외곽 폴리곤 + 수동 클립) + 본편 책장 + 책장 후보 오버레이 레이어를 위에서 본 2D PNG로 내보냅니다.
  * 실행: npx tsx scripts/exportFloorMap2d.ts [--out path] [--width 2048] [--no-overlay]
  *
- * 색: `src/data/map2dPngPalette.ts` — 3D 재질 알베도와 동일 계열, 전체 보기 조명 체감에 맞게 어둡게 보정.
+ * 색: `src/data/map2dPngPalette.ts` - 3D 재질 알베도와 동일 계열, 전체 보기 조명 체감에 맞게 어둡게 보정.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { getMinimapWorldBounds } from '../src/utils/minimapBounds'
-import { createFloorPointInclusionTest } from '../src/utils/floorPolygon'
+import { createFloorPointInclusionTest, pointInPolygon2D } from '../src/utils/floorPolygon'
 import { bookshelfOverlayLayerInstances } from '../src/data/bookshelfOverlayLayer'
 import { bookshelfInstances, floorFillRects, wallPolylines } from '../src/data/floorPlan'
 import { MAP2D_PNG, hexToRgba } from '../src/data/map2dPngPalette'
@@ -39,23 +39,7 @@ function parseArgs() {
   return { out, width, includeOverlay }
 }
 
-function pointInPolygon2D(x: number, z: number, ring: [number, number][]): boolean {
-  if (ring.length < 3) return false
-  let inside = false
-  const n = ring.length
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = ring[i][0]
-    const zi = ring[i][1]
-    const xj = ring[j][0]
-    const zj = ring[j][1]
-    const intersect =
-      (zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi
-    if (intersect) inside = !inside
-  }
-  return inside
-}
-
-/** RotatedFixtureInstances와 동일: 로컬 w×d를 yaw로 회전한 네 꼭짓점 (XZ). */
+/** RotatedFixtureInstances와 동일: 로컬 w*d를 yaw로 회전한 네 꼭짓점 (XZ). */
 function rotatedBookshelfCorners(cx: number, cz: number, w: number, d: number, yaw: number): [number, number][] {
   const hw = w * 0.5
   const hd = d * 0.5
@@ -112,7 +96,7 @@ async function main() {
   const png = await sharp(buf, { raw: { width: W, height: H, channels: 4 } }).png().toBuffer()
   writeFileSync(out, png)
   console.log(
-    `Wrote ${out} (${W}×${H} px, world X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}], mainShelves=${mainShelfQuads.length}, overlayShelves=${overlayShelfQuads.length})`,
+    `Wrote ${out} (${W}x${H} px, world X[${minX.toFixed(2)}, ${maxX.toFixed(2)}] Z[${minZ.toFixed(2)}, ${maxZ.toFixed(2)}], mainShelves=${mainShelfQuads.length}, overlayShelves=${overlayShelfQuads.length})`,
   )
 }
 

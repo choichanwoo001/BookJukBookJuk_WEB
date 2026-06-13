@@ -48,6 +48,23 @@ export const OVERVIEW_Y_MAX = 120
 export const MAP_VIEW_YAW_OFFSET_RAD = 0
 /** 로봇 /verso/status heading → 웹 yaw 보정(라디안). 현장 테스트 후 조정. */
 export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
+export const ROBOT_POSITION_SMOOTHING = 18
+export const ROBOT_HEADING_SMOOTHING = 16
+export const ROBOT_BODY_YAW_SMOOTHING = 18
+/** 소프트 follow 구간; 이보다 크면 초기 진입·재연결 시 스냅. */
+export const ROBOT_SYNC_SNAP_DISTANCE_M = 1.5
+export const ROBOT_SYNC_HARD_SNAP_DISTANCE_M = 2.5
+export const ROBOT_MOVE_DIRECTION_EPSILON_M = 0.01
+/** mock 로봇 경로 보행 속도 (m/s). WALK_SPEED_MPS와 분리. */
+export const ROBOT_MOCK_ROUTE_SPEED_MPS = 1.6
+/** 실로봇 status extrapolation·화면 follow 속도 상한 (m/s). */
+export const ROBOT_DISPLAY_MAX_SPEED_MPS = 1.8
+/** mock/rosbridge UI용 lastStatus 갱신 최소 간격 (ms). */
+export const ROBOT_MOCK_UI_STATUS_INTERVAL_MS = 100
+/** 로봇 follow 시 3인칭 카메라 yaw/position 보간 (초당). */
+export const THIRD_PERSON_ROBOT_FOLLOW_YAW_LAMBDA = 9
+export const THIRD_PERSON_ROBOT_FOLLOW_POSITION_LAMBDA = 7
+export const THIRD_PERSON_ROBOT_LOOK_LAMBDA = 8
 
 // --- Player ---
 /** 목표 플레이어 키 (m). */

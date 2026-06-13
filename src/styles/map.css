@@ -127,27 +127,6 @@
   gap: 0.28rem;
 }
 
-.bookRecognitionActionButton {
-  flex: 1 1 auto;
-  min-width: 2.8rem;
-  font-size: 0.68rem;
-  padding: 0.2rem 0.45rem;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.12);
-  color: var(--bj-text-on-dark);
-  cursor: pointer;
-}
-
-.bookRecognitionActionButton:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.bookRecognitionActionButton:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 .bookRecognitionGestureToggle {
   flex: 1 1 100%;
   font-size: 0.64rem;

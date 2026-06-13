@@ -91,7 +91,7 @@ export function useMapViewState({
       if (command.type === 'REPLAN_SHORTEST') {
         handleNewMission()
       }
-      if (command.type === 'PREVIEW_ROUTE') {
+      if (command.type === 'PREVIEW_ROUTE' || command.type === 'PREVIEW_NAV_PLAN') {
         if (navigationActiveRef.current) return
         setPrevWalkMode('thirdPerson')
         setMode('overview')

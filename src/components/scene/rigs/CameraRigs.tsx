@@ -56,6 +56,7 @@ type WalkRigProps = {
   mode: 'firstPerson' | 'thirdPerson'
   walkFov: number
   controlsEnabled: boolean
+  robotFollowMode?: boolean
   yawRef: RefObject<number>
   pitchRef: RefObject<number>
   characterYawRef: RefObject<number>
@@ -77,6 +78,7 @@ export function WalkRig({
   mode,
   walkFov,
   controlsEnabled,
+  robotFollowMode = false,
   yawRef,
   pitchRef,
   characterYawRef,
@@ -124,6 +126,7 @@ export function WalkRig({
         pitchRef={pitchRef}
         enabled={controlsEnabled}
         snapOnMount
+        robotFollowMode={robotFollowMode}
       />
       <CameraZoomController enabled={controlsEnabled} onFovChange={onWalkFovChange} />
       <MouseLookController

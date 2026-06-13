@@ -2,7 +2,7 @@ import { startTransition, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import type { Group } from 'three'
-import { subscribeMapCommand } from '../agent/runtime/agentEventBus'
+import { subscribeMapCommand, subscribeNavigationSync } from '../agent/runtime/agentEventBus'
 import {
   NAV_ARRIVAL_RADIUS_M,
   WALK_SPEED_MPS,
@@ -19,8 +19,6 @@ export function useDemoNavigationAutoWalk({
   highlightPath,
   currentGoal,
   enabled,
-  pauseForIntro,
-  pauseForSpeech,
 }: {
   worldRef: RefObject<Group | null>
   yawRef: RefObject<number>
@@ -29,14 +27,19 @@ export function useDemoNavigationAutoWalk({
   highlightPath: Point2[] | null | undefined
   currentGoal: Point2 | null | undefined
   enabled: boolean
-  pauseForIntro: boolean
-  pauseForSpeech: boolean
 }): boolean {
   const [active, setActive] = useState(false)
   const distanceRef = useRef(0)
   const masterPathRef = useRef<Point2[]>([])
   const totalLengthRef = useRef(0)
   const pendingStartRef = useRef(false)
+  const mobilityHoldRef = useRef(false)
+
+  useEffect(() => {
+    return subscribeNavigationSync((sync) => {
+      mobilityHoldRef.current = sync.mobilityHold
+    })
+  }, [])
 
   useEffect(() => {
     if (!enabled) {
@@ -76,7 +79,7 @@ export function useDemoNavigationAutoWalk({
   }, [enabled, highlightPath, playerPositionRef])
 
   useFrame((_, delta) => {
-    if (!active || !enabled || pauseForIntro || pauseForSpeech || !worldRef.current) return
+    if (!active || !enabled || mobilityHoldRef.current || !worldRef.current) return
 
     const path = masterPathRef.current
     if (path.length < 2) return

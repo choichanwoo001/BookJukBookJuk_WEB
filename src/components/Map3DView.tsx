@@ -3,10 +3,6 @@ import { Canvas } from '@react-three/fiber'
 import {
   counterInstances,
   displayLowInstances,
-  floorRects,
-  pillarRects,
-  PLAYER_RADIUS_M,
-  wallRects as baseWallRects,
 } from '../data/floorPlan'
 import type { Point2 } from '../data/floorPlan'
 import { pickMissionIndicesSeeded } from '../utils/missionPick'
@@ -42,11 +38,14 @@ import { MapMinimapPanel } from './map/MapMinimapPanel'
 import { ScenarioRoutePlannerPanel } from './map/ScenarioRoutePlannerPanel'
 import { useMapViewState } from '../hooks/useMapViewState'
 import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
+import { useMockVersoRobotRoute } from '../hooks/useMockVersoRobotRoute'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
+import { createNavWalkabilityContext } from '../utils/walkability'
 import { NAVIGATION_MOBILITY_PHASE_LABELS } from '../types/navigationMobility'
 import { useScenarioRoutePreview } from '../hooks/useScenarioRoutePreview'
 import { tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
 import { buildDemoScenarioRoute } from '../utils/demoScenarioRoute'
+import { buildFixtureRoutePlanVisual } from '../data/fixtureRobotRoute'
 import { pathLengthM } from '../utils/pathSampling'
 import type { RoutePathDisplayMode } from '../utils/pathSmoothing'
 
@@ -94,11 +93,13 @@ function Map3DView({
   onToggleFullscreen,
   onResetOnboarding,
   ttsSpeaking = false,
+  mobilityHold = false,
 }: {
   activePane: 'map' | 'chat'
   onActivateMap: () => void
   busy: boolean
   ttsSpeaking?: boolean
+  mobilityHold?: boolean
   onBookCapture: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
@@ -178,6 +179,7 @@ function Map3DView({
   const {
     mode,
     isEdit,
+    isOverviewLike,
     missionVersion,
     routeDisplaySurface,
     minimapPlayerPos,
@@ -255,13 +257,7 @@ function Map3DView({
     [instances],
   )
   const navCtx = useMemo(
-    () => ({
-      floorRects,
-      wallRects: baseWallRects,
-      bookshelfRects: navBookshelfRects,
-      pillarRects,
-      playerRadiusM: PLAYER_RADIUS_M,
-    }),
+    () => createNavWalkabilityContext(navBookshelfRects),
     [navBookshelfRects],
   )
 
@@ -283,6 +279,25 @@ function Map3DView({
     })
   }, [navBounds, navCtx])
 
+  const {
+    connectionState: versoConnectionState,
+    lastStatus: versoStatus,
+    lastPath: versoPath,
+    robotSyncActive,
+    liveStatusRef: versoLiveStatusRef,
+  } = useVersoRosbridge(versoActiveUrl)
+  const mockVerso = useMockVersoRobotRoute(!versoActiveUrl)
+
+  const effectiveVersoConnectionState =
+    robotSyncActive ? versoConnectionState : mockVerso.connectionState
+  const effectiveVersoStatus = robotSyncActive ? versoStatus : mockVerso.lastStatus
+  const effectiveVersoPath = robotSyncActive ? versoPath : mockVerso.lastPath
+  const effectiveRobotSyncActive = robotSyncActive || mockVerso.robotSyncActive
+  const effectiveRobotLiveStatusRef = robotSyncActive ? versoLiveStatusRef : mockVerso.liveStatusRef
+
+  const routePlanPreviewActive =
+    Boolean(directGoals?.length) && !demoNavigationActive && navigationSpawnReady
+
   const navigationRoute = useNavigationRoute({
     missionIndices,
     directGoals,
@@ -292,21 +307,31 @@ function Map3DView({
     playerXzRef: playerWorldXzRef,
     ctx: navCtx,
     bounds: navBounds,
-    suppressDwellEvents: scenarioRoutePreviewActive || !navigationSpawnReady || demoMobilityPaused,
+    suppressDwellEvents:
+      routePlanPreviewActive ||
+      scenarioRoutePreviewActive ||
+      !navigationSpawnReady ||
+      demoMobilityPaused ||
+      effectiveRobotSyncActive,
   })
 
-  const {
-    connectionState: versoConnectionState,
-    lastStatus: versoStatus,
-    lastPath: versoPath,
-    robotSyncActive,
-  } = useVersoRosbridge(versoActiveUrl)
+  const fixtureRoutePlanVisual = useMemo(
+    () => (routePlanPreviewActive ? buildFixtureRoutePlanVisual() : null),
+    [routePlanPreviewActive],
+  )
 
   const robotRoute = useMemo(
-    () => buildVersoRouteVisual(versoStatus, versoPath),
-    [versoStatus, versoPath],
+    () => buildVersoRouteVisual(effectiveVersoStatus, effectiveVersoPath, {
+      walkabilityCtx: navCtx,
+      bounds: navBounds,
+    }),
+    [effectiveVersoStatus, effectiveVersoPath, navCtx, navBounds],
   )
-  const displayRoute = robotRoute ?? navigationRoute
+  const activeNavigationRoute = robotRoute ?? navigationRoute
+  const displayRoute =
+    routePlanPreviewActive && isOverviewLike
+      ? fixtureRoutePlanVisual
+      : activeNavigationRoute
   const isWalkMode = mode === 'firstPerson' || mode === 'thirdPerson'
   const demoScenarioRoute = useMemo(() => {
     if (!scenarioRoutePreviewActive || demoNavigationActive) return null
@@ -314,7 +339,9 @@ function Map3DView({
   }, [demoNavigationActive, scenarioRoutePreviewActive])
   const showScenarioPlanOnMain =
     scenarioRoutePreviewActive && !demoNavigationActive && !isWalkMode
-  const showMinimapNavigation = !showScenarioPlanOnMain && (demoNavigationActive || isWalkMode)
+  const showMinimapNavigation =
+    !showScenarioPlanOnMain &&
+    ((routePlanPreviewActive && isOverviewLike) || demoNavigationActive || isWalkMode)
   const mainScenarioRoute = showScenarioPlanOnMain ? demoScenarioRoute : null
   const mainNavigationRoute =
     showScenarioPlanOnMain
@@ -358,11 +385,13 @@ function Map3DView({
       isWalkMode,
       navigationSpawnReady,
       ttsSpeaking,
+      mobilityHold,
     })
   }, [
     demoNavigationActive,
     highlightPathLengthM,
     isWalkMode,
+    mobilityHold,
     mobilityPhase,
     movementSync.isAutoWalking,
     movementSync.isManualWalking,
@@ -460,13 +489,14 @@ function Map3DView({
           navCurrentGoal={navigationRoute?.currentGoal ?? null}
           demoNavigationActive={demoNavigationActive}
           scenarioRoutePreviewActive={scenarioRoutePreviewActive}
-          ttsSpeaking={ttsSpeaking}
+          mobilityHold={mobilityHold}
           onMobilityPhaseChange={handleMobilityPhaseChange}
           onMovementSyncSample={handleMovementSyncSample}
           onNavigationSpawnReady={handleNavigationSpawnReady}
           scenarioPlaybackHeadingRef={scenarioPlaybackHeadingRef}
-          robotSyncActive={robotSyncActive}
-          robotStatus={versoStatus}
+          robotSyncActive={effectiveRobotSyncActive}
+          robotStatus={effectiveVersoStatus}
+          robotLiveStatusRef={effectiveRobotLiveStatusRef}
         />
       </Canvas>
 
@@ -537,7 +567,7 @@ function Map3DView({
           onModeChange={handleViewModeChange}
           routePathDisplayMode={routePathDisplayMode}
           onRoutePathDisplayModeChange={setRoutePathDisplayMode}
-          versoConnectionState={versoConnectionState}
+          versoConnectionState={effectiveVersoConnectionState}
           onVersoConnect={setVersoActiveUrl}
           onVersoDisconnect={() => setVersoActiveUrl(null)}
         />

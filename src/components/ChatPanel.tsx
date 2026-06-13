@@ -5,9 +5,11 @@ import { QRCodeSVG } from 'qrcode.react'
 import { ChatActionCard } from './ChatActionCard'
 import { ConfirmationCard } from './ConfirmationCard'
 import { useSpeechInput } from '../hooks/useSpeechInput'
-import { useTts } from '../hooks/useTts'
+import type { UseTtsReturn } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
 import type { AgentContext, AgentMessage, ChatActionCard as ChatActionCardModel } from '../agent/types'
+
+const chatEmptyGuideExamples = ['추천해줘', '책 검색 데미안', '책 추가 데미안', '계산하러 가자'] as const
 
 function ChatPanel({
   activePane,
@@ -24,6 +26,8 @@ function ChatPanel({
   listLoadMessage,
   actionCard,
   onVoiceRecognized,
+  tts,
+  ttsSpeaking,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
@@ -39,6 +43,8 @@ function ChatPanel({
   listLoadStatus: 'idle' | 'loading' | 'ok' | 'error'
   listLoadMessage: string | null
   actionCard: ChatActionCardModel | null
+  tts: UseTtsReturn
+  ttsSpeaking: boolean
 }) {
   const [draft, setDraft] = useState('')
   const [receiptQrOpen, setReceiptQrOpen] = useState(false)
@@ -64,8 +70,6 @@ function ChatPanel({
     }
   }, [])
 
-  const tts = useTts()
-
   const handleSpeechResult = useCallback((transcript: string) => {
     const trimmed = transcript.trim()
     if (!trimmed) return
@@ -88,14 +92,11 @@ function ChatPanel({
     setDraft('')
   }
 
-  const prevMsgCountRef = useRef(0)
-  useEffect(() => {
-    const last = messages[messages.length - 1]
-    if (messages.length > prevMsgCountRef.current && last?.role === 'assistant') {
-      void tts.speak(last.text)
-    }
-    prevMsgCountRef.current = messages.length
-  }, [messages, tts])
+  const handleGuideExample = useCallback(async (text: string) => {
+    if (busy) return
+    setDraft('')
+    await submitUserText(text)
+  }, [busy, submitUserText])
 
   useEffect(() => {
     const listEl = messageListRef.current
@@ -223,7 +224,27 @@ function ChatPanel({
         {actionCard && <ChatActionCard card={actionCard} disabled={busy} onSelect={(inputText) => void submitUserText(inputText)} />}
 
         <div ref={messageListRef} className="chatMessages">
-          {messages.map((message) => (
+          {messages.length === 0 ? (
+            <section className="chatEmptyGuide" aria-label="채팅 시작 안내">
+              <h2 className="chatEmptyGuideTitle">무엇을 도와드릴까요?</h2>
+              <p className="chatEmptyGuideText">
+                책 추천, 도서 검색, 장바구니 담기/삭제, 경로 안내, 계산대 이동을 도와드릴 수 있어요.
+              </p>
+              <div className="chatEmptyGuideActions" aria-label="예시 요청">
+                {chatEmptyGuideExamples.map((example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    className="chatEmptyGuideButton"
+                    onClick={() => void handleGuideExample(example)}
+                    disabled={busy}
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : messages.map((message) => (
             <article
               key={message.id}
               className={`chatBubble breakAnywhere ${
@@ -269,7 +290,7 @@ function ChatPanel({
           >
             {tts.enabled ? '음성 켜짐' : '음성 꺼짐'}
           </button>
-          {tts.speaking && (
+          {ttsSpeaking && (
             <span className="chatTtsSpeaking" aria-live="polite">
               읽는 중
             </span>

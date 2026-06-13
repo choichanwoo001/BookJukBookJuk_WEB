@@ -21,19 +21,18 @@ import {
   dispatchPreviewRoute,
   dispatchStartNavigation,
   subscribeDwellEvent,
+  subscribeMapCommand,
   subscribeMapSnapshot,
   type AgentMapSnapshot,
 } from '../agent/runtime/agentEventBus'
+import {
+  createAssistantOutputPipeline,
+  type AssistantOutputPipeline,
+  type PipelineItem,
+} from './chatAgent/assistantOutputPipeline'
+import { useTts } from './useTts'
 import { planWithLlm } from '../agent/runtime/llmPlanner'
 import { normalizeListHint } from '../agent/listHintNormalize'
-import { getDefaultUserId } from '../lib/supabase/env'
-import { getCurrentWebSessionUsersId } from '../lib/supabase/qrLogin'
-import {
-  appendConversationMessage,
-  createConversation,
-} from '../lib/supabase/conversation'
-import { shelfListLoadUserMessage } from '../lib/supabase/listLoadUi'
-import { loadShelfBooks, mapListTypeToShelfType } from '../lib/supabase/shelves'
 import type {
   AgentContext,
   AgentIntent,
@@ -58,6 +57,7 @@ import type { TasteSeed } from '../types/onboarding'
 import { useDemoOrchestrator } from './useDemoOrchestrator'
 import { DEMO_SCENARIO_ROUTE_KEYS, demoPoolIndicesForKeys } from '../data/demoScenario'
 import { useToolRunner } from './chatAgent/useToolRunner'
+import { useChatAgentSession } from './chatAgent/useChatAgentSession'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -78,13 +78,8 @@ const initialContextValue = (): AgentContext => ({
 
 const initialMessages: AgentMessage[] = []
 
-function toContextShoppingList(items: { booksId: string; title: string; authors: string; coverImageUrl: string }[]) {
-  return items.map((b) => ({
-    booksId: b.booksId,
-    title: b.title,
-    authors: b.authors,
-    coverImageUrl: b.coverImageUrl,
-  }))
+function buildNavStartPrompt(bookCount: number): string {
+  return `책 ${bookCount}권이 준비됐어요. 준비되시면 "시작" 또는 "오케이"라고 답해 주세요.`
 }
 
 function extractRecommendationTitles(result: ToolResult | null): string[] {
@@ -176,12 +171,12 @@ export function useChatAgent(options: {
   const [busy, setBusy] = useState(false)
   const [lastFailedUserText, setLastFailedUserText] = useState<string | null>(null)
   const intentBufferRef = useRef<AgentIntent | null>(null)
-  const conversationIdRef = useRef<string | null>(null)
   const dwellTimerRef = useRef<number | null>(null)
   const dwellKeyRef = useRef<string | null>(null)
-  const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
-  const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
-  const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
+  const tts = useTts()
+  const [pipelineTtsSpeaking, setPipelineTtsSpeaking] = useState(false)
+  const pipelineRef = useRef<AssistantOutputPipeline | null>(null)
+  const ttsSpeaking = tts.speaking || pipelineTtsSpeaking
   const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
   const shouldAutoLoadShelf = !hasInitialShoppingList
   const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
@@ -217,105 +212,45 @@ export function useChatAgent(options: {
   }, [setContext])
 
   useEffect(() => {
-    const activeLeg = latestMapSnapshot?.activeLeg
-    const candidates = extractRecommendationCandidates(context.lastToolResult)
-    if (activeLeg === null || activeLeg === undefined || candidates.length === 0) {
+    return subscribeDwellEvent((event) => {
+      if (event.type !== 'SHELF_ARRIVED') return
+      const candidates = extractRecommendationCandidates(contextRef.current.lastToolResult)
+      if (candidates.length === 0) return
+
+      const candidate = candidates[Math.abs(event.legIndex) % candidates.length]
+      if (!candidate) return
+      const key = `${latestMapSnapshot?.missionVersion ?? 0}:${event.legIndex}:${candidate.booksId}`
+      if (dwellKeyRef.current === key) return
+
       if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
-      dwellTimerRef.current = null
-      dwellKeyRef.current = null
-      return
-    }
+      dwellKeyRef.current = key
+      dwellTimerRef.current = window.setTimeout(() => {
+        const book: DwellBookCandidate = {
+          ...candidate,
+          detectedAt: Date.now(),
+          source: 'route',
+        }
+        dispatchDwellEvent({ type: 'DWELL_BOOK_DETECTED', version: AGENT_MAP_EVENT_VERSION, book })
+      }, 30000)
+    })
+  }, [latestMapSnapshot?.missionVersion])
 
-    const candidate = candidates[Math.abs(activeLeg) % candidates.length]
-    if (!candidate) return
-    const key = `${latestMapSnapshot?.missionVersion ?? 0}:${activeLeg}:${candidate.booksId}`
-    if (dwellKeyRef.current === key) return
-
-    if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
-    dwellKeyRef.current = key
-    dwellTimerRef.current = window.setTimeout(() => {
-      const book: DwellBookCandidate = {
-        ...candidate,
-        detectedAt: Date.now(),
-        source: 'route',
-      }
-      dispatchDwellEvent({ type: 'DWELL_BOOK_DETECTED', version: AGENT_MAP_EVENT_VERSION, book })
-    }, 30000)
-
-    return () => {
-      if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
-    }
-  }, [context.lastToolResult, latestMapSnapshot])
-
-  useEffect(() => {
-    let disposed = false
-    const bootstrapSessionUser = async () => {
-      const sessionResult = await getCurrentWebSessionUsersId()
-      if (disposed) return
-      if (sessionResult.ok && sessionResult.data) {
-        setActiveUsersId(sessionResult.data)
-        setContext({ activeUsersId: sessionResult.data })
-        return
-      }
-      const fallbackUserId = getDefaultUserId()
-      setActiveUsersId(fallbackUserId)
-      setContext({ activeUsersId: fallbackUserId })
-    }
-    void bootstrapSessionUser()
-    return () => {
-      disposed = true
-    }
-  }, [setContext])
-
-  useEffect(() => {
-    if (!activeUsersId) return
-    let disposed = false
-    const initializeConversation = async () => {
-      setMessages(initialMessages)
-      const conversationId = await createConversation(activeUsersId)
-      if (!conversationId || disposed) return
-      conversationIdRef.current = conversationId
-    }
-    void initializeConversation()
-    return () => {
-      disposed = true
-      conversationIdRef.current = null
-    }
-  }, [activeUsersId])
-
-  useEffect(() => {
-    if (!activeUsersId || shouldAutoLoadShelf) return
-    if (options.initialShoppingList && options.initialShoppingList.length > 0) {
-      setContext({ shoppingList: options.initialShoppingList, cartItems: options.initialShoppingList })
-    }
-    setListLoadStatus('ok')
-    setListLoadMessage(null)
-  }, [activeUsersId, options.initialShoppingList, setContext, shouldAutoLoadShelf])
-
-  useEffect(() => {
-    if (!activeUsersId || !shouldAutoLoadShelf) return
-    let disposed = false
-    setListLoadStatus('loading')
-    setListLoadMessage(null)
-    const loadList = async () => {
-      const shelfType = mapListTypeToShelfType(context.listType)
-      const res = await loadShelfBooks(activeUsersId, shelfType)
-      if (disposed) return
-      if (!res.ok) {
-        setListLoadStatus('error')
-        setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
-        return
-      }
-      const loaded = toContextShoppingList(res.data)
-      setContext({ shoppingList: loaded, cartItems: loaded })
-      setListLoadStatus('ok')
-      setListLoadMessage(null)
-    }
-    void loadList()
-    return () => {
-      disposed = true
-    }
-  }, [activeUsersId, context.listType, setContext, shouldAutoLoadShelf])
+  const {
+    activeUsersId,
+    appendAssistantConversationMessage,
+    conversationIdRef,
+    listLoadMessage,
+    listLoadStatus,
+    loadExistingListOnDemand,
+    sessionReady,
+  } = useChatAgentSession({
+    contextRef,
+    initialShoppingList: options.initialShoppingList,
+    listType: context.listType,
+    setContext,
+    setMessages,
+    shouldAutoLoadShelf,
+  })
 
   const toolExecutionContext = useMemo<ToolExecutionContext>(
     () => ({
@@ -329,39 +264,85 @@ export function useChatAgent(options: {
     setMessages((prev) => [...prev, createAssistant(text, attachments)])
   }, [])
 
-  const appendAssistantAndStore = useCallback(async (text: string, attachments?: string[]) => {
-    appendAssistant(text, attachments)
-    if (conversationIdRef.current) {
-      await appendConversationMessage({
-        conversationId: conversationIdRef.current,
-        role: 'assistant',
-        content: text,
-      })
+  const appendAssistantDirectRef = useRef(
+    async (text: string, attachments?: string[]) => {
+      appendAssistant(text, attachments)
+      await appendAssistantConversationMessage(text)
+    },
+  )
+
+  useLayoutEffect(() => {
+    appendAssistantDirectRef.current = async (text: string, attachments?: string[]) => {
+      appendAssistant(text, attachments)
+      await appendAssistantConversationMessage(text)
     }
-  }, [appendAssistant])
+  }, [appendAssistant, appendAssistantConversationMessage])
+
+  const pipeline = useMemo(
+    () =>
+      createAssistantOutputPipeline({
+        appendAssistant: (text, attachments) => appendAssistantDirectRef.current(text, attachments),
+        speakAndWait: tts.speakAndWait,
+        isTtsEnabled: tts.isEnabled,
+        onTtsSpeakingChange: setPipelineTtsSpeaking,
+      }),
+    [tts.isEnabled, tts.speakAndWait],
+  )
+
+  useLayoutEffect(() => {
+    pipelineRef.current = pipeline
+    return () => {
+      pipeline.dispose()
+      pipelineRef.current = null
+    }
+  }, [pipeline])
+
+  const enqueueAssistant = useCallback(
+    (item: PipelineItem) => pipeline.enqueue(item),
+    [pipeline],
+  )
+
+  const enqueueAssistantMany = useCallback(
+    (items: PipelineItem[]) => pipeline.enqueueMany(items),
+    [pipeline],
+  )
+
+  const appendAssistantAndStore = useCallback(
+    async (text: string, attachments?: string[]) => {
+      await enqueueAssistant({ text, attachments, gate: { kind: 'immediate' } })
+    },
+    [enqueueAssistant],
+  )
 
   useEffect(() => {
-    if (!activeUsersId || !hasInitialShoppingList) return
+    return subscribeMapCommand((command) => {
+      if (command.type !== 'START_NAVIGATION') return
+      tts.cancel()
+      pipelineRef.current?.resetNavRun()
+    })
+  }, [tts])
+
+  useEffect(() => {
+    if (!activeUsersId || !sessionReady || !hasInitialShoppingList) return
     if (navPromptShownRef.current) return
     if (existingListGateRef.current.status !== 'inactive') return
 
     navPromptShownRef.current = true
     updateExistingListGate({ status: 'awaiting_nav' })
 
+    const count = options.initialShoppingList?.length ?? 0
     if (isDemoMode()) {
       dispatchPreviewRoute(demoPoolIndicesForKeys(DEMO_SCENARIO_ROUTE_KEYS))
     }
 
-    const count = options.initialShoppingList?.length ?? 0
-    void appendAssistantAndStore(
-      `책 ${count}권이 준비됐어요. 지도에서 이동 경로를 확인하시고, 준비되시면 "시작" 또는 "오케이"라고 답해 주세요.`,
-    )
+    void appendAssistantAndStore(buildNavStartPrompt(count))
   }, [
     activeUsersId,
     appendAssistantAndStore,
     existingListGateRef,
     hasInitialShoppingList,
     options.initialShoppingList,
+    sessionReady,
     updateExistingListGate,
   ])
 
@@ -386,27 +367,10 @@ export function useChatAgent(options: {
     demoStateRef,
   } = useDemoOrchestrator({
     toolExecutionContext,
-    appendAssistantAndStore,
+    enqueueAssistant,
+    enqueueAssistantMany,
     setContext,
   })
-
-  const loadExistingListOnDemand = useCallback(async () => {
-    if (!activeUsersId) return false
-    setListLoadStatus('loading')
-    setListLoadMessage(null)
-    const shelfType = mapListTypeToShelfType(contextRef.current.listType)
-    const res = await loadShelfBooks(activeUsersId, shelfType)
-    if (!res.ok) {
-      setListLoadStatus('error')
-      setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
-      return false
-    }
-    const loaded = toContextShoppingList(res.data)
-    setContext({ shoppingList: loaded, cartItems: loaded })
-    setListLoadStatus('ok')
-    setListLoadMessage(null)
-    return true
-  }, [activeUsersId, setContext])
 
   /**
    * Shared post-execute pipeline used by both the `confirm` flow and the
@@ -494,7 +458,7 @@ export function useChatAgent(options: {
             setMessages,
           })
           updateExistingListGate({ status: 'nav_started' })
-          await appendAssistantAndStore('안내를 시작할게요.')
+          dispatchStartNavigation()
           if (isDemoMode()) {
             const list =
               contextRef.current.cartItems.length > 0
@@ -502,7 +466,10 @@ export function useChatAgent(options: {
                 : contextRef.current.shoppingList
             startShelfVisitFromList(list)
           }
-          dispatchStartNavigation()
+          void enqueueAssistant({
+            text: '안내를 시작할게요.',
+            gate: { kind: 'after_nav_ready' },
+          })
           return
         }
 
@@ -759,8 +726,10 @@ export function useChatAgent(options: {
     },
     [
       appendAssistantAndStore,
+      enqueueAssistant,
       handleCancelIntent,
       handleConfirmIntent,
+      conversationIdRef,
       runToolWithFallback,
       setContext,
       existingListGateRef,
@@ -845,7 +814,7 @@ export function useChatAgent(options: {
         setBusy(false)
       }
     },
-    [handleDemoBrowseCapture, runToolWithFallback, setMessages],
+    [conversationIdRef, handleDemoBrowseCapture, runToolWithFallback, setMessages],
   )
 
   const applyBookBrowseCapture = useCallback(
@@ -874,5 +843,7 @@ export function useChatAgent(options: {
     listLoadMessage,
     loadExistingListOnDemand,
     actionCard,
+    tts,
+    ttsSpeaking,
   }
 }

@@ -51,12 +51,9 @@ export default function TasteAnalysisGate({ onComplete }: TasteAnalysisGateProps
     <section className="onboardingShell tasteAnalysisGate" aria-label="취향 분석" aria-busy="true">
       <OnboardingBrandHeader tagline="당신의 취향을 읽고 있어요">
         <div className="tasteAnalysisBody">
-          <div className="tasteAnalysisStatusRow">
-            <span className="tasteAnalysisSpinner" aria-hidden />
-            <p className="tasteAnalysisMessage" role="status" aria-live="polite">
-              {currentMessage}
-            </p>
-          </div>
+          <p className="tasteAnalysisMessage" role="status" aria-live="polite">
+            {currentMessage}
+          </p>
 
           <div className="tasteAnalysisProgress" aria-hidden>
             <span style={{ width: `${progress}%` }} />

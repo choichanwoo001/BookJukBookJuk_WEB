@@ -25,11 +25,6 @@ type UseToolRunnerParams = {
   contextRef: MutableCurrent<AgentContext>
   setContext: (patch: Partial<AgentContext>) => void
   appendAssistantAndStore: (text: string, attachments?: string[]) => Promise<void>
-  runEditFollowUp: (
-    result: ToolResult,
-    appendAssistantAndStore: (text: string, attachments?: string[]) => Promise<void>,
-  ) => Promise<void>
-  onCartAddSuccess: () => Promise<void>
 }
 
 export function useToolRunner({
@@ -37,8 +32,6 @@ export function useToolRunner({
   contextRef,
   setContext,
   appendAssistantAndStore,
-  runEditFollowUp,
-  onCartAddSuccess,
 }: UseToolRunnerParams) {
   return useCallback(
     async (
@@ -73,10 +66,6 @@ export function useToolRunner({
       }
       await appendAssistantAndStore(primaryAssistantText, recAttach)
 
-      if (result.ok && result.toolName === 'shoppingListTool' && toolCall.args?.action === 'add') {
-        await onCartAddSuccess()
-      }
-
       if (!result.ok) {
         incrementMetric('fallbackUsed')
         if (result.errorCode) recordBridgeErrorCode(result.errorCode)
@@ -89,17 +78,8 @@ export function useToolRunner({
         }
       }
 
-      await runEditFollowUp(result, appendAssistantAndStore)
-
       return result
     },
-    [
-      appendAssistantAndStore,
-      contextRef,
-      onCartAddSuccess,
-      runEditFollowUp,
-      setContext,
-      toolExecutionContext,
-    ],
+    [appendAssistantAndStore, contextRef, setContext, toolExecutionContext],
   )
 }

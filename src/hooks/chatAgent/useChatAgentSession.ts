@@ -20,14 +20,12 @@ function toContextShoppingList(items: { booksId: string; title: string; authors:
 }
 
 export function useChatAgentSession({
-  contextRef,
   initialShoppingList,
   listType,
   setContext,
   setMessages,
   shouldAutoLoadShelf,
 }: {
-  contextRef: { current: AgentContext }
   initialShoppingList?: ShoppingListEntry[]
   listType: AgentContext['listType']
   setContext: (patch: Partial<AgentContext>) => void
@@ -72,8 +70,6 @@ export function useChatAgentSession({
       setMessages([])
       conversationIdRef.current = null
       setReadyForUsersId(null)
-    } else if (conversationOwnerRef.current === null) {
-      setMessages([])
     }
     conversationOwnerRef.current = activeUsersId
 
@@ -137,31 +133,12 @@ export function useChatAgentSession({
     })
   }, [])
 
-  const loadExistingListOnDemand = useCallback(async () => {
-    if (!activeUsersId) return false
-    setListLoadStatus('loading')
-    setListLoadMessage(null)
-    const shelfType = mapListTypeToShelfType(contextRef.current.listType)
-    const res = await loadShelfBooks(activeUsersId, shelfType)
-    if (!res.ok) {
-      setListLoadStatus('error')
-      setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
-      return false
-    }
-    const loaded = toContextShoppingList(res.data)
-    setContext({ shoppingList: loaded, cartItems: loaded })
-    setListLoadStatus('ok')
-    setListLoadMessage(null)
-    return true
-  }, [activeUsersId, contextRef, setContext])
-
   return {
     activeUsersId,
     appendAssistantConversationMessage,
     conversationIdRef,
     listLoadMessage,
     listLoadStatus,
-    loadExistingListOnDemand,
     sessionReady,
   }
 }

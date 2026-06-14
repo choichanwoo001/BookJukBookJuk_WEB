@@ -26,19 +26,16 @@ export function transitionStateFromIntent(current: AgentState, intentType: strin
     return 'MODE_SELECT'
   }
 
-  if (intentType === 'select_list_mode') return 'LIST_EDIT'
   if (intentType === 'request_recommendation') return 'RECO_DISCOVERY'
   if (intentType === 'select_browse_mode') return 'MODE_SELECT'
   if (intentType === 'route_replan_shortest') return 'NAV_PLAN'
   if (intentType === 'pause_mobility' || intentType === 'resume_mobility') return 'NAV_EXEC'
+  if (intentType === 'follow_robot' || intentType === 'lead_robot') return 'NAV_EXEC'
   if (intentType === 'cancel') return current
 
   return current
 }
 
 export function transitionStateFromTool(current: AgentState, result: ToolResult): AgentState {
-  if (current === 'NAV_EXEC' && result.ok && result.toolName === 'goalCheckTool') {
-    return 'GOAL_CHECK'
-  }
   return stateAfterTool(current, result)
 }

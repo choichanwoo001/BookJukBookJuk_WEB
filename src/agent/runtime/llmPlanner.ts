@@ -32,7 +32,6 @@ const ALLOWED_TOOL_NAMES = new Set([
   'routePlannerTool',
   'mobilityControlTool',
   'recommendationTool',
-  'goalCheckTool',
   'fallbackTool',
 ])
 
@@ -51,7 +50,7 @@ const SYSTEM_PROMPT =
 
 const PLANNER_SYSTEM_PROMPT =
   `${SYSTEM_PROMPT}\n` +
-  '허용 toolCall.name: bookSearchTool, shoppingListTool, routePlannerTool, mobilityControlTool, recommendationTool, goalCheckTool, fallbackTool.\n' +
+  '허용 toolCall.name: bookSearchTool, shoppingListTool, routePlannerTool, mobilityControlTool, recommendationTool, fallbackTool.\n' +
   '별칭 금지(예: recommendBooks 금지).\n' +
   'recommendationTool args.mode: taste(기본·취향), location(가까운/근처/동선/위치), rating(평점·인기·베스트). 사용자 표현에 맞게 선택.\n' +
   'JSON schema: {"intentType":"string","toolCall":{"name":"string","args":{}}|null,"assistantDraft":"string","confidence":0..1,"needsConfirmation":boolean}'

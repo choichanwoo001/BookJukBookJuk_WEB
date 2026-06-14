@@ -2,7 +2,6 @@ import type { ToolCall, ToolExecutionContext, ToolResult } from '../types'
 import { bookSearchTool } from './bookSearchTool'
 import { checkoutTool } from './checkoutTool'
 import { fallbackTool } from './fallbackTool'
-import { goalCheckTool } from './goalCheckTool'
 import { mobilityControlTool } from './mobilityControlTool'
 import { recommendationTool } from './recommendationTool'
 import { routePlannerTool } from './routePlannerTool'
@@ -16,7 +15,6 @@ const toolRegistry = new Map<string, ToolDefinition>([
   [routePlannerTool.name, routePlannerTool],
   [mobilityControlTool.name, mobilityControlTool],
   [recommendationTool.name, recommendationTool],
-  [goalCheckTool.name, goalCheckTool],
   [fallbackTool.name, fallbackTool],
 ])
 

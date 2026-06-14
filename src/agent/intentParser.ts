@@ -10,7 +10,7 @@ type Rule = {
 }
 
 const rules: Rule[] = [
-  { type: 'checkout', keywords: ['계산하러', '계산대', '결제', '구매 완료', '큐레이션 종료', '종료하고 계산'], priority: 120, confidence: 0.95 },
+  { type: 'checkout', keywords: ['계산', '계산하러', '계산대', '결제', '구매 완료', '큐레이션 종료', '종료하고 계산'], priority: 120, confidence: 0.95 },
   { type: 'add_book', regex: /(사기|살래|살게|구매|카트|장바구니|담아|넣어)/, priority: 89, confidence: 0.9 },
   {
     type: 'cancel',
@@ -30,6 +30,8 @@ const rules: Rule[] = [
   { type: 'confirm', regex: /^\s*\/\s*(?:로봇\s*)?확정(?:해)?\s*$/i, priority: 107, confidence: 0.94 },
   { type: 'pause_mobility', keywords: ['멈춰', '정지', 'stop'], priority: 100, confidence: 0.95 },
   { type: 'resume_mobility', keywords: ['진행해', '재개', 'go'], priority: 99, confidence: 0.95 },
+  { type: 'follow_robot', keywords: ['따라와', '따라와줘', 'follow me', 'follow'], priority: 98, confidence: 0.94 },
+  { type: 'lead_robot', keywords: ['다시 리드', '안내 재개', '리드해', 'lead again'], priority: 97, confidence: 0.94 },
   { type: 'add_book', regex: /책\s*(추가|담아|넣어)/, priority: 88, confidence: 0.9 },
   { type: 'add_book', keywords: ['책 추가', '추가해', '담아'], priority: 87, confidence: 0.88 },
   { type: 'remove_book', regex: /책\s*(제거|삭제|빼)/, priority: 88, confidence: 0.9 },
@@ -38,7 +40,6 @@ const rules: Rule[] = [
   { type: 'route_replan_shortest', keywords: ['최단경로', '경로 바꿔', '재계산'], priority: 86, confidence: 0.84 },
   { type: 'search_books', keywords: ['책 검색', '제목 검색', '검색해줘', '찾아봐'], priority: 73, confidence: 0.82 },
   { type: 'request_recommendation', keywords: ['추천', '추천해', '찾아줘'], priority: 75, confidence: 0.82 },
-  { type: 'select_list_mode', keywords: ['리스트 선택', '쇼핑리스트'], priority: 70, confidence: 0.8 },
   { type: 'request_recommendation', keywords: ['검색', '탐색', '둘러볼'], priority: 68, confidence: 0.74 },
   { type: 'select_browse_mode', keywords: ['계획 없어', '계획 없음'], priority: 68, confidence: 0.74 },
 ]

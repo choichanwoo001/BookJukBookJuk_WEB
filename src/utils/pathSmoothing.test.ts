@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { buildDemoScenarioRoute } from './demoScenarioRoute'
 import { buildFixtureRobotRoute } from '../data/fixtureRobotRoute'
 import { isSegmentWalkableWorld } from './gridPathfinding'
 import { pathLengthM } from './pathSampling'
@@ -40,12 +39,14 @@ describe('smoothPathForDisplay', () => {
     expect(smoothed.length).toBeGreaterThanOrEqual(path.length)
   })
 
-  it('keeps demo scenario segment length within tolerance', () => {
-    const route = buildDemoScenarioRoute()
-    for (const seg of route.segments) {
-      if (seg.path.length < 2) continue
-      const smoothed = smoothPathForDisplay(seg.path)
-      const originalLen = pathLengthM(seg.path)
+  it('keeps fixture route world path length within tolerance when smoothed in chunks', () => {
+    const route = buildFixtureRobotRoute()
+    const chunkSize = 8
+    for (let i = 0; i < route.worldPath.length - 1; i += chunkSize) {
+      const path = route.worldPath.slice(i, i + chunkSize + 1)
+      if (path.length < 2) continue
+      const smoothed = smoothPathForDisplay(path)
+      const originalLen = pathLengthM(path)
       const smoothedLen = pathLengthM(smoothed)
       expect(smoothedLen).toBeGreaterThan(originalLen * 0.85)
       expect(smoothedLen).toBeLessThan(originalLen * 1.35)

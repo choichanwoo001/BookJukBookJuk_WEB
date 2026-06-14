@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { ShoppingListEntry } from '../agent/types'
 import { isDemoMode } from '../config/demoMode'
-import { resolveDemoMissionKeys } from '../hooks/chatAgent/demoOrchestrator'
+import { resolveDemoMissionKeys } from '../data/demoScenario'
 
 export function DemoModeWarningBanner({ plannedBooks }: { plannedBooks: ShoppingListEntry[] }) {
   const show = useMemo(() => {

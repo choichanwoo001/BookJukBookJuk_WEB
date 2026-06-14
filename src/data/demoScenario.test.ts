@@ -2,17 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   DEMO_BOOKS,
   DEMO_PLANNED_BOOK_KEYS,
-  DEMO_SCENARIO_ROUTE_KEYS,
   demoBookToEntry,
   demoRefCoverUrl,
   findDemoBookByTitle,
   demoPoolIndicesForKeys,
-} from '../data/demoScenario'
-import { bookKeysToPoolIndices } from '../utils/bookShelfNavigation'
-import {
-  beginDemoNavigationFromShoppingList,
   resolveDemoMissionKeys,
-} from '../hooks/chatAgent/demoOrchestrator'
+} from './demoScenario'
 
 describe('demoScenario', () => {
   it('defines four demo books', () => {
@@ -20,7 +15,7 @@ describe('demoScenario', () => {
   })
 
   it('lists planned demo books for similar-readers selection', () => {
-    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book1', 'book2'])
+    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book2', 'alternative'])
   })
 
   it('uses ref cover urls when no db cover is provided', () => {
@@ -36,14 +31,14 @@ describe('demoScenario', () => {
 
   it('finds demo book by partial title', () => {
     expect(findDemoBookByTitle('어른이 된다는 것')?.key).toBe('book1')
-    expect(findDemoBookByTitle('시선으로부터')?.key).toBe('alternative')
+    expect(findDemoBookByTitle('너무나 많은 여름이')?.key).toBe('alternative')
     expect(DEMO_BOOKS.book2.authors).toBe('김영하')
     expect(DEMO_BOOKS.serendipity.authors).toBe('최진영')
+    expect(DEMO_BOOKS.book1.authors).toBe('김창진')
   })
 
   it('maps book keys to pool indices', () => {
-    const indices = bookKeysToPoolIndices(['book1', 'book2'])
-    expect(indices).toEqual([
+    expect(demoPoolIndicesForKeys(['book1', 'book2'])).toEqual([
       DEMO_BOOKS.book1.poolIndex,
       DEMO_BOOKS.book2.poolIndex,
     ])
@@ -53,17 +48,8 @@ describe('demoScenario', () => {
   it('resolves mission keys from a shopping list in visit order', () => {
     const keys = resolveDemoMissionKeys([
       { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
-      { booksId: 'demo-book-adult', title: '어른이 된다는 것', authors: '우치다 타츠루', coverImageUrl: '' },
+      { booksId: 'demo-book-summer', title: '너무나 많은 여름이', authors: '김연수', coverImageUrl: '' },
     ])
-    expect(keys).toEqual(['book1', 'book2'])
-  })
-
-  it('begins shelf visit with the full automatic demo route', () => {
-    const keys = beginDemoNavigationFromShoppingList([
-      { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
-      { booksId: 'demo-book-adult', title: '어른이 된다는 것', authors: '우치다 타츠루', coverImageUrl: '' },
-    ])
-    expect(keys).toEqual(DEMO_SCENARIO_ROUTE_KEYS)
+    expect(keys).toEqual(['book2', 'alternative'])
   })
 })
-

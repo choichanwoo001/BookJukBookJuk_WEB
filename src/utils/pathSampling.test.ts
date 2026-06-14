@@ -48,9 +48,12 @@ describe('pathSampling', () => {
 
   it('pathHeadingAtPoint returns tangent heading at projected point', () => {
     const path: [number, number][] = [[0, 0], [10, 0], [10, 10]]
-    expect(pathHeadingAtPoint(path, [5, 0])).toBeCloseTo(0, 5)
-    expect(pathHeadingAtPoint(path, [10, 5])).toBeCloseTo(Math.PI / 2, 5)
-    expect(pathHeadingAtPoint(path, [0, 0])).toBeCloseTo(0, 5)
+    // segment 1: [x,z] = (0,0)→(10,0), moving in +X → yaw = atan2(dx=10, dz=0) = π/2
+    expect(pathHeadingAtPoint(path, [5, 0])).toBeCloseTo(Math.PI / 2, 5)
+    // segment 2: [x,z] = (10,0)→(10,10), moving in +Z → yaw = atan2(dx=0, dz=10) = 0
+    expect(pathHeadingAtPoint(path, [10, 5])).toBeCloseTo(0, 5)
+    // path start is on segment 1 (+X direction)
+    expect(pathHeadingAtPoint(path, [0, 0])).toBeCloseTo(Math.PI / 2, 5)
   })
 
   it('buildRouteMasterPath concatenates demo scenario segments', () => {

@@ -103,6 +103,10 @@ export const NAV_GOAL_MARGIN_M = 0.55
 export const NAV_SEGMENT_SAMPLE_STEP_M = 0.1
 /** 표시용 곡선 리샘플 간격 (m). */
 export const NAV_PATH_DISPLAY_SAMPLE_STEP_M = 0.12
+/** 자동 보행 중 yaw가 목표 heading으로 수렴하는 지수 보간 계수(초당). 낮을수록 부드럽고 느림. */
+export const NAV_HEADING_SMOOTH_LAMBDA = 10
+/** 자동 보행 heading을 이 거리(m)만큼 앞 지점 기준으로 산출 — 코너 진입 전 미리 방향 전환. */
+export const NAV_HEADING_LOOK_AHEAD_M = 0.05
 /** Catmull-Rom control point 최소 간격 (m). */
 export const NAV_PATH_SMOOTH_MIN_POINT_SPACING_M = 0.35
 /** 바닥 경로 라인 두께 (픽셀, drei Line). */
@@ -118,7 +122,7 @@ export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#5ee7ff'
 export const NAV_ROUTE_Y = 0.08
 
 // --- Scenario route playback (미리보기 자동 이동) ---
-export const SCENARIO_PLAYBACK_SPEED_MPS = 3.5
+export const SCENARIO_PLAYBACK_SPEED_MPS = 2.5
 export const SCENARIO_STOP_DWELL_S = 1.2
 
 // --- Overview Pan ---

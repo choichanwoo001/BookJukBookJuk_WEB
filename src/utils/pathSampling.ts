@@ -52,7 +52,7 @@ export function samplePathAtDistance(path: Point2[], distanceM: number): PathSam
       const z = az + (bz - az) * t
       return {
         point: [x, z],
-        headingRad: Math.atan2(bz - az, bx - ax),
+        headingRad: Math.atan2(bx - ax, bz - az),
         segmentIndex: i - 1,
       }
     }
@@ -63,7 +63,7 @@ export function samplePathAtDistance(path: Point2[], distanceM: number): PathSam
   const prev = path[path.length - 2]
   return {
     point: [last[0], last[1]],
-    headingRad: Math.atan2(last[1] - prev[1], last[0] - prev[0]),
+    headingRad: Math.atan2(last[0] - prev[0], last[1] - prev[1]),
     segmentIndex: path.length - 2,
   }
 }

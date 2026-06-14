@@ -23,10 +23,7 @@ import {
   isCounterOverlaidByBookshelfOverlayLayer,
 } from '../../data/bookshelfOverlayLayer'
 import {
-  FIRST_PERSON_DEFAULT_PITCH,
-  THIRD_PERSON_LOCKED_PITCH,
   floorMaterial,
-  ceilingMaterial,
   bookshelfMaterial,
   bookshelfOverlayLayerMaterial,
   bookshelfOverlayInteriorWoodMaterial,
@@ -35,7 +32,6 @@ import {
   markerMaterial,
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
-  WALK_DEFAULT_FOV,
 } from '../../config/constants'
 import type { ViewMode, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
@@ -48,7 +44,6 @@ import {
 } from './Fixtures'
 import { SupermarketCounterInstances } from './SupermarketCounter'
 import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
-import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
 import {
   PlayerPositionReporter,
@@ -56,19 +51,15 @@ import {
   EditDragController,
 } from './reporters/SceneReporters'
 import type { MinimapPlayerPos } from './reporters/SceneReporters'
-import { WalkRig, OverviewRig } from './rigs/CameraRigs'
+import { TopDownRig, OverviewRig } from './rigs/CameraRigs'
 import { useScenePickHandlers } from './useScenePickHandlers'
-import { useSceneWalkModeSync } from './useSceneWalkModeSync'
-import { useVersoRobotSync } from '../../hooks/useVersoRobotSync'
-import { useDemoNavigationAutoWalk } from '../../hooks/useDemoNavigationAutoWalk'
+import { useSceneTopDownSync } from './useSceneTopDownSync'
+import { useNavigationMovement } from '../../hooks/useNavigationMovement'
 import type { VersoStatus } from '../../lib/verso/types'
 import { NavigationRouteMesh } from './NavigationRouteMesh'
-import { ScenarioRouteSegmentsMesh } from './ScenarioRouteSegmentsMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
-import type { DemoScenarioRoute } from '../../utils/demoScenarioRoute'
 import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
 import type { WalkabilityContext } from '../../utils/walkability'
-import { ScenarioRouteStopMarkers } from './ScenarioRouteStopMarkers'
 import {
   resolveNavigationMobilityPhase,
   type NavigationMobilityPhase,
@@ -87,21 +78,16 @@ export function SceneContent({
   selectedBookshelfIndex,
   onSelectBookshelf,
   onUpdateBookshelf,
-  forwardArrowRef,
-  walkFov = WALK_DEFAULT_FOV,
-  onWalkFovChange,
   onMinimapViewportUv,
   onPlayerPosition,
   playerWorldXzRef,
   navigationRoute,
   navigationRouteVariant = 'preview',
   routePathDisplayMode = 'curved',
-  scenarioRoute = null,
   walkabilityCtx,
   navHighlightPath = null,
   navCurrentGoal = null,
   demoNavigationActive = false,
-  scenarioRoutePreviewActive = false,
   mobilityHold = false,
   onMobilityPhaseChange,
   onMovementSyncSample,
@@ -121,21 +107,16 @@ export function SceneContent({
   selectedBookshelfIndex?: number | null
   onSelectBookshelf?: (index: number | null) => void
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
-  forwardArrowRef?: RefObject<HTMLDivElement | null>
-  walkFov?: number
-  onWalkFovChange?: (fov: number) => void
   onMinimapViewportUv?: (quad: MinimapUvPoint[] | null) => void
   onPlayerPosition?: (pos: MinimapPlayerPos | null) => void
   playerWorldXzRef?: RefObject<Point2 | null>
   navigationRoute?: NavigationRouteVisual | null
   navigationRouteVariant?: 'preview' | 'nav'
   routePathDisplayMode?: RoutePathDisplayMode
-  scenarioRoute?: DemoScenarioRoute | null
   walkabilityCtx?: WalkabilityContext
   navHighlightPath?: Point2[] | null
   navCurrentGoal?: Point2 | null
   demoNavigationActive?: boolean
-  scenarioRoutePreviewActive?: boolean
   mobilityHold?: boolean
   onMobilityPhaseChange?: (phase: NavigationMobilityPhase) => void
   onMovementSyncSample?: (sample: { isManualWalking: boolean; isAutoWalking: boolean }) => void
@@ -148,23 +129,17 @@ export function SceneContent({
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
   const yawRef = useRef(0)
-  const pitchRef = useRef(FIRST_PERSON_DEFAULT_PITCH)
   const characterYawRef = useRef(0)
-  const isFreeLookRef = useRef(false)
-  const mouseLookDraggingRef = useRef(false)
   const walkMovingRef = useRef(false)
   const playerPositionRef = useRef<[number, number]>([...INITIAL_PLAYER_POS])
   const navigationInitialHeadingRef = useRef<number | null>(null)
   const pathYawAppliedRef = useRef(false)
-  const prevWalkModeRef = useRef<'firstPerson' | 'thirdPerson' | null>(null)
-  const isFirstPerson = mode === 'firstPerson'
-  const isThirdPerson = mode === 'thirdPerson'
-  const isWalkMode = isFirstPerson || isThirdPerson
+  const prevTopDownModeRef = useRef<'topDown' | null>(null)
+  const isTopDown = mode === 'topDown'
+  const isWalkMode = isTopDown
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
-  /** 전시대(displayLow)는 바닥 밖에 안 보이도록 1인칭에서만 표시. */
-  const showDisplayLowFixtures = isFirstPerson
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = activePane === 'map' || demoNavigationActive
@@ -183,14 +158,21 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
-  const demoAutoWalkActive = useDemoNavigationAutoWalk({
+  const autoWalkActive = useNavigationMovement({
     worldRef,
     yawRef,
     characterYawRef,
     playerPositionRef,
+    storedWorldPositionRef,
+    playerWorldXzRef,
+    robotSyncActive,
+    robotStatus,
+    robotLiveStatusRef,
     highlightPath: navHighlightPath,
     currentGoal: navCurrentGoal,
-    enabled: isWalkMode && demoNavigationActive && !robotSyncActive,
+    demoNavigationActive,
+    mobilityHold,
+    isWalkMode,
   })
 
   useWorldMovement(
@@ -204,34 +186,21 @@ export function SceneContent({
     },
     characterYawRef,
     walkMovingRef,
-    controlsEnabled && !robotSyncActive && !demoAutoWalkActive && !mobilityHold,
+    controlsEnabled && !robotSyncActive && !autoWalkActive && !mobilityHold,
     playerPositionRef,
   )
 
-  useVersoRobotSync({
-    robotSyncActive,
-    status: robotStatus,
-    liveStatusRef: robotLiveStatusRef,
-    worldRef,
-    storedWorldPositionRef,
-    playerWorldXzRef,
-    yawRef,
-    characterYawRef,
-    isWalkMode,
-  })
-
-  useSceneWalkModeSync({
+  useSceneTopDownSync({
     mode,
     worldRef,
     storedWorldPositionRef,
     yawRef,
-    pitchRef,
-    prevWalkModeRef,
+    prevTopDownModeRef,
     preserveHeadingOnEnter: robotSyncActive,
     playerWorldXzRef,
     scenarioPlaybackHeadingRef,
     characterYawRef,
-    syncFromScenarioPreview: scenarioRoutePreviewActive && !demoNavigationActive,
+    syncFromScenarioPreview: false,
     navigationHeadingRef: navigationInitialHeadingRef,
   })
 
@@ -252,15 +221,14 @@ export function SceneContent({
   }, [applyPathAlignedYaw, navHighlightPath, navigationRoute?.highlightPath, navigationRoute?.planPath])
 
   const highlightPathLength = navHighlightPath?.length ?? 0
-  const robotAutoWalkActive = robotSyncActive && Boolean(robotStatus?.isMoving) && !mobilityHold
   const mobilityPhase = useMemo(
     () =>
       resolveNavigationMobilityPhase({
         demoNavigationActive,
-        demoAutoWalkActive: demoAutoWalkActive || robotAutoWalkActive,
+        demoAutoWalkActive: autoWalkActive,
         highlightPathLength,
       }),
-    [demoAutoWalkActive, demoNavigationActive, highlightPathLength, robotAutoWalkActive],
+    [autoWalkActive, demoNavigationActive, highlightPathLength],
   )
 
   useEffect(() => {
@@ -270,16 +238,16 @@ export function SceneContent({
   useEffect(() => {
     onMovementSyncSample?.({
       isManualWalking: walkMovingRef.current,
-      isAutoWalking: demoAutoWalkActive || robotAutoWalkActive,
+      isAutoWalking: autoWalkActive,
     })
-  }, [demoAutoWalkActive, onMovementSyncSample, robotAutoWalkActive])
+  }, [autoWalkActive, onMovementSyncSample])
 
   const prevManualWalkingRef = useRef(false)
   useFrame(() => {
     const moving = walkMovingRef.current
     if (moving === prevManualWalkingRef.current) return
     prevManualWalkingRef.current = moving
-    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: demoAutoWalkActive || robotAutoWalkActive })
+    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: autoWalkActive })
   })
 
   useLayoutEffect(() => {
@@ -317,10 +285,6 @@ export function SceneContent({
       if (isEditableDomTarget(event.target)) return
       event.preventDefault()
       setIsSpacePressed(true)
-      isFreeLookRef.current = false
-      yawRef.current = characterYawRef.current
-      if (mode === 'firstPerson') pitchRef.current = FIRST_PERSON_DEFAULT_PITCH
-      else if (mode === 'thirdPerson') pitchRef.current = THIRD_PERSON_LOCKED_PITCH
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return
@@ -343,7 +307,7 @@ export function SceneContent({
       window.removeEventListener('blur', handleWindowBlur)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [controlsEnabled, mode])
+  }, [controlsEnabled])
 
   const {
     floorPickHandler,
@@ -383,20 +347,11 @@ export function SceneContent({
       <directionalLight position={[20, 30, 10]} color="#FFECD2" intensity={0.8} />
       <directionalLight position={[-20, 25, -15]} color="#FFECD2" intensity={0.3} />
 
-      {isWalkMode ? (
-        <WalkRig
-          mode={isFirstPerson ? 'firstPerson' : 'thirdPerson'}
-          walkFov={walkFov}
+      {isTopDown ? (
+        <TopDownRig
           controlsEnabled={controlsEnabled}
-          robotFollowMode={robotSyncActive && isThirdPerson}
+          robotFollowMode={robotSyncActive}
           yawRef={yawRef}
-          pitchRef={pitchRef}
-          characterYawRef={characterYawRef}
-          worldRef={worldRef}
-          isFreeLookRef={isFreeLookRef}
-          mouseLookDraggingRef={mouseLookDraggingRef}
-          forwardArrowRef={forwardArrowRef}
-          onWalkFovChange={onWalkFovChange}
         />
       ) : (
         <OverviewRig
@@ -443,15 +398,6 @@ export function SceneContent({
             onPointerDown={floorPickHandler}
           />
         </group>
-        {isWalkMode && (
-          <group userData={{ excludeCameraCollision: true }}>
-            <FloorPolygonMesh
-              yOffset={FLOOR_HEIGHT_M}
-              material={ceilingMaterial}
-              fillRects={floorFillRects}
-            />
-          </group>
-        )}
         <BookshelfOverlayInterior
           instances={bookshelfOverlayLayerInstances}
           shellMaterial={bookshelfOverlayLayerMaterial}
@@ -481,13 +427,11 @@ export function SceneContent({
           instances={counterRenderInstances}
           onPointerDown={bookshelfPickHandler}
         />
-        {showDisplayLowFixtures && (
-          <RotatedFixtureInstances
-            instances={displayRenderInstances}
-            material={displayLowMaterial}
-            onPointerDown={bookshelfPickHandler}
-          />
-        )}
+        <RotatedFixtureInstances
+          instances={displayRenderInstances}
+          material={displayLowMaterial}
+          onPointerDown={bookshelfPickHandler}
+        />
         {isBookshelfEdit && selectedInst && (
           <group userData={{ excludeCameraCollision: true }}>
             <SelectedBookshelfOverlay instance={selectedInst} />
@@ -501,24 +445,13 @@ export function SceneContent({
           onPointerDown={pillarPickHandler}
         />
         <BookstoreLights floorRenderRects={floorRects} />
-        {scenarioRoute ? (
-          <>
-            <ScenarioRouteSegmentsMesh
-              route={scenarioRoute}
-              walkabilityCtx={walkabilityCtx}
-              pathDisplayMode={routePathDisplayMode}
-            />
-            <ScenarioRouteStopMarkers route={scenarioRoute} activeStopIndex={-1} />
-          </>
-        ) : (
-          navigationRoute && (
-            <NavigationRouteMesh
-              route={navigationRoute}
-              variant={navigationRouteVariant}
-              walkabilityCtx={walkabilityCtx}
-              pathDisplayMode={routePathDisplayMode}
-            />
-          )
+        {navigationRoute && (
+          <NavigationRouteMesh
+            route={navigationRoute}
+            variant={navigationRouteVariant}
+            walkabilityCtx={walkabilityCtx}
+            pathDisplayMode={routePathDisplayMode}
+          />
         )}
         {selections.map((selection) => (
           <group key={selection.id} userData={{ excludeCameraCollision: true }}>
@@ -533,9 +466,6 @@ export function SceneContent({
           </group>
         ))}
       </group>
-      {isThirdPerson && (
-        <ThirdPersonOcclusionFader enabled worldRef={worldRef} />
-      )}
     </>
   )
 }

@@ -6,12 +6,6 @@ import {
   subscribeMapCommand,
   type AgentMapCommand,
 } from '../agent/runtime/agentEventBus'
-import {
-  THIRD_PERSON_DEFAULT_FOV,
-  WALK_DEFAULT_FOV,
-  ZOOM_FOV_MAX,
-  ZOOM_FOV_MIN,
-} from '../config/constants'
 import type { Point2 } from '../data/floorPlan'
 import type { ViewMode } from '../types/scene'
 
@@ -29,27 +23,18 @@ export function useMapViewState({
   clearSelection: () => void
 }) {
   const [mode, setMode] = useState<ViewMode>('overview')
-  const [firstPersonFov, setFirstPersonFov] = useState(WALK_DEFAULT_FOV)
-  const [thirdPersonFov, setThirdPersonFov] = useState(THIRD_PERSON_DEFAULT_FOV)
   const [missionVersion, setMissionVersion] = useState(0)
-  const [prevWalkMode, setPrevWalkMode] = useState<'firstPerson' | 'thirdPerson'>('firstPerson')
   const [minimapPlayerPos, setMinimapPlayerPos] = useState<MinimapPlayerPosition | null>(null)
   const [routeDisplaySurface, setRouteDisplaySurface] = useState<RouteDisplaySurface>('main')
   const navigationActiveRef = useRef(false)
   const modeRef = useRef(mode)
-  const prevWalkModeRef = useRef(prevWalkMode)
 
   useEffect(() => {
     modeRef.current = mode
   }, [mode])
 
-  useEffect(() => {
-    prevWalkModeRef.current = prevWalkMode
-  }, [prevWalkMode])
-
   const isEdit = mode === 'edit'
   const isOverviewLike = mode === 'overview' || mode === 'edit'
-  const walkFov = mode === 'thirdPerson' ? thirdPersonFov : firstPersonFov
 
   const handleNewMission = useCallback(() => {
     setMissionVersion((v) => v + 1)
@@ -61,27 +46,19 @@ export function useMapViewState({
   }, [clearSelection])
 
   const handleMinimapToggle = useCallback(() => {
-    if (mode === 'firstPerson' || mode === 'thirdPerson') {
-      setPrevWalkMode(mode)
+    if (mode === 'topDown') {
       setMode('overview')
       clearSelection()
       return
     }
     if (mode === 'overview') {
-      setMode(prevWalkMode)
+      setMode('topDown')
       clearSelection()
     }
-  }, [clearSelection, mode, prevWalkMode])
-
-  const handleWalkFovChange = useCallback((next: number) => {
-    const v = Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, next))
-    if (mode === 'thirdPerson') setThirdPersonFov(v)
-    else setFirstPersonFov(v)
-  }, [mode])
+  }, [clearSelection, mode])
 
   const startNavigationView = useCallback(() => {
-    setPrevWalkMode('thirdPerson')
-    setMode('thirdPerson')
+    setMode('topDown')
     setRouteDisplaySurface('main')
     handleNewMission()
   }, [handleNewMission])
@@ -91,9 +68,8 @@ export function useMapViewState({
       if (command.type === 'REPLAN_SHORTEST') {
         handleNewMission()
       }
-      if (command.type === 'PREVIEW_ROUTE' || command.type === 'PREVIEW_NAV_PLAN') {
+      if (command.type === 'PREVIEW_NAV_PLAN') {
         if (navigationActiveRef.current) return
-        setPrevWalkMode('thirdPerson')
         setMode('overview')
         setRouteDisplaySurface('main')
         handleNewMission()
@@ -104,13 +80,8 @@ export function useMapViewState({
       }
       if (command.type === 'RESUME_MOBILITY') {
         if (modeRef.current === 'overview') {
-          setMode(prevWalkModeRef.current)
+          setMode('topDown')
         }
-      }
-      if (command.type === 'GO_CHECKOUT') {
-        setPrevWalkMode('thirdPerson')
-        setMode('overview')
-        setRouteDisplaySurface('main')
       }
     })
   }, [handleNewMission, startNavigationView])
@@ -133,11 +104,9 @@ export function useMapViewState({
     routeDisplaySurface,
     minimapPlayerPos,
     setMinimapPlayerPos,
-    walkFov,
     handleNewMission,
     handleViewModeChange,
     handleMinimapToggle,
-    handleWalkFovChange,
     startNavigationView,
   }), [
     mode,
@@ -146,11 +115,9 @@ export function useMapViewState({
     missionVersion,
     routeDisplaySurface,
     minimapPlayerPos,
-    walkFov,
     handleNewMission,
     handleViewModeChange,
     handleMinimapToggle,
-    handleWalkFovChange,
     startNavigationView,
   ])
 }

@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildDemoScenarioRoute } from './demoScenarioRoute'
 import {
-  buildRouteMasterPath,
   pathHeadingAtPoint,
   pathLengthM,
   projectPointOntoPathDistance,
@@ -55,15 +53,4 @@ describe('pathSampling', () => {
     // path start is on segment 1 (+X direction)
     expect(pathHeadingAtPoint(path, [0, 0])).toBeCloseTo(Math.PI / 2, 5)
   })
-
-  it('buildRouteMasterPath concatenates demo scenario segments', () => {
-    const route = buildDemoScenarioRoute()
-    const master = buildRouteMasterPath(route)
-    expect(master.length).toBeGreaterThan(2)
-    expect(pathLengthM(master)).toBeGreaterThan(0)
-    const end = samplePathAtDistance(master, pathLengthM(master))
-    const lastStop = route.stops[route.stops.length - 1]
-    expect(end?.point[0]).toBeCloseTo(lastStop.goal[0], 1)
-    expect(end?.point[1]).toBeCloseTo(lastStop.goal[1], 1)
-  }, 30_000)
 })

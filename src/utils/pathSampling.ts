@@ -1,6 +1,4 @@
 import type { Point2 } from '../data/floorPlan'
-import type { DemoScenarioRoute } from './demoScenarioRoute'
-import { concatPaths } from './gridPathfinding'
 
 export type PathSample = {
   point: Point2
@@ -16,14 +14,6 @@ export function pathLengthM(path: Point2[]): number {
     sum += Math.hypot(bx - ax, bz - az)
   }
   return sum
-}
-
-export function buildRouteMasterPath(route: DemoScenarioRoute): Point2[] {
-  let acc: Point2[] = []
-  for (const seg of route.segments) {
-    acc = concatPaths(acc, seg.path)
-  }
-  return acc
 }
 
 /**

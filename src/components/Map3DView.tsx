@@ -35,7 +35,6 @@ import { BookRecognitionPanel } from './BookRecognitionPanel'
 import type { GestureId } from '../lib/gestureClassifiers'
 import { MapControlDock } from './map/MapControlDock'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
-import { ScenarioRoutePlannerPanel } from './map/ScenarioRoutePlannerPanel'
 import { VoiceStatusIndicator } from './VoiceStatusIndicator'
 import type { VoiceCommandPhase } from '../hooks/useVoiceCommandLoop'
 import { useMapViewState } from '../hooks/useMapViewState'
@@ -44,9 +43,14 @@ import { useMockVersoRobotRoute } from '../hooks/useMockVersoRobotRoute'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
 import { createNavWalkabilityContext } from '../utils/walkability'
 import { NAVIGATION_MOBILITY_PHASE_LABELS } from '../types/navigationMobility'
-import { useScenarioRoutePreview } from '../hooks/useScenarioRoutePreview'
-import { tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
-import { buildDemoScenarioRoute } from '../utils/demoScenarioRoute'
+import { useDemoNavigationSync } from '../hooks/useDemoNavigationSync'
+import { getVersoConnectionState, tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
+import {
+  buildVersoWaypointsFromWorldGoals,
+  buildWaypointLegMapping,
+  tryPublishVersoMission,
+} from '../lib/verso/buildMissionWaypoints'
+import { readStoredVersoRosbridgeUrl } from '../lib/verso/env'
 import { buildFixtureRoutePlanVisual } from '../data/fixtureRobotRoute'
 import { pathLengthM } from '../utils/pathSampling'
 import type { RoutePathDisplayMode } from '../utils/pathSmoothing'
@@ -88,6 +92,7 @@ function Map3DView({
   onActivateMap,
   busy,
   onBookCapture,
+  onBookGestureDecision,
   onBookBrowse,
   onGestureConfirmed,
   usersId,
@@ -101,6 +106,7 @@ function Map3DView({
   voiceSupported = false,
   voicePermissionDenied = false,
   voiceArmRemainingMs = null,
+  voiceMicOn = false,
 }: {
   activePane: 'map' | 'chat'
   onActivateMap: () => void
@@ -112,10 +118,15 @@ function Map3DView({
   voiceSupported?: boolean
   voicePermissionDenied?: boolean
   voiceArmRemainingMs?: number | null
+  voiceMicOn?: boolean
   onBookCapture: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
     trigger?: 'gesture' | 'ui',
+  ) => void | Promise<void>
+  onBookGestureDecision?: (
+    reason: 'add' | 'remove',
+    book: { title: string; author?: string },
   ) => void | Promise<void>
   onBookBrowse?: (imageBase64: string) => void | Promise<void>
   onGestureConfirmed?: (gestureId: GestureId) => void
@@ -125,11 +136,12 @@ function Map3DView({
   onResetOnboarding: () => void
 }) {
   const [controlsVisible, setControlsVisible] = useState(true)
-  const [scenarioRouteOpen, setScenarioRouteOpen] = useState(false)
   const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
-  const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(null)
+  const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(
+    () => readStoredVersoRosbridgeUrl() || null,
+  )
   const [checkoutGoals, setCheckoutGoals] = useState<Point2[] | null>(null)
   const [routePathDisplayMode, setRoutePathDisplayMode] =
     useState<RoutePathDisplayMode>('curved')
@@ -143,7 +155,6 @@ function Map3DView({
   })
   const staticInstances = useMemo(() => buildStaticInstances(), [])
   const { spanX: minimapSpanX, spanZ: minimapSpanZ } = useMemo(() => getMinimapWorldBounds(), [])
-  const forwardArrowRef = useRef<HTMLDivElement>(null)
 
   const handleMinimapViewportUv = useCallback((quad: MinimapUvPoint[] | null) => {
     setMinimapViewportUv(quad)
@@ -159,14 +170,6 @@ function Map3DView({
     },
     [],
   )
-
-  useEffect(() => {
-    return subscribeMapCommand((command) => {
-      if (command.type === 'START_NAVIGATION') {
-        setNavigationSpawnReady(false)
-      }
-    })
-  }, [])
 
   const {
     instances,
@@ -196,10 +199,8 @@ function Map3DView({
     routeDisplaySurface,
     minimapPlayerPos,
     setMinimapPlayerPos,
-    walkFov,
     handleViewModeChange,
     handleMinimapToggle,
-    handleWalkFovChange,
     startNavigationView,
   } = useMapViewState({
     playerWorldXzRef,
@@ -213,12 +214,9 @@ function Map3DView({
     handleMobilityPhaseChange,
     mobilityPhase,
     pauseDemoMobility,
-    scenarioDirectGoals,
     scenarioPlaybackHeadingRef,
-    scenarioRoutePreviewActive,
-  } = useScenarioRoutePreview({
+  } = useDemoNavigationSync({
     playerWorldXzRef,
-    setMinimapPlayerPos,
     startNavigationView,
   })
 
@@ -226,7 +224,7 @@ function Map3DView({
   useEffect(() => {
     const justStarted = demoNavigationActive && !prevDemoNavigationActiveRef.current
     prevDemoNavigationActiveRef.current = demoNavigationActive
-    if (justStarted && mode !== 'firstPerson' && mode !== 'thirdPerson') {
+    if (justStarted && mode !== 'topDown') {
       startNavigationView()
     }
   }, [demoNavigationActive, mode, startNavigationView])
@@ -274,27 +272,18 @@ function Map3DView({
   )
 
   const directGoals = useMemo(() => {
-    if (scenarioDirectGoals && scenarioDirectGoals.length > 0) return scenarioDirectGoals
     if (agentMission.directGoals && agentMission.directGoals.length > 0) {
       return agentMission.directGoals
     }
     if (checkoutGoals && checkoutGoals.length > 0) return checkoutGoals
     return null
-  }, [scenarioDirectGoals, agentMission.directGoals, checkoutGoals])
-
-  useEffect(() => {
-    return subscribeMapCommand((command) => {
-      if (command.type === 'GO_CHECKOUT') {
-        checkoutArrivedRef.current = false
-        setCheckoutGoals(checkoutDirectGoals(navCtx, navBounds, playerWorldXzRef.current))
-      }
-    })
-  }, [navBounds, navCtx])
+  }, [agentMission.directGoals, checkoutGoals])
 
   const {
     connectionState: versoConnectionState,
     lastStatus: versoStatus,
     lastPath: versoPath,
+    lastEvent: versoLastEvent,
     robotSyncActive,
     liveStatusRef: versoLiveStatusRef,
   } = useVersoRosbridge(versoActiveUrl)
@@ -306,6 +295,7 @@ function Map3DView({
   const effectiveVersoPath = robotSyncActive ? versoPath : mockVerso.lastPath
   const effectiveRobotSyncActive = robotSyncActive || mockVerso.robotSyncActive
   const effectiveRobotLiveStatusRef = robotSyncActive ? versoLiveStatusRef : mockVerso.liveStatusRef
+  const effectiveVersoLastEvent = robotSyncActive ? versoLastEvent : mockVerso.lastEvent
 
   const routePlanPreviewActive =
     Boolean(directGoals?.length) && !demoNavigationActive && navigationSpawnReady
@@ -321,7 +311,6 @@ function Map3DView({
     bounds: navBounds,
     suppressDwellEvents:
       routePlanPreviewActive ||
-      scenarioRoutePreviewActive ||
       !navigationSpawnReady ||
       demoMobilityPaused ||
       effectiveRobotSyncActive,
@@ -344,33 +333,19 @@ function Map3DView({
     routePlanPreviewActive && isOverviewLike
       ? fixtureRoutePlanVisual
       : activeNavigationRoute
-  const isWalkMode = mode === 'firstPerson' || mode === 'thirdPerson'
-  const demoScenarioRoute = useMemo(() => {
-    if (!scenarioRoutePreviewActive || demoNavigationActive) return null
-    return buildDemoScenarioRoute()
-  }, [demoNavigationActive, scenarioRoutePreviewActive])
-  const showScenarioPlanOnMain =
-    scenarioRoutePreviewActive && !demoNavigationActive && !isWalkMode
+  const isWalkMode = mode === 'topDown'
   const showMinimapNavigation =
-    !showScenarioPlanOnMain &&
-    ((routePlanPreviewActive && isOverviewLike) || demoNavigationActive || isWalkMode)
-  const mainScenarioRoute = showScenarioPlanOnMain ? demoScenarioRoute : null
+    (routePlanPreviewActive && isOverviewLike) || demoNavigationActive || isWalkMode
   const mainNavigationRoute =
-    showScenarioPlanOnMain
-      ? null
-      : routeDisplaySurface === 'main' || isWalkMode
-        ? displayRoute
-        : null
-  const minimapNavDimPath = showScenarioPlanOnMain
-    ? null
-    : showMinimapNavigation
-      ? displayRoute?.planPath ?? null
+    routeDisplaySurface === 'main' || isWalkMode
+      ? displayRoute
       : null
-  const minimapNavHighlightPath = showScenarioPlanOnMain
-    ? null
-    : showMinimapNavigation
-      ? displayRoute?.highlightPath ?? null
-      : null
+  const minimapNavDimPath = showMinimapNavigation
+    ? displayRoute?.planPath ?? null
+    : null
+  const minimapNavHighlightPath = showMinimapNavigation
+    ? displayRoute?.highlightPath ?? null
+    : null
 
   const minimapViewportForPanel = isWalkMode ? null : minimapViewportUv
 
@@ -420,6 +395,84 @@ function Map3DView({
       dispatchDwellEvent({ type: 'CHECKOUT_ARRIVED', version: AGENT_MAP_EVENT_VERSION })
     }
   }, [checkoutGoals, navigationRoute])
+
+  // Waypoint ID → leg index map (for robot event → dwell event mapping)
+  const wpIdToLegRef = useRef<Map<string, number | 'checkout'>>(new Map())
+
+  // Refs for reading latest values inside subscribeMapCommand callback (avoid stale closure)
+  const navigationRouteRef = useRef(navigationRoute)
+  useEffect(() => { navigationRouteRef.current = navigationRoute }, [navigationRoute])
+
+  const checkoutGoalsRef = useRef(checkoutGoals)
+  useEffect(() => { checkoutGoalsRef.current = checkoutGoals }, [checkoutGoals])
+
+  const skipNextStartNavWaypointsRef = useRef(false)
+
+  const agentMissionPoolIndicesRef = useRef(agentMission.poolIndices)
+  useEffect(() => { agentMissionPoolIndicesRef.current = agentMission.poolIndices }, [agentMission.poolIndices])
+
+  // Publish waypoints to robot on GO_CHECKOUT / START_NAVIGATION / SET_DIRECT_GOALS
+  useEffect(() => {
+    const publishMissionForGoals = (goals: Point2[], options?: { checkoutNav?: boolean }) => {
+      if (getVersoConnectionState() !== 'connected') return
+      if (goals.length === 0) return
+
+      const waypoints = buildVersoWaypointsFromWorldGoals(goals, options)
+      wpIdToLegRef.current = buildWaypointLegMapping(waypoints)
+      tryPublishVersoMission(waypoints)
+    }
+
+    return subscribeMapCommand((command) => {
+      if (command.type === 'GO_CHECKOUT') {
+        checkoutArrivedRef.current = false
+        skipNextStartNavWaypointsRef.current = true
+        const goals = checkoutDirectGoals(navCtx, navBounds, playerWorldXzRef.current)
+        checkoutGoalsRef.current = goals
+        setCheckoutGoals(goals)
+        publishMissionForGoals(goals, { checkoutNav: true })
+        return
+      }
+      if (command.type === 'SET_DIRECT_GOALS') {
+        publishMissionForGoals(command.goals)
+        return
+      }
+      if (command.type !== 'START_NAVIGATION') return
+      if (skipNextStartNavWaypointsRef.current) {
+        skipNextStartNavWaypointsRef.current = false
+        return
+      }
+
+      const route = navigationRouteRef.current
+      if (!route || route.goals.length === 0) return
+      publishMissionForGoals(route.goals)
+    })
+  }, [navBounds, navCtx])
+
+  // Bridge robot waypoint_arrived events to agent dwell pipeline
+  const processedVersoEventRef = useRef<typeof effectiveVersoLastEvent>(null)
+  useEffect(() => {
+    if (!effectiveVersoLastEvent || effectiveVersoLastEvent === processedVersoEventRef.current) return
+    if (!effectiveRobotSyncActive) return
+    processedVersoEventRef.current = effectiveVersoLastEvent
+
+    if (effectiveVersoLastEvent.event !== 'waypoint_arrived' || !effectiveVersoLastEvent.waypointId) return
+
+    const mapping = wpIdToLegRef.current.get(effectiveVersoLastEvent.waypointId)
+    if (mapping === 'checkout') {
+      if (!checkoutArrivedRef.current) {
+        checkoutArrivedRef.current = true
+        dispatchDwellEvent({ type: 'CHECKOUT_ARRIVED', version: AGENT_MAP_EVENT_VERSION })
+      }
+    } else if (typeof mapping === 'number') {
+      const poolIndices = agentMissionPoolIndicesRef.current
+      dispatchDwellEvent({
+        type: 'SHELF_ARRIVED',
+        version: AGENT_MAP_EVENT_VERSION,
+        legIndex: mapping,
+        poolIndex: poolIndices?.[mapping] ?? null,
+      })
+    }
+  }, [effectiveRobotSyncActive, effectiveVersoLastEvent])
 
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
 
@@ -486,21 +539,16 @@ function Map3DView({
           selectedBookshelfIndex={isEdit ? selectedIndex : null}
           onSelectBookshelf={isEdit ? setSelectedIndex : undefined}
           onUpdateBookshelf={isEdit ? handleUpdateInstance : undefined}
-          forwardArrowRef={forwardArrowRef}
-          walkFov={walkFov}
-          onWalkFovChange={handleWalkFovChange}
           onMinimapViewportUv={handleMinimapViewportUv}
           onPlayerPosition={setMinimapPlayerPos}
           playerWorldXzRef={playerWorldXzRef}
           navigationRoute={mainNavigationRoute}
-          scenarioRoute={mainScenarioRoute}
           routePathDisplayMode={routePathDisplayMode}
           walkabilityCtx={navCtx}
           navigationRouteVariant={isWalkMode ? 'nav' : 'preview'}
           navHighlightPath={navigationRoute?.highlightPath ?? null}
           navCurrentGoal={navigationRoute?.currentGoal ?? null}
           demoNavigationActive={demoNavigationActive}
-          scenarioRoutePreviewActive={scenarioRoutePreviewActive}
           mobilityHold={mobilityHold}
           onMobilityPhaseChange={handleMobilityPhaseChange}
           onMovementSyncSample={handleMovementSyncSample}
@@ -516,38 +564,24 @@ function Map3DView({
         <BookRecognitionPanel
           busy={busy}
           onCapture={onBookCapture}
+          onGestureBookDecision={onBookGestureDecision}
           onBrowse={onBookBrowse ?? ((frame) => onBookCapture('browse', frame))}
           onGestureConfirmed={onGestureConfirmed}
           placement="map"
         />
-
-        {(mode === 'firstPerson' || mode === 'thirdPerson') && (
-          <div className="map3DForwardHud">
-            <div ref={forwardArrowRef} style={{ width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <polygon points="14,2 22,18 14,14 6,18" fill="rgba(255,255,255,0.92)" stroke="rgba(0,0,0,0.45)" strokeWidth="1.2" strokeLinejoin="round" />
-              </svg>
-            </div>
-          </div>
-        )}
 
         <MapMinimapPanel
           mode={mode}
           spanX={minimapSpanX}
           spanZ={minimapSpanZ}
           viewportUv={minimapViewportForPanel}
-          playerPos={showScenarioPlanOnMain ? null : minimapPlayerPos}
+          playerPos={minimapPlayerPos}
           navDimPath={minimapNavDimPath}
           navHighlightPath={minimapNavHighlightPath}
           navSegmentPaths={null}
           walkabilityCtx={navCtx}
           pathDisplayMode={routePathDisplayMode}
           onClick={handleMinimapToggle}
-        />
-
-        <ScenarioRoutePlannerPanel
-          open={scenarioRouteOpen}
-          onClose={() => setScenarioRouteOpen(false)}
         />
 
         {isDemoMode() && demoNavigationActive && !demoMobilityPaused && (
@@ -575,6 +609,7 @@ function Map3DView({
           busy={busy}
           ttsSpeaking={ttsSpeaking}
           armRemainingMs={voiceArmRemainingMs}
+          isMicOn={voiceMicOn}
           compact
         />
 

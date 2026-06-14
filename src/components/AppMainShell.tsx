@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import ChatPanel from './ChatPanel'
 import { useChatAgent } from '../hooks/useChatAgent'
+import { useVoiceCommandLoop } from '../hooks/useVoiceCommandLoop'
 import { gestureToAgentInput } from '../lib/gestureAgentInput'
 import { GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import type { ShoppingListEntry } from '../agent/types'
@@ -40,12 +41,18 @@ export function AppMainShell({
 
   const { appendRecognitionMessage, submitAgentInput } = agent
 
-  const handleVoiceRecognized = useCallback(
+  const handleVoiceUtterance = useCallback(
     (transcript: string) => {
-      appendRecognitionMessage('voice', `🎤 음성 인식: "${transcript}"`)
+      appendRecognitionMessage('voice', `🎤 "${transcript}"`)
+      void submitAgentInput(transcript, 'voice')
     },
-    [appendRecognitionMessage],
+    [appendRecognitionMessage, submitAgentInput],
   )
+
+  const voice = useVoiceCommandLoop({
+    onUtteranceComplete: handleVoiceUtterance,
+    paused: agent.busy || agent.ttsSpeaking,
+  })
 
   const handleGestureConfirmed = useCallback(
     (gestureId: GestureId) => {
@@ -84,6 +91,11 @@ export function AppMainShell({
             isFullscreen={isFullscreen}
             onToggleFullscreen={onToggleFullscreen}
             onResetOnboarding={onResetOnboarding}
+            voicePhase={voice.phase}
+            voiceLivePreview={voice.livePreview}
+            voiceSupported={voice.isSupported}
+            voicePermissionDenied={voice.permissionDenied}
+            voiceArmRemainingMs={voice.armRemainingMs}
           />
         </Suspense>
       </section>
@@ -102,9 +114,13 @@ export function AppMainShell({
           listLoadStatus={agent.listLoadStatus}
           listLoadMessage={agent.listLoadMessage}
           actionCard={agent.actionCard}
-          onVoiceRecognized={handleVoiceRecognized}
           tts={agent.tts}
           ttsSpeaking={agent.ttsSpeaking}
+          voicePhase={voice.phase}
+          voiceLivePreview={voice.livePreview}
+          voiceSupported={voice.isSupported}
+          voicePermissionDenied={voice.permissionDenied}
+          voiceArmRemainingMs={voice.armRemainingMs}
         />
       </aside>
     </main>

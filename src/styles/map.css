@@ -900,6 +900,17 @@
   background: rgba(150, 36, 24, 0.95);
 }
 
+.mapPane .voiceStatusIndicator[data-compact] {
+  position: absolute;
+  bottom: 0.85rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 125;
+  max-width: min(92vw, 28rem);
+  pointer-events: none;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
 .demoModeWarningBanner {
   grid-column: 1 / -1;
   grid-row: 1;

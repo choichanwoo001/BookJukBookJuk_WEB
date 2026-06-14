@@ -36,6 +36,8 @@ import type { GestureId } from '../lib/gestureClassifiers'
 import { MapControlDock } from './map/MapControlDock'
 import { MapMinimapPanel } from './map/MapMinimapPanel'
 import { ScenarioRoutePlannerPanel } from './map/ScenarioRoutePlannerPanel'
+import { VoiceStatusIndicator } from './VoiceStatusIndicator'
+import type { VoiceCommandPhase } from '../hooks/useVoiceCommandLoop'
 import { useMapViewState } from '../hooks/useMapViewState'
 import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
 import { useMockVersoRobotRoute } from '../hooks/useMockVersoRobotRoute'
@@ -94,12 +96,22 @@ function Map3DView({
   onResetOnboarding,
   ttsSpeaking = false,
   mobilityHold = false,
+  voicePhase = 'unsupported',
+  voiceLivePreview = '',
+  voiceSupported = false,
+  voicePermissionDenied = false,
+  voiceArmRemainingMs = null,
 }: {
   activePane: 'map' | 'chat'
   onActivateMap: () => void
   busy: boolean
   ttsSpeaking?: boolean
   mobilityHold?: boolean
+  voicePhase?: VoiceCommandPhase
+  voiceLivePreview?: string
+  voiceSupported?: boolean
+  voicePermissionDenied?: boolean
+  voiceArmRemainingMs?: number | null
   onBookCapture: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
@@ -554,6 +566,17 @@ function Map3DView({
             </button>
           </div>
         )}
+
+        <VoiceStatusIndicator
+          phase={voicePhase}
+          livePreview={voiceLivePreview}
+          isSupported={voiceSupported}
+          permissionDenied={voicePermissionDenied}
+          busy={busy}
+          ttsSpeaking={ttsSpeaking}
+          armRemainingMs={voiceArmRemainingMs}
+          compact
+        />
 
         <MapControlDock
           visible={controlsVisible}

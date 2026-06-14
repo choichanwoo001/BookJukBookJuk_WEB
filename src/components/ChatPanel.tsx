@@ -4,13 +4,11 @@ import type { FormEvent } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import { ChatActionCard } from './ChatActionCard'
 import { ConfirmationCard } from './ConfirmationCard'
-import { useSpeechInput } from '../hooks/useSpeechInput'
+import { VoiceStatusIndicator } from './VoiceStatusIndicator'
+import type { VoiceCommandPhase } from '../hooks/useVoiceCommandLoop'
 import type { UseTtsReturn } from '../hooks/useTts'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
-import { buildNavStartPrompt, CHAT_NAV_START_GUIDE } from '../hooks/chatAgent/messages'
 import type { AgentContext, AgentMessage, ChatActionCard as ChatActionCardModel } from '../agent/types'
-
-const chatEmptyGuideExamples = ['추천해줘', '책 검색 데미안', '책 추가 데미안', '계산하러 가자'] as const
 
 function ChatPanel({
   activePane,
@@ -26,15 +24,18 @@ function ChatPanel({
   listLoadStatus,
   listLoadMessage,
   actionCard,
-  onVoiceRecognized,
   tts,
   ttsSpeaking,
+  voicePhase,
+  voiceLivePreview,
+  voiceSupported,
+  voicePermissionDenied,
+  voiceArmRemainingMs,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
   messages: AgentMessage[]
   submitUserText: (text: string) => Promise<void>
-  onVoiceRecognized?: (transcript: string) => void
   context: AgentContext
   busy: boolean
   lastFailedUserText: string | null
@@ -46,6 +47,11 @@ function ChatPanel({
   actionCard: ChatActionCardModel | null
   tts: UseTtsReturn
   ttsSpeaking: boolean
+  voicePhase: VoiceCommandPhase
+  voiceLivePreview: string
+  voiceSupported: boolean
+  voicePermissionDenied: boolean
+  voiceArmRemainingMs: number | null
 }) {
   const [draft, setDraft] = useState('')
   const [receiptQrOpen, setReceiptQrOpen] = useState(false)
@@ -71,25 +77,9 @@ function ChatPanel({
     }
   }, [])
 
-  const handleSpeechResult = useCallback((transcript: string) => {
-    const trimmed = transcript.trim()
-    if (!trimmed) return
-    onVoiceRecognized?.(trimmed)
-    setDraft((prev) => {
-      const prevTrimmed = prev.trim()
-      return prevTrimmed ? `${prevTrimmed} ${trimmed}` : trimmed
-    })
-  }, [onVoiceRecognized])
-
-  const speech = useSpeechInput({ onResult: handleSpeechResult })
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
   const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
-  const showNavStartGuide =
-    messages.length === 0 &&
-    cartItems.length > 0 &&
-    context.checkoutStatus !== 'completed' &&
-    context.state !== 'SESSION_END'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -97,12 +87,6 @@ function ChatPanel({
     await submitUserText(draft)
     setDraft('')
   }
-
-  const handleGuideExample = useCallback(async (text: string) => {
-    if (busy) return
-    setDraft('')
-    await submitUserText(text)
-  }, [busy, submitUserText])
 
   useEffect(() => {
     const listEl = messageListRef.current
@@ -223,48 +207,7 @@ function ChatPanel({
         {actionCard && <ChatActionCard card={actionCard} disabled={busy} onSelect={(inputText) => void submitUserText(inputText)} />}
 
         <div ref={messageListRef} className="chatMessages">
-          {messages.length === 0 ? (
-            showNavStartGuide ? (
-              <section className="chatNavStartPrompt" aria-label="경로 안내 시작">
-                <article className="chatBubble assistant breakAnywhere">
-                  <div>{buildNavStartPrompt(cartItems.length)}</div>
-                </article>
-                <div className="chatNavStartQuickReplies" aria-label="빠른 답변">
-                  {CHAT_NAV_START_GUIDE.examples.map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      className="chatNavStartQuickReply"
-                      onClick={() => void handleGuideExample(example)}
-                      disabled={busy}
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <section className="chatEmptyGuide" aria-label="채팅 시작 안내">
-                <h2 className="chatEmptyGuideTitle">무엇을 도와드릴까요?</h2>
-                <p className="chatEmptyGuideText">
-                  책 추천, 도서 검색, 장바구니 담기/삭제, 경로 안내, 계산대 이동을 도와드릴 수 있어요.
-                </p>
-                <div className="chatEmptyGuideActions" aria-label="예시 요청">
-                  {chatEmptyGuideExamples.map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      className="chatEmptyGuideButton"
-                      onClick={() => void handleGuideExample(example)}
-                      disabled={busy}
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )
-          ) : messages.map((message) => (
+          {messages.map((message) => (
             <article
               key={message.id}
               className={`chatBubble breakAnywhere ${
@@ -300,12 +243,15 @@ function ChatPanel({
         )}
 
         <div className="chatVoiceBar">
-          {busy && (
-            <div className="chatBusyRow chatBusyRowVoice" aria-live="polite">
-              <span className="chatSpinner" aria-hidden />
-              처리 중
-            </div>
-          )}
+          <VoiceStatusIndicator
+            phase={voicePhase}
+            livePreview={voiceLivePreview}
+            isSupported={voiceSupported}
+            permissionDenied={voicePermissionDenied}
+            busy={busy}
+            ttsSpeaking={ttsSpeaking}
+            armRemainingMs={voiceArmRemainingMs}
+          />
           <div className="chatVoiceBarControls">
             <button
               type="button"
@@ -326,33 +272,6 @@ function ChatPanel({
         </div>
 
         <form className="chatForm" onSubmit={handleSubmit}>
-          {speech.isSupported && speech.isListening && (
-            <div className="chatMicPreviewBar">
-              <div className="chatMicPreviewRow">
-                <span className="chatMicPreviewStatus" aria-live="polite">
-                  <span className="chatMicPreviewDot" aria-hidden />
-                  듣는 중
-                  {speech.livePreview ? (
-                    <>
-                      <span className="chatMicPreviewSep" aria-hidden>
-                        ·
-                      </span>
-                      <span className="chatMicPreviewText">{speech.livePreview}</span>
-                    </>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  className="chatMicPreviewCancel"
-                  onClick={() => speech.cancelListening()}
-                  disabled={busy}
-                  aria-label="음성 인식 취소"
-                >
-                  인식 취소
-                </button>
-              </div>
-            </div>
-          )}
           <div className="chatFormInputRow">
             <textarea
               value={draft}
@@ -369,41 +288,6 @@ function ChatPanel({
               disabled={busy}
               rows={1}
             />
-            {speech.isSupported && (
-              <button
-                type="button"
-                className="chatMicButton"
-                data-listening={speech.isListening}
-                onClick={() => (speech.isListening ? speech.stopListening() : speech.startListening())}
-                aria-label={speech.isListening ? '음성 인식 끝내고 입력에 넣기' : '음성으로 말하기 시작'}
-                aria-pressed={speech.isListening}
-                disabled={busy}
-              >
-                <span className="chatMicButtonInner">
-                  {speech.isListening ? (
-                    <svg className="chatMicIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="chatMicIcon"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      aria-hidden
-                    >
-                      <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" />
-                      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" />
-                    </svg>
-                  )}
-                  <span className="chatMicButtonLabel">{speech.isListening ? '입력에 넣기' : '말하기'}</span>
-                </span>
-              </button>
-            )}
             <button type="submit" disabled={!canSend}>
               전송
             </button>

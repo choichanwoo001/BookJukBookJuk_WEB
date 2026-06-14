@@ -8,6 +8,7 @@ import VisitChoiceGate from './components/VisitChoiceGate'
 import LlmRequiredGate from './components/LlmRequiredGate'
 import SessionStartGate from './components/SessionStartGate'
 import { clearCurrentWebSession } from './lib/supabase/qrLogin'
+import { primeMicrophone } from './lib/speechRecognition'
 import { demoRequiresLlm, isDemoMode, isLlmConfigured } from './config/demoMode'
 import type { ShoppingListEntry } from './agent/types'
 import type { OnboardingStep, TasteSeed } from './types/onboarding'
@@ -53,6 +54,16 @@ function App() {
 
   const enterApp = () => {
     setOnboardingStep('app')
+  }
+
+  const enterAppWithVoice = () => {
+    void primeMicrophone().finally(enterApp)
+  }
+
+  const enterSessionStartWithVoice = () => {
+    void primeMicrophone().finally(() => {
+      setOnboardingStep('session_start')
+    })
   }
 
   const addPlannedBooks = (books: ShoppingListEntry[]) => {
@@ -136,7 +147,7 @@ function App() {
     return (
       <SessionStartGate
         tasteSeed={tasteSeed}
-        onStart={() => setOnboardingStep('app')}
+        onStart={enterApp}
       />
     )
   }
@@ -148,13 +159,7 @@ function App() {
         plannedBooks={plannedBooks}
         onAddBooks={addPlannedBooks}
         onRemoveBooks={removePlannedBooks}
-        onStart={() => {
-          if (isDemoMode()) {
-            setOnboardingStep('session_start')
-          } else {
-            enterApp()
-          }
-        }}
+        onStart={isDemoMode() ? enterSessionStartWithVoice : enterAppWithVoice}
       />
     )
   }

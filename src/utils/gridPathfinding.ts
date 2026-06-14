@@ -337,3 +337,19 @@ export function concatPaths(a: Point2[], b: Point2[], eps = 0.08): Point2[] {
   if (Math.hypot(la[0] - fb[0], la[1] - fb[1]) < eps) return [...a.slice(0, -1), ...b]
   return [...a, ...b]
 }
+
+export function segmentPathWorld(
+  from: Point2,
+  to: Point2,
+  ctx: WalkabilityContext,
+  bounds: WorldBounds,
+  gridCellM: number,
+  sampleStepM: number = NAV_SEGMENT_SAMPLE_STEP_M,
+): Point2[] {
+  const routed = findPathWorldGrid(from, to, ctx, bounds, gridCellM)
+  if (routed && routed.length >= 2) return routed
+  if (isSegmentWalkableWorld(from, to, ctx, sampleStepM)) {
+    return [from, to]
+  }
+  return []
+}

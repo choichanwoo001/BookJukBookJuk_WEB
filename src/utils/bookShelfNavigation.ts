@@ -1,10 +1,4 @@
-import type { DemoBookKey } from '../data/demoScenario'
-import { shelfPoolIndexForDemoBook } from '../data/sectorShelfMap'
 import { pickMissionIndicesSeeded } from './missionPick'
-
-export function bookKeysToPoolIndices(keys: DemoBookKey[]): number[] {
-  return keys.map((key) => shelfPoolIndexForDemoBook(key))
-}
 
 export function clampPoolIndices(indices: number[], poolSize: number): number[] {
   if (poolSize <= 0) return []

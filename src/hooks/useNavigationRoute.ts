@@ -17,7 +17,7 @@ import {
 } from '../utils/gridPathfinding'
 import { pickReachableBookshelfGoalWorld } from '../utils/navBookshelfGoals'
 import type { WalkabilityContext } from '../utils/walkability'
-import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent, subscribeNavigationSync } from '../agent/runtime/agentEventBus'
+import { AGENT_MAP_EVENT_VERSION, dispatchDwellEvent, subscribeNavigationSync, subscribeMobilityHold } from '../agent/runtime/agentEventBus'
 
 export type NavigationRouteVisual = {
   /** Full fixed route plan for minimap/overview display. */
@@ -176,6 +176,17 @@ export function useNavigationRoute(args: {
   }, [])
 
   useEffect(() => {
+    return subscribeMobilityHold((held) => {
+      mobilityHoldRef.current = held
+      if (!held && pendingLegAdvanceRef.current) {
+        pendingLegAdvanceRef.current = false
+        awaitingHoldAtLegRef.current = null
+        startTransition(() => setActiveLeg((a) => Math.min(a + 1, goalsRef.current.length)))
+      }
+    })
+  }, [])
+
+  useEffect(() => {
     if (leg0LockedRef.current) return
     leg0StartRef.current = null
     leg0FindingDoneRef.current = false
@@ -261,11 +272,6 @@ export function useNavigationRoute(args: {
           }
           awaitingHoldAtLegRef.current = leg
           pendingLegAdvanceRef.current = true
-          if (!mobilityHoldRef.current) {
-            pendingLegAdvanceRef.current = false
-            awaitingHoldAtLegRef.current = null
-            startTransition(() => setActiveLeg((a) => Math.min(a + 1, goalsRef.current.length)))
-          }
           window.setTimeout(() => {
             arrivalCooldown.current = false
           }, 650)

@@ -28,7 +28,30 @@ const demoBook2ReaderEntry = {
   reason: '두 사람의 만남과 이별을 따라가는 소설이 감정선과 잘 맞아요.',
 }
 
+const demoSerendipityReaderEntry = {
+  id: 'demo-serendipity',
+  title: DEMO_BOOKS.serendipity.title,
+  author: DEMO_BOOKS.serendipity.authors,
+  coverUrl: demoRefCoverUrl(DEMO_BOOKS.serendipity),
+  rating: 4.6,
+  reviewCount: 96,
+  reason: '한 사람에게 집중하는 이야기. 잔잔하지만 깊은 여운이 남아요.',
+}
+
+const demoSummerReaderEntry = {
+  id: 'demo-summer',
+  title: DEMO_BOOKS.alternative.title,
+  author: DEMO_BOOKS.alternative.authors,
+  coverUrl: demoRefCoverUrl(DEMO_BOOKS.alternative),
+  rating: 4.5,
+  reviewCount: 87,
+  reason: '여름과 관계, 상실과 회복을 담은 소설집이 취향과 잘 맞아요.',
+}
+
 const calmBooks = [
+  demoBook2ReaderEntry,
+  demoSerendipityReaderEntry,
+  demoSummerReaderEntry,
   demoBook1ReaderEntry,
   {
     id: 'liked-1',
@@ -123,7 +146,6 @@ export const readerProfiles: ReaderProfile[] = [
     description:
       '현실적인 문제를 안고 있는 인물이 자기만의 속도로 변해가는 이야기에 강하게 반응합니다. 결말의 통쾌함보다 과정의 설득력을 더 중요하게 보는 독자예요.',
     likedBooks: [
-      demoBook2ReaderEntry,
       {
         id: 'liked-5',
         title: '불편한 편의점',

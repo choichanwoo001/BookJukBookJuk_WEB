@@ -49,14 +49,14 @@ export function useTransitSerendipityDetour({
 
     const sync = navSyncRef.current
     if (!sync?.navigationActive) return
-    if (sync.activeLeg !== 1) return
+    if (sync.activeLeg !== 0) return
 
     const playerXz = mapSnapshotRef.current?.playerXz ?? null
     pausePlayerXzRef.current = playerXz
 
     setContext({
       transitDetourPhase: 'paused_for_follow',
-      resumeLegAfterDetour: 1,
+      resumeLegAfterDetour: 0,
       mobilityPaused: true,
     })
   }), [contextRef, setContext])

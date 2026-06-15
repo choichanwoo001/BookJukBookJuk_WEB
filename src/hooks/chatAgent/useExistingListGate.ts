@@ -3,7 +3,6 @@ import { useCallback, useRef, useState } from 'react'
 export type ExistingListGateStatus =
   | 'inactive'
   | 'awaiting_nav'
-  | 'awaiting_nav_confirm'
   | 'nav_started'
 
 export type ExistingListGate = {

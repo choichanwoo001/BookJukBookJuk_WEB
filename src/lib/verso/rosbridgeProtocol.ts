@@ -1,4 +1,4 @@
-import type { VersoCommandAction } from './types'
+import type { VersoCommandAction, VersoSetModeAction, VersoWaypoint } from './types'
 
 const STRING_MSG_TYPE = 'std_msgs/String'
 
@@ -20,6 +20,14 @@ export function buildPublishString(topic: string, jsonString: string): string {
 
 export function buildVersoCommandPayload(action: VersoCommandAction): string {
   return JSON.stringify({ type: 'command', action })
+}
+
+export function buildVersoSetModePayload(mode: VersoSetModeAction): string {
+  return JSON.stringify({ type: 'command', action: 'set_mode', mode })
+}
+
+export function buildVersoWaypointsPayload(waypoints: VersoWaypoint[]): string {
+  return JSON.stringify({ type: 'waypoints', waypoints })
 }
 
 export type RosbridgePublish = {

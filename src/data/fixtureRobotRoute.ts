@@ -1,6 +1,6 @@
+import type { VersoWaypoint } from '../lib/verso/types'
 import { counterOverlayLayerInstances, bookshelfOverlayLayerInstances } from './bookshelfOverlayLayer'
 import {
-  ENTRANCE_SPAWN,
   type Point2,
 } from './floorPlan'
 import { NAV_GOAL_MARGIN_M, NAV_GRID_CELL_M } from '../config/constants'
@@ -14,6 +14,11 @@ import { createNavWalkabilityContext, type WalkabilityContext } from '../utils/w
 import type { NavigationRouteVisual } from '../hooks/useNavigationRoute'
 import { worldXzToRobotMap } from '../utils/robotMapCoords'
 import type { VersoPath } from '../lib/verso/types'
+import {
+  initialRobotMissionWaypoints,
+  robotMapBook2WorldXz,
+  robotMapStartWorldXz,
+} from '../lib/verso/robotMissionCoords'
 import { DEMO_BOOKS, findDemoBookByPoolIndex, findDemoBookByTitle, type DemoBookKey } from './demoScenario'
 
 export type FixtureRobotStopKind = 'book' | 'browse' | 'checkout'
@@ -46,83 +51,154 @@ export type FixtureRobotRoute = {
   versoPath: VersoPath
 }
 
-/** 우연한 발견(browse) — 초기 2권 경로에는 포함하지 않고, book1 담기 후에만 삽입한다. */
-export const SERENDIPITY_BROWSE_TARGET_SPEC: FixtureRobotTargetSpec = {
-  id: 'serendipity-browse',
-  label: '단 한 사람',
-  kind: 'browse',
-  fixtureSource: 'bookshelfOverlayLayerInstances',
-  fixtureIndex: 26,
-  originalCircle: { x: 2.825, z: 9.418, radius: 0.35 },
-  purchased: false,
+/** 시연 3권 — 오직 두 사람, 어른이 된다는 것, 단 한 사람 */
+export const SCENARIO_BOOK_KEYS = ['book2', 'book1', 'serendipity'] as const
+
+export type ScenarioBookKey = (typeof SCENARIO_BOOK_KEYS)[number]
+
+function scenarioTargetSpec(
+  key: DemoBookKey,
+  overrides?: Partial<FixtureRobotTargetSpec>,
+): FixtureRobotTargetSpec {
+  switch (key) {
+    case 'book2': {
+      const [bx, bz] = robotMapBook2WorldXz()
+      return {
+        id: 'book2',
+        label: DEMO_BOOKS.book2.title,
+        kind: 'book',
+        fixtureSource: 'bookshelfOverlayLayerInstances',
+        fixtureIndex: DEMO_BOOKS.book2.poolIndex,
+        originalCircle: { x: bx, z: bz, radius: 0.35 },
+        purchased: true,
+        ...overrides,
+      }
+    }
+    case 'book1':
+      return {
+        id: 'book1',
+        label: DEMO_BOOKS.book1.title,
+        kind: 'book',
+        fixtureSource: 'bookshelfOverlayLayerInstances',
+        fixtureIndex: DEMO_BOOKS.book1.poolIndex,
+        originalCircle: { x: -19.442, z: -4.539, radius: 0.35 },
+        purchased: true,
+        ...overrides,
+      }
+    case 'serendipity':
+      return {
+        id: 'serendipity',
+        label: DEMO_BOOKS.serendipity.title,
+        kind: 'book',
+        fixtureSource: 'bookshelfOverlayLayerInstances',
+        fixtureIndex: DEMO_BOOKS.serendipity.poolIndex,
+        originalCircle: { x: 2.825, z: 9.418, radius: 0.35 },
+        purchased: true,
+        ...overrides,
+      }
+    default:
+      throw new Error(`Unsupported scenario book key: ${key}`)
+  }
 }
+
+/** 출발 전 1권: 오직 두 사람 */
+export const INITIAL_SCENARIO_SPECS: FixtureRobotTargetSpec[] = [scenarioTargetSpec('book2')]
+
+/** 우연한 발견 detour browse — 단 한 사람 (담지 않음) */
+export const SERENDIPITY_BROWSE_TARGET_SPEC: FixtureRobotTargetSpec = scenarioTargetSpec('serendipity', {
+  id: 'serendipity-browse',
+  kind: 'browse',
+  purchased: false,
+})
 
 export const SERENDIPITY_BROWSE_POOL_INDEX = SERENDIPITY_BROWSE_TARGET_SPEC.fixtureIndex
 
-/**
- * 출발 전 2권 경로: 오직 두 사람 → 너무나 많은 여름이
- * (결제는 계산대 이동 없이 QR로 진행 — 단 한 사람 browse는 SERENDIPITY_DETOUR_SPECS에서만)
- */
-export const FIXTURE_ROBOT_TARGET_SPECS: FixtureRobotTargetSpec[] = [
-  {
-    id: 'first-book',
-    label: '오직 두 사람',
-    kind: 'book',
-    fixtureSource: 'bookshelfOverlayLayerInstances',
-    fixtureIndex: 14,
-    originalCircle: { x: 1.267, z: -12.279, radius: 0.35 },
-    purchased: true,
-  },
-  {
-    id: 'second-book',
-    label: '너무나 많은 여름이',
-    kind: 'book',
-    fixtureSource: 'bookshelfOverlayLayerInstances',
-    fixtureIndex: 9,
-    originalCircle: { x: -7.279, z: 14.189, radius: 0.35 },
-    purchased: true,
-  },
+/** @deprecated alias — use INITIAL_SCENARIO_SPECS */
+export const FIXTURE_ROBOT_TARGET_SPECS: FixtureRobotTargetSpec[] = INITIAL_SCENARIO_SPECS
+
+/** detour 후 확장: 오직 두 사람 → 어른이 된다는 것 */
+export const EXTENDED_SCENARIO_SPECS: FixtureRobotTargetSpec[] = [
+  scenarioTargetSpec('book2'),
+  scenarioTargetSpec('book1'),
 ]
 
-/** book1 담기 후 우연한 발견 detour: 단 한 사람(browse) → 오직 두 사람 */
+/** @deprecated alias — use EXTENDED_SCENARIO_SPECS */
+export const EXTENDED_FIXTURE_TARGET_SPECS: FixtureRobotTargetSpec[] = EXTENDED_SCENARIO_SPECS
+
+/** @deprecated legacy name — browse-only detour uses SERENDIPITY_BROWSE_TARGET_SPEC */
 export const SERENDIPITY_DETOUR_SPECS: FixtureRobotTargetSpec[] = [
   SERENDIPITY_BROWSE_TARGET_SPEC,
-  FIXTURE_ROBOT_TARGET_SPECS[0],
+  INITIAL_SCENARIO_SPECS[0],
 ]
 
-/**
- * 확장 경로: serendipity 추천 수락 후 적용.
- * 단 한 사람 → 어른이 된다는 것 → 너무나 많은 여름이 (오직 두 사람은 이미 방문)
- */
-export const EXTENDED_FIXTURE_TARGET_SPECS: FixtureRobotTargetSpec[] = [
-  {
-    id: 'danjansaram-buy',
-    label: '단 한 사람',
-    kind: 'book',
-    fixtureSource: 'bookshelfOverlayLayerInstances',
-    fixtureIndex: 26,
-    originalCircle: { x: 2.825, z: 9.418, radius: 0.35 },
-    purchased: true,
-  },
-  {
-    id: 'eoreun-recommendation',
-    label: '어른이 된다는 것',
-    kind: 'book',
-    fixtureSource: 'bookshelfOverlayLayerInstances',
-    fixtureIndex: 4,
-    originalCircle: { x: -19.442, z: -4.539, radius: 0.35 },
-    purchased: true,
-  },
-  {
-    id: 'second-book',
-    label: '너무나 많은 여름이',
-    kind: 'book',
-    fixtureSource: 'bookshelfOverlayLayerInstances',
-    fixtureIndex: 9,
-    originalCircle: { x: -7.279, z: 14.189, radius: 0.35 },
-    purchased: true,
-  },
-]
+export function scenarioBookTargetSpec(key: DemoBookKey): FixtureRobotTargetSpec {
+  return scenarioTargetSpec(key)
+}
+
+export function scenarioBookApproachGoal(key: DemoBookKey): Point2 {
+  const spec =
+    key === 'serendipity' ? SERENDIPITY_BROWSE_TARGET_SPEC : scenarioTargetSpec(key)
+  const route = buildFixtureRobotRoute([spec])
+  return route.targets[0]!.approachGoal
+}
+
+export function scenarioBookWaypoints(keys: DemoBookKey[]): VersoWaypoint[] {
+  if (keys.length === 1 && keys[0] === 'book2') {
+    return initialRobotMissionWaypoints()
+  }
+  const specs = keys.map((key) => {
+    if (key === 'serendipity' && keys.length === 1) {
+      return SERENDIPITY_BROWSE_TARGET_SPEC
+    }
+    return scenarioTargetSpec(key)
+  })
+  const route = buildFixtureRobotRoute(specs)
+  return route.targets.map((target) => {
+    if (target.id === 'book2') {
+      return initialRobotMissionWaypoints()[0]!
+    }
+    const map = worldXzToRobotMap(target.approachGoal[0], target.approachGoal[1])
+    return {
+      id: target.id,
+      x: map.x,
+      y: map.y,
+      label: target.label,
+    }
+  })
+}
+
+const GOAL_MATCH_EPS_M = 0.05
+
+function goalsApproximatelyEqual(a: Point2[], b: Point2[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((p, i) => {
+    const q = b[i]!
+    return Math.hypot(p[0] - q[0], p[1] - q[1]) <= GOAL_MATCH_EPS_M
+  })
+}
+
+/** Match fixture scenario goals to labeled robot waypoints. */
+export function resolveScenarioWaypointsForGoals(goals: Point2[]): VersoWaypoint[] | null {
+  const candidates: DemoBookKey[][] = [
+    ['book2'],
+    ['serendipity'],
+    ['book2', 'book1'],
+  ]
+  for (const keys of candidates) {
+    let expected: Point2[]
+    if (keys.length === 1 && keys[0] === 'book2') {
+      expected = fixtureRobotDirectGoals()
+    } else if (keys.length === 1 && keys[0] === 'serendipity') {
+      expected = serendipityOnlyDirectGoals()
+    } else {
+      expected = extendedFixtureRobotDirectGoals()
+    }
+    if (goalsApproximatelyEqual(expected, goals)) {
+      return scenarioBookWaypoints(keys)
+    }
+  }
+  return null
+}
 
 /** 우연한 발견 detour 경로에서 browse 스톱(단 한 사람)의 leg 인덱스. */
 export const FIXTURE_BROWSE_STOP_LEG_INDEX = SERENDIPITY_DETOUR_SPECS.findIndex(
@@ -153,35 +229,30 @@ export function resolveFixtureBookForShelfArrival(args: {
 
 export function resolveFixtureRouteSpecs(poolIndices: number[] | null | undefined): FixtureRobotTargetSpec[] {
   if (!poolIndices || poolIndices.length === 0) {
-    return FIXTURE_ROBOT_TARGET_SPECS
+    return INITIAL_SCENARIO_SPECS
   }
 
   const serendipityPool = DEMO_BOOKS.serendipity.poolIndex
   const book2Pool = DEMO_BOOKS.book2.poolIndex
-  const alternativePool = DEMO_BOOKS.alternative.poolIndex
   const book1Pool = DEMO_BOOKS.book1.poolIndex
 
   if (
     poolIndices.length === 2 &&
-    poolIndices.includes(serendipityPool) &&
-    poolIndices.includes(book2Pool)
+    poolIndices.includes(book2Pool) &&
+    poolIndices.includes(book1Pool)
   ) {
+    return EXTENDED_SCENARIO_SPECS
+  }
+
+  if (poolIndices.includes(serendipityPool) && poolIndices.includes(book2Pool)) {
     return SERENDIPITY_DETOUR_SPECS
   }
 
-  if (
-    poolIndices.length === 2 &&
-    poolIndices.includes(book2Pool) &&
-    poolIndices.includes(alternativePool)
-  ) {
-    return FIXTURE_ROBOT_TARGET_SPECS
+  if (poolIndices.includes(book2Pool)) {
+    return INITIAL_SCENARIO_SPECS
   }
 
-  if (poolIndices.includes(book1Pool) && poolIndices.includes(serendipityPool)) {
-    return EXTENDED_FIXTURE_TARGET_SPECS
-  }
-
-  return FIXTURE_ROBOT_TARGET_SPECS
+  return INITIAL_SCENARIO_SPECS
 }
 
 function routeBounds(): WorldBounds {
@@ -206,9 +277,31 @@ function fixtureForSpec(spec: FixtureRobotTargetSpec): FixtureRenderInstance {
   return fixture
 }
 
+function fixtureApproachGoal(
+  spec: FixtureRobotTargetSpec,
+  previous: Point2,
+  ctx: WalkabilityContext,
+  bounds: WorldBounds,
+): Point2 {
+  if (spec.id === 'book2') {
+    return robotMapBook2WorldXz()
+  }
+  const fixture = fixtureForSpec(spec)
+  return (
+    pickReachableBookshelfGoalWorld(
+      fixture,
+      previous,
+      ctx,
+      bounds,
+      NAV_GRID_CELL_M,
+      NAV_GOAL_MARGIN_M,
+    ) ?? [spec.originalCircle.x, spec.originalCircle.z]
+  )
+}
+
 export function buildFixtureRobotRoute(
   specs: FixtureRobotTargetSpec[] = FIXTURE_ROBOT_TARGET_SPECS,
-  start: Point2 = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]],
+  start: Point2 = robotMapStartWorldXz(),
 ): FixtureRobotRoute {
   const ctx = buildFixtureRobotWalkabilityContext()
   const bounds = routeBounds()
@@ -217,15 +310,7 @@ export function buildFixtureRobotRoute(
 
   for (const spec of specs) {
     const fixture = fixtureForSpec(spec)
-    const goal =
-      pickReachableBookshelfGoalWorld(
-        fixture,
-        previous,
-        ctx,
-        bounds,
-        NAV_GRID_CELL_M,
-        NAV_GOAL_MARGIN_M,
-      ) ?? [spec.originalCircle.x, spec.originalCircle.z]
+    const goal = fixtureApproachGoal(spec, previous, ctx, bounds)
 
     targets.push({
       ...spec,
@@ -260,7 +345,7 @@ export function buildFixtureRobotRoute(
 }
 
 export function buildSerendipityBrowseRoute(from?: Point2): FixtureRobotRoute {
-  const start = from ?? [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+  const start = from ?? robotMapStartWorldXz()
   return buildFixtureRobotRoute([SERENDIPITY_BROWSE_TARGET_SPEC], start)
 }
 
@@ -270,7 +355,7 @@ export function serendipityOnlyDirectGoals(from?: Point2): Point2[] {
 
 export function buildFixtureRobotRouteFromGoals(
   goals: Point2[],
-  start: Point2 = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]],
+  start: Point2 = robotMapStartWorldXz(),
 ): FixtureRobotRoute {
   const ctx = buildFixtureRobotWalkabilityContext()
   const bounds = routeBounds()
@@ -303,16 +388,15 @@ export function serendipityDetourDirectGoals(): Point2[] {
 }
 
 export function fixtureRobotDirectGoals(poolIndices?: number[] | null): Point2[] {
-  const specs = poolIndices ? resolveFixtureRouteSpecs(poolIndices) : FIXTURE_ROBOT_TARGET_SPECS
+  const specs = poolIndices ? resolveFixtureRouteSpecs(poolIndices) : INITIAL_SCENARIO_SPECS
   return buildFixtureRobotRoute(specs).targets.map((target) => target.approachGoal)
 }
 
 /**
- * serendipity 추천 수락 후 확장 경로 목표 좌표.
- * 단 한 사람 → 어른이 된다는 것 → 너무나 많은 여름이.
+ * serendipity 추천 수락 후 확장 경로: 오직 두 사람 → 어른이 된다는 것.
  */
 export function extendedFixtureRobotDirectGoals(): Point2[] {
-  return buildFixtureRobotRoute(EXTENDED_FIXTURE_TARGET_SPECS).targets.map(
+  return buildFixtureRobotRoute(EXTENDED_SCENARIO_SPECS).targets.map(
     (target) => target.approachGoal,
   )
 }

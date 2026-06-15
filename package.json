@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "api:identify": "node scripts/identifyApiServer.mjs",
+    "api:kakao-pay": "node scripts/kakaoPayApiServer.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -17,6 +18,7 @@
     "map:floor-2d-png": "tsx scripts/exportFloorMap2d.ts",
     "db:migrate": "node scripts/runSupabaseMigration.mjs",
     "refs:demo": "node scripts/registerDemoBookRefs.mjs",
+    "refs:fetch": "node scripts/fetchScenarioBookCovers.mjs",
     "covers:reader": "node scripts/fetchReaderProfileCovers.mjs"
   },
   "dependencies": {

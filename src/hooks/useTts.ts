@@ -128,41 +128,9 @@ export function useTts(): UseTtsReturn {
 
     const env = readLlmEnv()
 
-    if (!env) return null
+    if (!env) {
 
-
-
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
-
-      method: 'POST',
-
-      headers: {
-
-        Authorization: `Bearer ${env.apiKey}`,
-
-        'Content-Type': 'application/json',
-
-      },
-
-      body: JSON.stringify({
-
-        model: 'tts-1',
-
-        input: text.slice(0, MAX_TEXT_LENGTH),
-
-        voice: readTtsVoice(),
-
-        response_format: 'mp3',
-
-      }),
-
-    })
-
-
-
-    if (!response.ok) {
-
-      console.warn('[TTS] API error', response.status)
+      console.warn('[TTS] readLlmEnv() returned null. VITE_OPENAI_API_KEY is missing or empty in .env.')
 
       return null
 
@@ -170,27 +138,99 @@ export function useTts(): UseTtsReturn {
 
 
 
-    const arrayBuffer = await response.arrayBuffer()
+    console.log('[TTS] Fetching audio from OpenAI TTS for text:', text)
 
 
 
-    if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+    try {
 
-      audioCtxRef.current = new AudioContext()
+      const response = await fetch('https://api.openai.com/v1/audio/speech', {
+
+        method: 'POST',
+
+        headers: {
+
+          Authorization: `Bearer ${env.apiKey}`,
+
+          'Content-Type': 'application/json',
+
+        },
+
+        body: JSON.stringify({
+
+          model: 'tts-1',
+
+          input: text.slice(0, MAX_TEXT_LENGTH),
+
+          voice: readTtsVoice(),
+
+          response_format: 'mp3',
+
+        }),
+
+      })
+
+
+
+      if (!response.ok) {
+
+        console.warn('[TTS] OpenAI API request failed with status:', response.status)
+
+        try {
+
+          const errText = await response.text()
+
+          console.warn('[TTS] OpenAI API error body:', errText)
+
+        } catch {}
+
+        return null
+
+      }
+
+
+
+      console.log('[TTS] OpenAI API request succeeded. Decoding audio data...')
+
+      const arrayBuffer = await response.arrayBuffer()
+
+
+
+      if (!audioCtxRef.current || audioCtxRef.current.state === 'closed') {
+
+        audioCtxRef.current = new AudioContext()
+
+      }
+
+      const audioCtx = audioCtxRef.current
+
+      if (audioCtx.state === 'suspended') {
+
+        console.warn('[TTS] AudioContext is suspended. Attempting to resume...')
+
+        await audioCtx.resume()
+
+        console.log('[TTS] AudioContext state after resume:', audioCtx.state)
+
+        if (audioCtx.state === 'suspended') {
+
+          console.error('[TTS] AudioContext remains suspended! Browser blocked playback because of autoplay/gesture rules. Please click/interact with the page.')
+
+        }
+
+      }
+
+
+
+      return await audioCtx.decodeAudioData(arrayBuffer)
+
+    } catch (err) {
+
+      console.error('[TTS] Fetch or decode failed:', err)
+
+      return null
 
     }
-
-    const audioCtx = audioCtxRef.current
-
-    if (audioCtx.state === 'suspended') {
-
-      await audioCtx.resume()
-
-    }
-
-
-
-    return audioCtx.decodeAudioData(arrayBuffer)
 
   }, [])
 
@@ -205,6 +245,8 @@ export function useTts(): UseTtsReturn {
         const audioCtx = audioCtxRef.current
 
         if (!audioCtx) {
+
+          console.warn('[TTS] playBuffer failed: AudioContext is not initialized.')
 
           resolve()
 
@@ -228,7 +270,41 @@ export function useTts(): UseTtsReturn {
 
 
 
+        console.log('[TTS] Starting playback. Duration:', audioBuffer.duration, 'seconds. State:', audioCtx.state)
+
+
+
+        const durationMs = (audioBuffer.duration / TTS_PLAYBACK_RATE) * 1000
+
+        const safetyTimer = setTimeout(() => {
+
+          console.warn('[TTS] playBuffer safety timeout triggered. AudioContext is likely suspended. State:', audioCtx.state)
+
+          if (playingRef.current) {
+
+            currentSourceRef.current = null
+
+            playingRef.current = false
+
+            setSpeaking(false)
+
+            resolve()
+
+            resolveWaiters()
+
+            void playNextRef.current?.()
+
+          }
+
+        }, durationMs + 2000)
+
+
+
         source.onended = () => {
+
+          console.log('[TTS] Playback ended.')
+
+          clearTimeout(safetyTimer)
 
           currentSourceRef.current = null
 
@@ -310,7 +386,13 @@ export function useTts(): UseTtsReturn {
 
     async (text: string) => {
 
-      if (!enabledRef.current) return
+      if (!enabledRef.current) {
+
+        console.log('[TTS] speak() skipped because TTS is disabled. enabled = false')
+
+        return
+
+      }
 
       const trimmed = text.trim()
 
@@ -332,7 +414,13 @@ export function useTts(): UseTtsReturn {
 
     async (text: string) => {
 
-      if (!enabledRef.current) return
+      if (!enabledRef.current) {
+
+        console.log('[TTS] speakAndWait() skipped because TTS is disabled. enabled = false')
+
+        return
+
+      }
 
       const trimmed = text.trim()
 

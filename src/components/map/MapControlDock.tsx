@@ -1,8 +1,6 @@
 import type { ViewMode } from '../../types/scene'
-import type { VersoConnectionState } from '../../lib/verso/types'
 import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
 import { MapViewButtons } from './MapViewButtons'
-import { VersoConnectionPanel } from './VersoConnectionPanel'
 
 export type MapControlDockProps = {
   visible: boolean
@@ -10,15 +8,12 @@ export type MapControlDockProps = {
   usersId: string | null
   isFullscreen: boolean
   onToggleFullscreen: () => void
-  onResetOnboarding: () => void
+  onResetOnboarding?: () => void
   mode: ViewMode
   isEdit: boolean
   onModeChange: (next: ViewMode) => void
   routePathDisplayMode: RoutePathDisplayMode
   onRoutePathDisplayModeChange: (next: RoutePathDisplayMode) => void
-  versoConnectionState: VersoConnectionState
-  onVersoConnect: (url: string) => void
-  onVersoDisconnect: () => void
 }
 
 export function MapControlDock({
@@ -33,9 +28,6 @@ export function MapControlDock({
   onModeChange,
   routePathDisplayMode,
   onRoutePathDisplayModeChange,
-  versoConnectionState,
-  onVersoConnect,
-  onVersoDisconnect,
 }: MapControlDockProps) {
   return (
     <div className="mapControlDockArea">
@@ -54,9 +46,11 @@ export function MapControlDock({
           <button type="button" onClick={onToggleFullscreen}>
             {isFullscreen ? '전체화면 종료' : '전체화면'}
           </button>
-          <button type="button" onClick={onResetOnboarding}>
-            처음으로
-          </button>
+          {onResetOnboarding && (
+            <button type="button" onClick={onResetOnboarding}>
+              처음으로
+            </button>
+          )}
         </div>
         <MapViewButtons
           mode={mode}
@@ -79,11 +73,6 @@ export function MapControlDock({
             직선
           </button>
         </div>
-        <VersoConnectionPanel
-          connectionState={versoConnectionState}
-          onConnect={onVersoConnect}
-          onDisconnect={onVersoDisconnect}
-        />
       </div>
     </div>
   )

@@ -25,6 +25,14 @@ describe('resolveNavigationMobilityPhase', () => {
       resolveNavigationMobilityPhase({
         demoNavigationActive: true,
         demoAutoWalkActive: true,
+        highlightPathLength: 0,
+      }),
+    ).toBe('walking')
+
+    expect(
+      resolveNavigationMobilityPhase({
+        demoNavigationActive: true,
+        demoAutoWalkActive: true,
         highlightPathLength: 12,
       }),
     ).toBe('walking')

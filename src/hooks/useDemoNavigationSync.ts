@@ -4,6 +4,7 @@ import {
   subscribeMapCommand,
 } from '../agent/runtime/agentEventBus'
 import { ENTRANCE_SPAWN, type Point2 } from '../data/floorPlan'
+import { isVersoRobotSyncActive } from '../lib/verso/versoCommandBridge'
 import type { NavigationMobilityPhase } from '../types/navigationMobility'
 
 export function useDemoNavigationSync({
@@ -31,7 +32,9 @@ export function useDemoNavigationSync({
         startNavigationView()
         setDemoNavigationActive(true)
         scenarioPlaybackHeadingRef.current = null
-        playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+        if (!isVersoRobotSyncActive()) {
+          playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+        }
       }
 
       if (command.type === 'PAUSE_MOBILITY') {

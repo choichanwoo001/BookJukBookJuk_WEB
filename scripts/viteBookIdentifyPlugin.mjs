@@ -45,22 +45,15 @@ function createVitePythonApi(server) {
     cwd: ROOT_DIR,
     disabled: IS_TEST,
     stdio: ['ignore', 'pipe', 'pipe'],
-    onStdout: (chunk) => {
-      server.config.logger.info(`[book-identify:python] ${String(chunk).trimEnd()}`)
-    },
-    onStderr: (chunk) => {
-      server.config.logger.warn(`[book-identify:python] ${String(chunk).trimEnd()}`)
-    },
+    onStdout: () => {},
+    onStderr: () => {},
     onExit: (code, signal) => {
       if (code || signal) {
         server.config.logger.warn(`[book-identify] Python ORB API 종료됨(code=${code}, signal=${signal})`)
       }
     },
-    onReadyExisting: (baseUrl) => {
-      console.log(`[book-identify] Python ORB API 연결됨 ${baseUrl}`)
-    },
-    onReadyStarted: (baseUrl, child) => {
-      console.log(`[book-identify] Python ORB API 시작됨 ${baseUrl}`)
+    onReadyExisting: () => {},
+    onReadyStarted: (_baseUrl, child) => {
       server.httpServer?.once('close', () => child.kill())
     },
     onStartFailed: () => {
@@ -81,11 +74,7 @@ export function bookIdentifyPlugin() {
       cpSync(REFS_DIR, targetDir, { recursive: true })
     },
     async configureServer(server) {
-      const refs = await loadRefs()
-      console.log(`[book-identify] refs ${refs.length}권 로드 (Python ORB 공통 경로)`)
-      for (const r of refs) {
-        console.log(`  - ${r.file} -> "${r.query}"`)
-      }
+      await loadRefs()
 
       const pythonApi = createVitePythonApi(server)
       let pythonReady = await pythonApi.ensure()

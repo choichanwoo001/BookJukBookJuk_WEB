@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { mapImageOffsetX, mapImageOffsetZ } from '../data/mapData'
-import { buildFixtureRobotRoute } from '../data/fixtureRobotRoute'
-import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
-import { NAV_SEGMENT_SAMPLE_STEP_M } from '../config/constants'
-import { getMinimapWorldBounds } from './minimapBounds'
-import { isSegmentWalkableWorld } from './gridPathfinding'
-import { buildNavBookshelfRects } from './missionShelfPool'
-import { createNavWalkabilityContext } from './walkability'
 import { buildVersoRouteVisual, splitRobotPathByPosition } from './versoPathVisual'
 
 describe('versoPathVisual', () => {
@@ -35,37 +28,11 @@ describe('versoPathVisual', () => {
     expect(buildVersoRouteVisual({ x: 0, y: 0 }, null)).toBeNull()
   })
 
-  it('densifies sparse robot poses along walkable corridors', () => {
-    const bounds = getMinimapWorldBounds()
-    const navBounds = {
-      minX: bounds.minX,
-      maxX: bounds.maxX,
-      minZ: bounds.minZ,
-      maxZ: bounds.maxZ,
-    }
-    const ctx = createNavWalkabilityContext(
-      buildNavBookshelfRects([], bookshelfOverlayLayerInstances),
-    )
-    const fixtureRoute = buildFixtureRobotRoute()
-    const sparse = fixtureRoute.versoPath.poses.filter((_, i) => i % 20 === 0)
-    const route = buildVersoRouteVisual(
-      null,
-      { poses: sparse.length >= 2 ? sparse : fixtureRoute.versoPath.poses.slice(0, 2) },
-      { walkabilityCtx: ctx, bounds: navBounds },
-    )
-
+  it('maps robot poses to world without re-routing', () => {
+    const poses = [{ x: 0, y: 0 }, { x: 1, y: 2 }, { x: 3, y: 4 }]
+    const route = buildVersoRouteVisual(null, { poses })
     expect(route).not.toBeNull()
-    expect(route!.highlightPath.length).toBeGreaterThan(sparse.length)
-
-    for (let i = 1; i < route!.highlightPath.length; i++) {
-      expect(
-        isSegmentWalkableWorld(
-          route!.highlightPath[i - 1],
-          route!.highlightPath[i],
-          ctx,
-          NAV_SEGMENT_SAMPLE_STEP_M,
-        ),
-      ).toBe(true)
-    }
-  }, 30_000)
+    expect(route!.highlightPath).toHaveLength(poses.length)
+    expect(route!.planPath).toHaveLength(poses.length)
+  })
 })

@@ -3,7 +3,15 @@ import { buildLocalReceipt, completeDemoPurchase } from '../../lib/supabase/purc
 import { SUPABASE_NOT_CONFIGURED } from '../../lib/supabase/result'
 import type { ToolExecutionContext, ToolResult } from '../types'
 
-export async function completeCheckoutPurchase(ctx: ToolExecutionContext): Promise<ToolResult> {
+export type CompleteCheckoutOptions = {
+  /** 시연 QR: Supabase 대기 없이 로컬 영수증으로 즉시 완료 */
+  preferLocalFirst?: boolean
+}
+
+export async function completeCheckoutPurchase(
+  ctx: ToolExecutionContext,
+  options?: CompleteCheckoutOptions,
+): Promise<ToolResult> {
   const context = ctx.getContext()
   const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
   if (cartItems.length === 0) {
@@ -16,6 +24,27 @@ export async function completeCheckoutPurchase(ctx: ToolExecutionContext): Promi
   }
 
   const usersId = context.activeUsersId ?? getDefaultUserId()
+
+  if (options?.preferLocalFirst) {
+    const receipt = buildLocalReceipt(usersId, cartItems)
+    ctx.setContext({
+      checkoutStatus: 'completed',
+      receipt,
+      cartItems: [],
+      shoppingList: [],
+      pendingDwellBook: null,
+      awaitingDwellFeedback: false,
+      kakaoPaySession: null,
+    })
+    void completeDemoPurchase({ usersId, items: cartItems }).catch(() => {})
+    return {
+      ok: true,
+      toolName: 'checkoutTool',
+      message: `${receipt.items.length}권 구매를 완료했어요. 앱 책장 등록 QR을 스캔해 주세요.`,
+      data: { receipt },
+    }
+  }
+
   const purchase = await completeDemoPurchase({ usersId, items: cartItems })
   if (!purchase.ok && purchase.errorCode !== SUPABASE_NOT_CONFIGURED) {
     ctx.setContext({ checkoutStatus: 'error' })
@@ -35,12 +64,13 @@ export async function completeCheckoutPurchase(ctx: ToolExecutionContext): Promi
     shoppingList: [],
     pendingDwellBook: null,
     awaitingDwellFeedback: false,
+    kakaoPaySession: null,
   })
 
   return {
     ok: true,
     toolName: 'checkoutTool',
-    message: `${receipt.items.length}권 구매를 완료하고 전자 영수증을 만들었어요.`,
+    message: `${receipt.items.length}권 구매를 완료했어요. 앱 책장 등록 QR을 스캔해 주세요.`,
     data: { receipt },
   }
 }

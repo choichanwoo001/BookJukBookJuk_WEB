@@ -4,18 +4,14 @@ import {
   DynamicDrawUsage,
   InstancedBufferAttribute,
   Object3D,
-  Vector3,
 } from 'three'
 import type { InstancedMesh as ThreeInstancedMesh } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import {
-  ENTRANCE_DOORWAY,
   FLOOR_HEIGHT_M,
   wallPolylines,
 } from '../../data/floorPlan'
 import {
-  entranceDoorFrameMaterial,
-  entranceDoorLeafMaterial,
   SURFACE_WALL_OVERLAP_M,
   WALL_SEGMENT_THICKNESS_M,
   wallMaterial,
@@ -23,8 +19,35 @@ import {
 import { createPerInstanceOpacityMaterial } from '../../utils/perInstanceOpacityMaterial'
 
 const _dummy = new Object3D()
-const _unitX = new Vector3(1, 0, 0)
-const _edgeDir = new Vector3()
+
+type WallSegment = {
+  cx: number
+  cz: number
+  length: number
+  yaw: number
+}
+
+function buildWallSegments(): WallSegment[] {
+  const segments: WallSegment[] = []
+  for (const loop of wallPolylines) {
+    if (loop.length < 2) continue
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i]
+      const b = loop[(i + 1) % loop.length]
+      const dx = b[0] - a[0]
+      const dz = b[1] - a[1]
+      const length = Math.hypot(dx, dz)
+      if (length < 0.05) continue
+      segments.push({
+        cx: (a[0] + b[0]) * 0.5,
+        cz: (a[1] + b[1]) * 0.5,
+        length,
+        yaw: Math.atan2(-dz, dx),
+      })
+    }
+  }
+  return segments
+}
 
 export function WallRibbonMesh({
   onDoubleClick,
@@ -35,13 +58,8 @@ export function WallRibbonMesh({
   onClick?: (event: ThreeEvent<MouseEvent>) => void
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
 }) {
-  const segmentCount = useMemo(() => {
-    let n = 0
-    for (const loop of wallPolylines) {
-      if (loop.length >= 2) n += loop.length
-    }
-    return n
-  }, [])
+  const segments = useMemo(() => buildWallSegments(), [])
+  const segmentCount = segments.length
 
   const materialWithOpacity = useMemo(() => createPerInstanceOpacityMaterial(wallMaterial), [])
   const meshRef = useRef<ThreeInstancedMesh>(null)
@@ -73,39 +91,22 @@ export function WallRibbonMesh({
     const mesh = meshRef.current
     if (!mesh || segmentCount === 0) return
 
-    let idx = 0
-    for (const loop of wallPolylines) {
-      if (loop.length < 2) continue
-      const n = loop.length
-      for (let i = 0; i < n; i++) {
-        const next = (i + 1) % n
-        const [x0, z0] = loop[i]
-        const [x1, z1] = loop[next]
-        const dx = x1 - x0
-        const dz = z1 - z0
-        const L = Math.hypot(dx, dz)
-        if (L < 1e-6) {
-          _dummy.position.set(x0, yCenter, z0)
-          _dummy.scale.set(1e-3, wallHeight, WALL_SEGMENT_THICKNESS_M)
-          _dummy.quaternion.identity()
-          _dummy.updateMatrix()
-          mesh.setMatrixAt(idx, _dummy.matrix)
-          idx += 1
-          continue
-        }
-        _edgeDir.set(dx / L, 0, dz / L)
-        _dummy.quaternion.setFromUnitVectors(_unitX, _edgeDir)
-        _dummy.position.set((x0 + x1) * 0.5, yCenter, (z0 + z1) * 0.5)
-        _dummy.scale.set(L, wallHeight, WALL_SEGMENT_THICKNESS_M)
-        _dummy.updateMatrix()
-        mesh.setMatrixAt(idx, _dummy.matrix)
-        idx += 1
-      }
+    for (let idx = 0; idx < segments.length; idx++) {
+      const segment = segments[idx]
+      _dummy.position.set(segment.cx, yCenter, segment.cz)
+      _dummy.rotation.set(0, segment.yaw, 0)
+      _dummy.scale.set(
+        Math.max(segment.length + WALL_SEGMENT_THICKNESS_M, WALL_SEGMENT_THICKNESS_M),
+        wallHeight,
+        WALL_SEGMENT_THICKNESS_M,
+      )
+      _dummy.updateMatrix()
+      mesh.setMatrixAt(idx, _dummy.matrix)
     }
     mesh.instanceMatrix.needsUpdate = true
     /** setMatrixAt 후 결합 구가 옛 좌표로 남으면 Raycaster가 intersectSphere에서 바로 return → 가림 미적용 */
     mesh.boundingSphere = null
-  }, [segmentCount, wallHeight, yCenter])
+  }, [segmentCount, segments, wallHeight, yCenter])
 
   if (segmentCount === 0 || !wallSegmentGeometry) return null
 
@@ -118,61 +119,5 @@ export function WallRibbonMesh({
       onClick={onClick}
       onPointerDown={onPointerDown}
     />
-  )
-}
-
-/** 맵 벽 폴리곤은 건드리지 않고, `ENTRANCE_DOORWAY` 위치에 문틀·문패널만 겹쳐 둔다 (충돌 없음). */
-export function EntranceDoorwayDecor() {
-  const quat = useMemo(() => {
-    const e = new Vector3(ENTRANCE_DOORWAY.tangentX, 0, ENTRANCE_DOORWAY.tangentZ).normalize()
-    const o = new Object3D()
-    o.quaternion.setFromUnitVectors(new Vector3(1, 0, 0), e)
-    return o.quaternion.clone()
-  }, [])
-
-  const {
-    centerX,
-    centerZ,
-    openingWidthM,
-    frameHeightM,
-    jambThicknessM,
-    frameDepthM,
-    lintelHeightM,
-    doorPanelWidthM,
-    doorOpenRad,
-  } = ENTRANCE_DOORWAY
-
-  const W = openingWidthM
-  const H = frameHeightM
-  const T = jambThicknessM
-  const D = frameDepthM
-  const L = lintelHeightM
-  const panelH = Math.max(0.35, H - L - 0.12)
-
-  return (
-    <group
-      position={[centerX, 0, centerZ]}
-      quaternion={quat}
-      userData={{ excludeCameraCollision: true }}
-    >
-      <mesh position={[-W * 0.5 - T * 0.5, H * 0.5, 0]}>
-        <boxGeometry args={[T, H, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <mesh position={[W * 0.5 + T * 0.5, H * 0.5, 0]}>
-        <boxGeometry args={[T, H, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <mesh position={[0, H - L * 0.5, 0]}>
-        <boxGeometry args={[W + T * 2, L, D]} />
-        <primitive object={entranceDoorFrameMaterial} attach="material" />
-      </mesh>
-      <group position={[-W * 0.5 + T * 0.55, panelH * 0.5 + 0.06, D * 0.06]} rotation={[0, doorOpenRad, 0]}>
-        <mesh>
-          <boxGeometry args={[doorPanelWidthM, panelH, 0.045]} />
-          <primitive object={entranceDoorLeafMaterial} attach="material" />
-        </mesh>
-      </group>
-    </group>
   )
 }

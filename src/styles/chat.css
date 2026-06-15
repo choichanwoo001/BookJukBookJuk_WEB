@@ -8,6 +8,8 @@
 }
 
 .chatPanel {
+  --chat-control-h: 2.55rem;
+  --chat-control-px: 0.75rem;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -183,6 +185,121 @@
   outline: none;
 }
 
+.shelfRegisterOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1260;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(8, 12, 10, 0.72);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.shelfRegisterOverlayCard {
+  width: min(92vw, 360px);
+  padding: 1.35rem 1.25rem 1.15rem;
+  border-radius: 16px;
+  border: 1px solid rgba(93, 217, 168, 0.45);
+  background: linear-gradient(180deg, #f8fffb 0%, #eef8f3 100%);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+  text-align: center;
+}
+
+.shelfRegisterOverlayHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: #163528;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.shelfRegisterBrand {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(93, 217, 168, 0.22);
+  color: #163528;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.shelfRegisterBookList {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(22, 53, 40, 0.1);
+  text-align: left;
+}
+
+.shelfRegisterBookListTitle {
+  margin: 0 0 0.5rem;
+  color: #163528;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.shelfRegisterBookListItems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.shelfRegisterBookListItem {
+  color: #2b4a3c;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.shelfRegisterOverlayQr {
+  display: inline-grid;
+  place-items: center;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 2px solid rgba(22, 53, 40, 0.12);
+  box-shadow: 0 8px 24px rgba(22, 53, 40, 0.12);
+}
+
+.shelfRegisterOverlayFootnote {
+  margin: 0.85rem 0 0;
+  color: #4a6b5d;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.shelfRegisterCloseButton {
+  width: 100%;
+  margin-top: 0.95rem;
+  border: 1px solid rgba(93, 217, 168, 0.55);
+  border-radius: 999px;
+  background: rgba(93, 217, 168, 0.18);
+  color: #163528;
+  font-size: 0.84rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  cursor: pointer;
+}
+
+.shelfRegisterCloseButton:hover,
+.shelfRegisterCloseButton:focus-visible {
+  background: rgba(93, 217, 168, 0.32);
+  outline: none;
+}
+
 .chatReceiptOverlay {
   position: fixed;
   inset: 0;
@@ -244,6 +361,169 @@
   word-break: break-all;
 }
 
+.kakaoPayOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(8, 12, 10, 0.72);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.kakaoPayOverlayCard {
+  width: min(92vw, 360px);
+  padding: 1.35rem 1.25rem 1.15rem;
+  border-radius: 16px;
+  border: 1px solid rgba(25, 25, 25, 0.12);
+  background: linear-gradient(180deg, #fffef5 0%, #fff9db 100%);
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.45),
+    0 0 0 1px rgba(254, 229, 0, 0.35) inset;
+  text-align: center;
+}
+
+.kakaoPayOverlayHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+  color: #191919;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.kakaoPayBrand {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #fee500;
+  color: #191919;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.kakaoPayOverlayHint {
+  margin: 0 0 1rem;
+  color: #3d3d3d;
+  font-size: 0.86rem;
+  line-height: 1.4;
+}
+
+.kakaoPayLineItems {
+  margin: 0.65rem 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(25, 25, 25, 0.08);
+  text-align: left;
+}
+
+.kakaoPayLineItemsTitle {
+  margin: 0 0 0.55rem;
+  color: #191919;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.kakaoPayLineItemsList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.kakaoPayLineItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.kakaoPayLineItemTitle {
+  min-width: 0;
+  flex: 1;
+  color: #2b2b2b;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kakaoPayLineItemPrice {
+  flex-shrink: 0;
+  color: #191919;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.kakaoPayLineItemsTotal {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed rgba(25, 25, 25, 0.14);
+  color: #191919;
+  font-size: 0.84rem;
+}
+
+.kakaoPayLineItemsTotal strong {
+  font-size: 0.92rem;
+}
+
+.kakaoPayOverlayQr {
+  display: inline-grid;
+  place-items: center;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 2px solid rgba(25, 25, 25, 0.1);
+  box-shadow: 0 8px 24px rgba(25, 25, 25, 0.08);
+}
+
+.kakaoPayOverlayStatus {
+  margin: 0.85rem 0 0;
+  color: #5c4d00;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.kakaoPayOverlayActions {
+  display: flex;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.kakaoPayCancelButton {
+  width: 100%;
+  border-radius: 999px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(25, 25, 25, 0.2);
+  background: transparent;
+  color: #3d3d3d;
+}
+
+.kakaoPayCancelButton:hover:not(:disabled),
+.kakaoPayCancelButton:focus-visible {
+  background: rgba(25, 25, 25, 0.06);
+  outline: none;
+}
+
+.kakaoPayCancelButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .chatMessages {
   display: flex;
   flex-direction: column;
@@ -303,8 +583,6 @@
 }
 
 .chatFormInputRow {
-  --chat-control-h: 2.55rem;
-  --chat-control-px: 0.75rem;
   display: flex;
   gap: 0.5rem;
   align-items: stretch;
@@ -441,25 +719,22 @@
 
 .chatMicButton {
   flex-shrink: 0;
-  min-height: var(--chat-control-h);
-  padding: 0 var(--chat-control-px);
-  border: 1px solid var(--bj-border-dark-strong);
-  border-radius: 10px;
-  background: var(--bj-accent-bg);
-  color: var(--bj-warm-cream);
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.chatMicButtonInner {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  justify-content: center;
+  gap: 0.3rem;
+  min-height: 1.85rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--bj-border-dark-strong);
+  border-radius: 999px;
+  background: var(--bj-accent-bg);
+  color: var(--bj-warm-cream);
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .chatMicIcon {
@@ -550,8 +825,8 @@
 
 .chatVoiceBar {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
   gap: 0.35rem;
   padding: 0.3rem 0.85rem;
   background: var(--bj-bg-panel);
@@ -564,31 +839,13 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
 }
+
 
 .chatBusyRowVoice {
   padding: 0.15rem 0 0;
-}
-
-.chatTtsToggle {
-  border: 1px solid var(--bj-border-dark-strong);
-  border-radius: 999px;
-  background: var(--bj-accent-bg);
-  color: var(--bj-accent);
-  font-size: 0.75rem;
-  padding: 0.2rem 0.65rem;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.chatTtsToggle:hover {
-  background: rgba(160, 120, 60, 0.38);
-  color: var(--bj-warm-gold);
-}
-
-.chatTtsToggle[data-enabled='true'] {
-  border-color: var(--bj-accent-strong);
-  color: var(--bj-warm-gold);
 }
 
 .chatTtsSpeaking {

@@ -43,7 +43,8 @@ export const DEMO_BOOKS: Record<DemoBookKey, DemoBookDef> = {
     synopsisBrief: '두 사람의 만남과 이별을 따라가는 소설입니다.',
     reviewBrief: '평점 4.4, 감정선이 섬세하다는 리뷰가 많아요.',
     authorBioBrief: '김영하 작가는 일상 속 관계를 담담하게 그리는 소설가예요.',
-    poolIndex: 14,
+    /** bookshelfOverlayLayerInstances[35] — NE corner north arm, robot map (-24.117, -8.361) / world (2.66, -13.19) */
+    poolIndex: 35,
   },
   serendipity: {
     key: 'serendipity',
@@ -55,7 +56,7 @@ export const DEMO_BOOKS: Record<DemoBookKey, DemoBookDef> = {
     synopsisBrief: '한 사람에게 집중하는 이야기로, 잔잔하지만 깊은 여운이 남아요.',
     reviewBrief: '평점 4.6, 결말의 온기가 인상적이라는 평이 많아요.',
     authorBioBrief: '최진영 작가는 관계와 감정의 결을 섬세하게 풀어내는 작가예요.',
-    poolIndex: 26,
+    poolIndex: 6,
   },
   alternative: {
     key: 'alternative',
@@ -71,11 +72,11 @@ export const DEMO_BOOKS: Record<DemoBookKey, DemoBookDef> = {
   },
 }
 
-/** 출발 전 선택(1)(2): 오직 두 사람 + 너무나 많은 여름이 */
-export const DEMO_PLANNED_BOOK_KEYS: DemoBookKey[] = ['book2', 'alternative']
+/** 출발 전 선택: 오직 두 사람 1권 */
+export const DEMO_PLANNED_BOOK_KEYS: DemoBookKey[] = ['book2']
 
 const DEMO_REF_COVER_BASE =
-  import.meta.env.VITE_BOOK_RECOGNITION_API_BASE?.trim() || '/book-recognition'
+  (import.meta.env ?? {}).VITE_BOOK_RECOGNITION_API_BASE?.trim() || '/book-recognition'
 
 export function demoRefCoverUrl(def: DemoBookDef): string {
   return `${DEMO_REF_COVER_BASE}/refs/${encodeURIComponent(def.refCoverFile)}`
@@ -137,9 +138,8 @@ export function demoScenarioBookCandidate(key: DemoBookKey): DemoScenarioBookCan
   }
 }
 
-/** 이동 중 관심을 보였다가 내려놓은 dwell 대상 (단 한 사람). */
+/** 이동 중 browse dwell 대상 — 단 한 사람 (담지 않음). */
 export const DEMO_DWELL_BOOK = demoScenarioBookCandidate('serendipity')
 
-/** transit detour 후 추천 책 (어른이 된다는 것). */
+/** transit detour 후 추천 책 — 어른이 된다는 것. */
 export const DEMO_RECOMMENDED_BOOK = demoScenarioBookCandidate('book1')
-

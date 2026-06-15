@@ -5,10 +5,9 @@ import { Group } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { isEditableDomTarget } from '../../utils/domTarget'
 import {
-  wallRects as baseWallRects,
   pillarRects,
-  floorRects,
-  floorFillRects,
+  floorRenderRects,
+  wallRenderRects,
   FLOOR_HEIGHT_M,
   ENTRANCE_SPAWN,
 } from '../../data/floorPlan'
@@ -33,9 +32,10 @@ import {
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
 } from '../../config/constants'
-import type { ViewMode, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
+import type { ViewMode, EditTool, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
-import { WallRibbonMesh, EntranceDoorwayDecor } from './Walls'
+import { WallRibbonMesh } from './Walls'
+import { WallSelectOverlay } from './WallSelectOverlay'
 import { FloorPolygonMesh, BookstoreLights } from './Floor'
 import {
   PillarCylinderInstances,
@@ -60,6 +60,7 @@ import { NavigationRouteMesh } from './NavigationRouteMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
 import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
 import type { WalkabilityContext } from '../../utils/walkability'
+import type { WallSegmentRef } from '../../utils/wallSelectBetweenPoints'
 import {
   resolveNavigationMobilityPhase,
   type NavigationMobilityPhase,
@@ -75,6 +76,12 @@ export function SceneContent({
   staticFixtureInstances,
   selections,
   onAddSelection,
+  wallSelectPointA = null,
+  wallSelectPointB = null,
+  wallSelectPreviewPoint = null,
+  wallSelectSegments = [],
+  onWallSelectPoint,
+  onWallSelectPreview,
   selectedBookshelfIndex,
   onSelectBookshelf,
   onUpdateBookshelf,
@@ -99,11 +106,17 @@ export function SceneContent({
 }: {
   mode: ViewMode
   activePane: 'map' | 'chat'
-  editTool: 'areaSelection' | 'bookshelfEdit'
+  editTool: EditTool
   bookshelfRenderInstances: FixtureRenderInstance[]
   staticFixtureInstances: FixtureRenderInstance[]
   selections: CircleSelection[]
   onAddSelection: (point: PickPoint) => void
+  wallSelectPointA?: Point2 | null
+  wallSelectPointB?: Point2 | null
+  wallSelectPreviewPoint?: Point2 | null
+  wallSelectSegments?: WallSegmentRef[]
+  onWallSelectPoint?: (point: PickPoint) => void
+  onWallSelectPreview?: (point: PickPoint | null) => void
   selectedBookshelfIndex?: number | null
   onSelectBookshelf?: (index: number | null) => void
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
@@ -140,6 +153,7 @@ export function SceneContent({
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
+  const isWallSelect = isEdit && editTool === 'wallSelect'
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = activePane === 'map' || demoNavigationActive
@@ -180,8 +194,8 @@ export function SceneContent({
     yawRef,
     isWalkMode && controlsEnabled && !robotSyncActive,
     {
-      floorRects,
-      wallRects: baseWallRects,
+      floorRects: floorRenderRects,
+      wallRects: wallRenderRects,
       bookshelfRects: bookshelfCollisionRects,
     },
     characterYawRef,
@@ -253,16 +267,19 @@ export function SceneContent({
   useLayoutEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type !== 'START_NAVIGATION') return
-      const wx = -ENTRANCE_SPAWN[0]
-      const wz = -ENTRANCE_SPAWN[1]
-      storedWorldPositionRef.current = [wx, wz]
-      playerPositionRef.current[0] = ENTRANCE_SPAWN[0]
-      playerPositionRef.current[1] = ENTRANCE_SPAWN[1]
-      if (playerWorldXzRef) {
-        playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
-      }
-      if (worldRef.current) {
-        worldRef.current.position.set(wx, 0, wz)
+      // 로봇 연동 중에는 /verso/status 현재 위치 유지 (고정 출발점으로 스냅하지 않음)
+      if (!robotSyncActive) {
+        const wx = -ENTRANCE_SPAWN[0]
+        const wz = -ENTRANCE_SPAWN[1]
+        storedWorldPositionRef.current = [wx, wz]
+        playerPositionRef.current[0] = ENTRANCE_SPAWN[0]
+        playerPositionRef.current[1] = ENTRANCE_SPAWN[1]
+        if (playerWorldXzRef) {
+          playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+        }
+        if (worldRef.current) {
+          worldRef.current.position.set(wx, 0, wz)
+        }
       }
       if (scenarioPlaybackHeadingRef) {
         scenarioPlaybackHeadingRef.current = null
@@ -271,7 +288,7 @@ export function SceneContent({
       navigationInitialHeadingRef.current = null
       onNavigationSpawnReady?.()
     })
-  }, [onNavigationSpawnReady, playerWorldXzRef, scenarioPlaybackHeadingRef])
+  }, [onNavigationSpawnReady, playerWorldXzRef, robotSyncActive, scenarioPlaybackHeadingRef])
 
   useEffect(() => {
     if (!isWalkMode) return
@@ -311,10 +328,18 @@ export function SceneContent({
 
   const {
     floorPickHandler,
+    floorPointerMoveHandler,
     wallPickHandler,
     bookshelfPickHandler,
     pillarPickHandler,
-  } = useScenePickHandlers({ isAreaSelection, worldRef, onAddSelection })
+  } = useScenePickHandlers({
+    isAreaSelection,
+    isWallSelect,
+    worldRef,
+    onAddSelection,
+    onWallSelectPoint,
+    onWallSelectPreview,
+  })
 
   const handleBookshelfPointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
     if (!isBookshelfEdit || !onSelectBookshelf) return
@@ -367,6 +392,8 @@ export function SceneContent({
           worldRef={worldRef}
           characterYawRef={characterYawRef}
           onPlayerPosition={onPlayerPosition}
+          robotSyncActive={robotSyncActive}
+          playerWorldXzRef={playerWorldXzRef}
         />
       )}
       {playerWorldXzRef && (
@@ -394,14 +421,16 @@ export function SceneContent({
           <FloorPolygonMesh
             yOffset={0}
             material={floorMaterial}
-            fillRects={floorFillRects}
+            rects={floorRenderRects}
             onPointerDown={floorPickHandler}
+            onPointerMove={floorPointerMoveHandler}
           />
         </group>
         <BookshelfOverlayInterior
           instances={bookshelfOverlayLayerInstances}
           shellMaterial={bookshelfOverlayLayerMaterial}
           woodMaterial={bookshelfOverlayInteriorWoodMaterial}
+          disableRaycast={isEdit}
         />
         <group userData={{ excludeCameraCollision: true }}>
           <SupermarketCounterInstances
@@ -413,7 +442,6 @@ export function SceneContent({
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
-        <EntranceDoorwayDecor />
         <RotatedFixtureInstances
           instances={bookshelfRenderInstances}
           material={bookshelfMaterial}
@@ -444,7 +472,7 @@ export function SceneContent({
           material={pillarMaterial}
           onPointerDown={pillarPickHandler}
         />
-        <BookstoreLights floorRenderRects={floorRects} />
+        <BookstoreLights floorRenderRects={floorRenderRects} />
         {navigationRoute && (
           <NavigationRouteMesh
             route={navigationRoute}
@@ -465,6 +493,14 @@ export function SceneContent({
             </mesh>
           </group>
         ))}
+        {isWallSelect && (
+          <WallSelectOverlay
+            pointA={wallSelectPointA}
+            pointB={wallSelectPointB}
+            previewPoint={wallSelectPreviewPoint}
+            segments={wallSelectSegments}
+          />
+        )}
       </group>
     </>
   )

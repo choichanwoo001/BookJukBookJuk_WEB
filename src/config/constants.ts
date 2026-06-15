@@ -102,20 +102,8 @@ export const FIXED_SELECTION_RADIUS_M = 0.35
 
 // --- Materials ---
 export const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 })
-/** 입구 문틀 (벽보다 어두운 목재톤). */
-export const entranceDoorFrameMaterial = new MeshStandardMaterial({
-  color: '#4A4238',
-  roughness: 0.82,
-  metalness: 0.04,
-  side: 2,
-})
-/** 입구 문패널. */
-export const entranceDoorLeafMaterial = new MeshStandardMaterial({
-  color: '#5C4030',
-  roughness: 0.76,
-  metalness: 0.05,
-  side: 2,
-})
+
+
 export const bookshelfMaterial = new MeshStandardMaterial({ color: '#8E5C42', roughness: 0.78, metalness: 0.02, side: 2 })
 
 /** 맵 차이와 같이 토글되는 후보 책장 오버레이 (본편 책장과 구분). */
@@ -225,6 +213,16 @@ export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roug
 export const markerMaterial = new MeshStandardMaterial({ color: '#c9a56a', emissive: '#5c4020', emissiveIntensity: 0.35 })
 export const topDownPlayerMaterial = new MeshStandardMaterial({ color: '#fff06a', emissive: '#fff06a', emissiveIntensity: 0.45 })
 export const areaMaterial = new MeshStandardMaterial({ color: '#c9a56a', transparent: true, opacity: 0.28 })
+export const wallSelectMarkerMaterial = new MeshStandardMaterial({ color: '#5ec8ff', emissive: '#1a6a99', emissiveIntensity: 0.45 })
+export const wallSelectPreviewLineMaterial = new MeshStandardMaterial({ color: '#5ec8ff' })
+export const wallSelectHighlightMaterial = new MeshStandardMaterial({
+  color: '#ff6b4a',
+  emissive: '#992a12',
+  emissiveIntensity: 0.35,
+  transparent: true,
+  opacity: 0.72,
+  depthWrite: false,
+})
 export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#e6be5a', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
 export const selectedWireMaterial = new MeshStandardMaterial({ color: '#e6be5a', wireframe: true, transparent: true, opacity: 0.7, side: 2 })
 

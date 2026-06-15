@@ -22,7 +22,11 @@ import {
 } from '../config/constants'
 import { useBookshelfInstances } from '../hooks/useBookshelfInstances'
 import { useBookshelfClipboard } from '../hooks/useBookshelfClipboard'
-import type { CircleSelection, PickPoint, FixtureRenderInstance } from '../types/scene'
+import type { CircleSelection, EditTool, PickPoint, FixtureRenderInstance } from '../types/scene'
+import {
+  findWallSegmentsBetweenPoints,
+  formatWallSegmentRef,
+} from '../utils/wallSelectBetweenPoints'
 import type { MinimapUvPoint } from './scene/MinimapViewportReporter'
 import { getMinimapWorldBounds } from '../utils/minimapBounds'
 import { createOverviewFlipEvents } from '../utils/overviewDisplayFlip'
@@ -38,19 +42,29 @@ import { MapMinimapPanel } from './map/MapMinimapPanel'
 import { VoiceStatusIndicator } from './VoiceStatusIndicator'
 import type { VoiceCommandPhase } from '../hooks/useVoiceCommandLoop'
 import { useMapViewState } from '../hooks/useMapViewState'
-import { useVersoRosbridge } from '../hooks/useVersoRosbridge'
-import { useMockVersoRobotRoute } from '../hooks/useMockVersoRobotRoute'
+import { useRobotBackend } from '../hooks/useRobotBackend'
 import { buildVersoRouteVisual } from '../utils/versoPathVisual'
 import { createNavWalkabilityContext } from '../utils/walkability'
 import { NAVIGATION_MOBILITY_PHASE_LABELS } from '../types/navigationMobility'
 import { useDemoNavigationSync } from '../hooks/useDemoNavigationSync'
-import { getVersoConnectionState, tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
+import { isVersoRobotSyncActive, tryPublishVersoCommand } from '../lib/verso/versoCommandBridge'
 import {
   buildVersoWaypointsFromWorldGoals,
   buildWaypointLegMapping,
   tryPublishVersoMission,
 } from '../lib/verso/buildMissionWaypoints'
-import { readStoredVersoRosbridgeUrl } from '../lib/verso/env'
+import {
+  resolveScenarioWaypointsForGoals,
+} from '../data/fixtureRobotRoute'
+import {
+  logMissionPublishAttempt,
+  logMissionPublishSkipped,
+  type MissionPublishTrigger,
+} from '../lib/verso/rosbridgeConnectionLog'
+import {
+  initialRobotMissionWaypoints,
+} from '../lib/verso/robotMissionCoords'
+import { getVersoConnectionState } from '../lib/verso/versoCommandBridge'
 import { buildFixtureRoutePlanVisual } from '../data/fixtureRobotRoute'
 import { pathLengthM } from '../utils/pathSampling'
 import type { RoutePathDisplayMode } from '../utils/pathSmoothing'
@@ -88,6 +102,7 @@ function selectionToText(selection: CircleSelection) {
 }
 
 function Map3DView({
+  standalone = false,
   activePane,
   onActivateMap,
   busy,
@@ -108,6 +123,7 @@ function Map3DView({
   voiceArmRemainingMs = null,
   voiceMicOn = false,
 }: {
+  standalone?: boolean
   activePane: 'map' | 'chat'
   onActivateMap: () => void
   busy: boolean
@@ -136,12 +152,12 @@ function Map3DView({
   onResetOnboarding: () => void
 }) {
   const [controlsVisible, setControlsVisible] = useState(true)
-  const [editTool, setEditTool] = useState<'areaSelection' | 'bookshelfEdit'>('bookshelfEdit')
+  const [editTool, setEditTool] = useState<EditTool>('bookshelfEdit')
   const [selections, setSelections] = useState<CircleSelection[]>([])
+  const [wallSelectPointA, setWallSelectPointA] = useState<Point2 | null>(null)
+  const [wallSelectPointB, setWallSelectPointB] = useState<Point2 | null>(null)
+  const [wallSelectPreviewPoint, setWallSelectPreviewPoint] = useState<Point2 | null>(null)
   const [minimapViewportUv, setMinimapViewportUv] = useState<MinimapUvPoint[] | null>(null)
-  const [versoActiveUrl, setVersoActiveUrl] = useState<string | null>(
-    () => readStoredVersoRosbridgeUrl() || null,
-  )
   const [checkoutGoals, setCheckoutGoals] = useState<Point2[] | null>(null)
   const [routePathDisplayMode, setRoutePathDisplayMode] =
     useState<RoutePathDisplayMode>('curved')
@@ -280,22 +296,12 @@ function Map3DView({
   }, [agentMission.directGoals, checkoutGoals])
 
   const {
-    connectionState: versoConnectionState,
-    lastStatus: versoStatus,
-    lastPath: versoPath,
-    lastEvent: versoLastEvent,
-    robotSyncActive,
-    liveStatusRef: versoLiveStatusRef,
-  } = useVersoRosbridge(versoActiveUrl)
-  const mockVerso = useMockVersoRobotRoute(!versoActiveUrl)
-
-  const effectiveVersoConnectionState =
-    robotSyncActive ? versoConnectionState : mockVerso.connectionState
-  const effectiveVersoStatus = robotSyncActive ? versoStatus : mockVerso.lastStatus
-  const effectiveVersoPath = robotSyncActive ? versoPath : mockVerso.lastPath
-  const effectiveRobotSyncActive = robotSyncActive || mockVerso.robotSyncActive
-  const effectiveRobotLiveStatusRef = robotSyncActive ? versoLiveStatusRef : mockVerso.liveStatusRef
-  const effectiveVersoLastEvent = robotSyncActive ? versoLastEvent : mockVerso.lastEvent
+    lastStatus: effectiveVersoStatus,
+    lastPath: effectiveVersoPath,
+    lastEvent: effectiveVersoLastEvent,
+    robotSyncActive: effectiveRobotSyncActive,
+    liveStatusRef: effectiveRobotLiveStatusRef,
+  } = useRobotBackend(null)
 
   const routePlanPreviewActive =
     Boolean(directGoals?.length) && !demoNavigationActive && navigationSpawnReady
@@ -316,26 +322,30 @@ function Map3DView({
       effectiveRobotSyncActive,
   })
 
+  const fixtureRoutePreviewActive =
+    routePlanPreviewActive && isOverviewLike && !effectiveRobotSyncActive
+
   const fixtureRoutePlanVisual = useMemo(
-    () => (routePlanPreviewActive ? buildFixtureRoutePlanVisual() : null),
-    [routePlanPreviewActive],
+    () => (fixtureRoutePreviewActive ? buildFixtureRoutePlanVisual() : null),
+    [fixtureRoutePreviewActive],
   )
 
   const robotRoute = useMemo(
-    () => buildVersoRouteVisual(effectiveVersoStatus, effectiveVersoPath, {
-      walkabilityCtx: navCtx,
-      bounds: navBounds,
-    }),
-    [effectiveVersoStatus, effectiveVersoPath, navCtx, navBounds],
+    () => buildVersoRouteVisual(effectiveVersoStatus, effectiveVersoPath),
+    [effectiveVersoStatus, effectiveVersoPath],
   )
-  const activeNavigationRoute = robotRoute ?? navigationRoute
-  const displayRoute =
-    routePlanPreviewActive && isOverviewLike
-      ? fixtureRoutePlanVisual
-      : activeNavigationRoute
+  const activeNavigationRoute = effectiveRobotSyncActive
+    ? robotRoute
+    : (robotRoute ?? navigationRoute)
+  const displayRoute = fixtureRoutePreviewActive
+    ? fixtureRoutePlanVisual
+    : activeNavigationRoute
   const isWalkMode = mode === 'topDown'
   const showMinimapNavigation =
-    (routePlanPreviewActive && isOverviewLike) || demoNavigationActive || isWalkMode
+    fixtureRoutePreviewActive ||
+    demoNavigationActive ||
+    isWalkMode ||
+    (effectiveRobotSyncActive && robotRoute != null)
   const mainNavigationRoute =
     routeDisplaySurface === 'main' || isWalkMode
       ? displayRoute
@@ -354,10 +364,10 @@ function Map3DView({
   }, [navigationRoute?.activeLeg])
 
   const highlightPathLengthM = useMemo(() => {
-    const path = navigationRoute?.highlightPath
+    const path = displayRoute?.highlightPath
     if (!path || path.length < 2) return null
     return pathLengthM(path)
-  }, [navigationRoute?.highlightPath])
+  }, [displayRoute?.highlightPath])
 
   useEffect(() => {
     publishNavigationSync({
@@ -407,19 +417,54 @@ function Map3DView({
   useEffect(() => { checkoutGoalsRef.current = checkoutGoals }, [checkoutGoals])
 
   const skipNextStartNavWaypointsRef = useRef(false)
+  const previewWaypointsSentRef = useRef(false)
+  const previewGoalsRef = useRef<Point2[]>([])
 
   const agentMissionPoolIndicesRef = useRef(agentMission.poolIndices)
   useEffect(() => { agentMissionPoolIndicesRef.current = agentMission.poolIndices }, [agentMission.poolIndices])
 
   // Publish waypoints to robot on GO_CHECKOUT / START_NAVIGATION / SET_DIRECT_GOALS
   useEffect(() => {
-    const publishMissionForGoals = (goals: Point2[], options?: { checkoutNav?: boolean }) => {
-      if (getVersoConnectionState() !== 'connected') return
-      if (goals.length === 0) return
+    const publishMissionForGoals = (
+      goals: Point2[],
+      trigger: Exclude<MissionPublishTrigger, 'ok_proceed'>,
+      options?: { checkoutNav?: boolean },
+    ) => {
+      if (!isVersoRobotSyncActive()) {
+        logMissionPublishSkipped(
+          trigger,
+          `로봇 동기화 비활성 (connection=${getVersoConnectionState()})`,
+        )
+        return
+      }
+      if (goals.length === 0) {
+        logMissionPublishSkipped(trigger, '경로 goal 없음')
+        return
+      }
 
-      const waypoints = buildVersoWaypointsFromWorldGoals(goals, options)
+      const waypoints =
+        resolveScenarioWaypointsForGoals(goals) ??
+        buildVersoWaypointsFromWorldGoals(goals, options)
       wpIdToLegRef.current = buildWaypointLegMapping(waypoints)
+      logMissionPublishAttempt(trigger, waypoints)
       tryPublishVersoMission(waypoints)
+    }
+
+    const publishPreviewNavPlanMission = (
+      goals: Point2[],
+      trigger: Extract<MissionPublishTrigger, 'PREVIEW_NAV_PLAN'>,
+    ) => {
+      if (previewWaypointsSentRef.current) return
+      if (!isVersoRobotSyncActive()) return
+      // 사용자가 담은 책 기반 goals → 시나리오 waypoints 우선, 없으면 world 좌표 변환
+      const waypoints =
+        resolveScenarioWaypointsForGoals(goals) ??
+        buildVersoWaypointsFromWorldGoals(goals)
+      wpIdToLegRef.current = buildWaypointLegMapping(waypoints)
+      logMissionPublishAttempt(trigger, waypoints)
+      tryPublishVersoMission(waypoints)
+      previewWaypointsSentRef.current = true
+      skipNextStartNavWaypointsRef.current = true
     }
 
     return subscribeMapCommand((command) => {
@@ -429,11 +474,21 @@ function Map3DView({
         const goals = checkoutDirectGoals(navCtx, navBounds, playerWorldXzRef.current)
         checkoutGoalsRef.current = goals
         setCheckoutGoals(goals)
-        publishMissionForGoals(goals, { checkoutNav: true })
+        publishMissionForGoals(goals, 'GO_CHECKOUT', { checkoutNav: true })
+        return
+      }
+      if (command.type === 'PREVIEW_NAV_PLAN') {
+        previewGoalsRef.current = command.goals
+        // 데모 모드에서는 맵 전환만으로 로봇에 데이터를 보내지 않음.
+        // 사용자가 okay(START_NAVIGATION / SET_DIRECT_GOALS)를 명시적으로 승인해야 전송.
+        if (!isDemoMode()) {
+          publishPreviewNavPlanMission(command.goals, 'PREVIEW_NAV_PLAN')
+        }
         return
       }
       if (command.type === 'SET_DIRECT_GOALS') {
-        publishMissionForGoals(command.goals)
+        publishMissionForGoals(command.goals, 'SET_DIRECT_GOALS')
+        skipNextStartNavWaypointsRef.current = true
         return
       }
       if (command.type !== 'START_NAVIGATION') return
@@ -443,10 +498,34 @@ function Map3DView({
       }
 
       const route = navigationRouteRef.current
-      if (!route || route.goals.length === 0) return
-      publishMissionForGoals(route.goals)
+      if (!route || route.goals.length === 0) {
+        logMissionPublishSkipped('START_NAVIGATION', 'navigationRoute goal 없음 (경로 계산 대기 중일 수 있음)')
+        return
+      }
+      publishMissionForGoals(route.goals, 'START_NAVIGATION')
     })
   }, [navBounds, navCtx])
+
+  // 맵 전환(PREVIEW) 시점에 로봇이 아직 미연결이면, 연결 직후 마지막 preview goals로 1회 전송
+  // 단, 데모 모드에서는 사용자 승인(okay) 없이 자동 전송하지 않음.
+  useEffect(() => {
+    if (isDemoMode()) return
+    if (!effectiveRobotSyncActive || !routePlanPreviewActive || previewWaypointsSentRef.current) {
+      return
+    }
+    if (!isVersoRobotSyncActive()) return
+
+    const goals = previewGoalsRef.current
+    const waypoints =
+      goals.length > 0
+        ? (resolveScenarioWaypointsForGoals(goals) ?? buildVersoWaypointsFromWorldGoals(goals))
+        : initialRobotMissionWaypoints()
+    wpIdToLegRef.current = buildWaypointLegMapping(waypoints)
+    logMissionPublishAttempt('PREVIEW_NAV_PLAN', waypoints)
+    tryPublishVersoMission(waypoints)
+    previewWaypointsSentRef.current = true
+    skipNextStartNavWaypointsRef.current = true
+  }, [effectiveRobotSyncActive, routePlanPreviewActive])
 
   // Bridge robot waypoint_arrived events to agent dwell pipeline
   const processedVersoEventRef = useRef<typeof effectiveVersoLastEvent>(null)
@@ -475,6 +554,59 @@ function Map3DView({
   }, [effectiveRobotSyncActive, effectiveVersoLastEvent])
 
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
+
+  const wallSelectSegments = useMemo(() => {
+    if (!wallSelectPointA || !wallSelectPointB) return []
+    return findWallSegmentsBetweenPoints(
+      wallSelectPointA[0],
+      wallSelectPointA[1],
+      wallSelectPointB[0],
+      wallSelectPointB[1],
+    )
+  }, [wallSelectPointA, wallSelectPointB])
+
+  const clearWallSelect = useCallback(() => {
+    setWallSelectPointA(null)
+    setWallSelectPointB(null)
+    setWallSelectPreviewPoint(null)
+  }, [])
+
+  useEffect(() => {
+    if (editTool === 'wallSelect') return
+    clearWallSelect()
+  }, [clearWallSelect, editTool])
+
+  const handleWallSelectPoint = useCallback((point: PickPoint) => {
+    const xz: Point2 = [point.x, point.z]
+    if (!wallSelectPointA) {
+      setWallSelectPointA(xz)
+      setWallSelectPointB(null)
+      return
+    }
+    if (!wallSelectPointB) {
+      setWallSelectPointB(xz)
+      setWallSelectPreviewPoint(null)
+      return
+    }
+    setWallSelectPointA(xz)
+    setWallSelectPointB(null)
+    setWallSelectPreviewPoint(null)
+  }, [wallSelectPointA, wallSelectPointB])
+
+  const handleWallSelectPreview = useCallback((point: PickPoint | null) => {
+    if (!wallSelectPointA || wallSelectPointB) {
+      setWallSelectPreviewPoint(null)
+      return
+    }
+    setWallSelectPreviewPoint(point ? [point.x, point.z] : null)
+  }, [wallSelectPointA, wallSelectPointB])
+
+  useEffect(() => {
+    if (!wallSelectPointA || !wallSelectPointB) return
+    if (wallSelectSegments.length === 0) return
+    const text = wallSelectSegments.map(formatWallSegmentRef).join('\n')
+    navigator.clipboard.writeText(text).catch(() => {})
+  }, [wallSelectPointA, wallSelectPointB, wallSelectSegments])
 
   const handleAddSelectionWithCircle = useCallback((point: PickPoint) => {
     setSelections((prev) => [
@@ -536,6 +668,12 @@ function Map3DView({
           staticFixtureInstances={staticInstances}
           selections={selections}
           onAddSelection={handleAddSelectionWithCircle}
+          wallSelectPointA={wallSelectPointA}
+          wallSelectPointB={wallSelectPointB}
+          wallSelectPreviewPoint={wallSelectPreviewPoint}
+          wallSelectSegments={wallSelectSegments}
+          onWallSelectPoint={isEdit && editTool === 'wallSelect' ? handleWallSelectPoint : undefined}
+          onWallSelectPreview={isEdit && editTool === 'wallSelect' ? handleWallSelectPreview : undefined}
           selectedBookshelfIndex={isEdit ? selectedIndex : null}
           onSelectBookshelf={isEdit ? setSelectedIndex : undefined}
           onUpdateBookshelf={isEdit ? handleUpdateInstance : undefined}
@@ -546,8 +684,8 @@ function Map3DView({
           routePathDisplayMode={routePathDisplayMode}
           walkabilityCtx={navCtx}
           navigationRouteVariant={isWalkMode ? 'nav' : 'preview'}
-          navHighlightPath={navigationRoute?.highlightPath ?? null}
-          navCurrentGoal={navigationRoute?.currentGoal ?? null}
+          navHighlightPath={displayRoute?.highlightPath ?? null}
+          navCurrentGoal={displayRoute?.currentGoal ?? null}
           demoNavigationActive={demoNavigationActive}
           mobilityHold={mobilityHold}
           onMobilityPhaseChange={handleMobilityPhaseChange}
@@ -561,14 +699,16 @@ function Map3DView({
       </Canvas>
 
       <div className="map3DUiLayer">
-        <BookRecognitionPanel
-          busy={busy}
-          onCapture={onBookCapture}
-          onGestureBookDecision={onBookGestureDecision}
-          onBrowse={onBookBrowse ?? ((frame) => onBookCapture('browse', frame))}
-          onGestureConfirmed={onGestureConfirmed}
-          placement="map"
-        />
+        {!standalone && (
+          <BookRecognitionPanel
+            busy={busy}
+            onCapture={onBookCapture}
+            onGestureBookDecision={onBookGestureDecision}
+            onBrowse={onBookBrowse ?? ((frame) => onBookCapture('browse', frame))}
+            onGestureConfirmed={onGestureConfirmed}
+            placement="map"
+          />
+        )}
 
         <MapMinimapPanel
           mode={mode}
@@ -601,17 +741,19 @@ function Map3DView({
           </div>
         )}
 
-        <VoiceStatusIndicator
-          phase={voicePhase}
-          livePreview={voiceLivePreview}
-          isSupported={voiceSupported}
-          permissionDenied={voicePermissionDenied}
-          busy={busy}
-          ttsSpeaking={ttsSpeaking}
-          armRemainingMs={voiceArmRemainingMs}
-          isMicOn={voiceMicOn}
-          compact
-        />
+        {!standalone && (
+          <VoiceStatusIndicator
+            phase={voicePhase}
+            livePreview={voiceLivePreview}
+            isSupported={voiceSupported}
+            permissionDenied={voicePermissionDenied}
+            busy={busy}
+            ttsSpeaking={ttsSpeaking}
+            armRemainingMs={voiceArmRemainingMs}
+            isMicOn={voiceMicOn}
+            compact
+          />
+        )}
 
         <MapControlDock
           visible={controlsVisible}
@@ -619,15 +761,12 @@ function Map3DView({
           usersId={usersId}
           isFullscreen={isFullscreen}
           onToggleFullscreen={onToggleFullscreen}
-          onResetOnboarding={onResetOnboarding}
+          onResetOnboarding={standalone ? undefined : onResetOnboarding}
           mode={mode}
           isEdit={isEdit}
           onModeChange={handleViewModeChange}
           routePathDisplayMode={routePathDisplayMode}
           onRoutePathDisplayModeChange={setRoutePathDisplayMode}
-          versoConnectionState={effectiveVersoConnectionState}
-          onVersoConnect={setVersoActiveUrl}
-          onVersoDisconnect={() => setVersoActiveUrl(null)}
         />
       </div>
 
@@ -638,6 +777,10 @@ function Map3DView({
           selected={selected}
           selectedIndex={selectedIndex}
           setSelectedIndex={setSelectedIndex}
+          wallSelectPointA={wallSelectPointA}
+          wallSelectPointB={wallSelectPointB}
+          wallSelectSegments={wallSelectSegments}
+          onClearWallSelect={clearWallSelect}
           onAdd={handleAddBookshelf}
           onDelete={handleDeleteBookshelf}
           onUpdateW={handleUpdateW}

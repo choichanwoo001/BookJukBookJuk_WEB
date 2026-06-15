@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { computeIslandLayout, computeWallLayout } from './bookshelfOverlayLayout'
+import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
+import {
+  computeIslandLayout,
+  computeWallLayout,
+  isWallAttachedShelf,
+  MIN_BOOKSHELF_DETAIL_D,
+  MIN_BOOKSHELF_DETAIL_W,
+  shelfOpenSignTowardCorridor,
+} from './bookshelfOverlayLayout'
 
 describe('bookshelf overlay layout', () => {
   it('creates deterministic island layouts', () => {
@@ -20,5 +28,43 @@ describe('bookshelf overlay layout', () => {
     expect(a.mode).toBe('wall')
     expect(a.books.length).toBeGreaterThan(0)
     expect(a.partitions.length).toBeGreaterThan(0)
+  })
+
+  it('detects wall-facing shelves that need a Z mirror', () => {
+    const wrongFacing = bookshelfOverlayLayerInstances.filter(
+      (inst) =>
+        inst.w >= MIN_BOOKSHELF_DETAIL_W &&
+        inst.d >= MIN_BOOKSHELF_DETAIL_D &&
+        isWallAttachedShelf(inst.cx, inst.cz, inst.d) &&
+        shelfOpenSignTowardCorridor(inst.cx, inst.cz, inst.yaw) === -1,
+    )
+
+    expect(wrongFacing.length).toBeGreaterThan(0)
+  })
+
+  it('keeps corridor-facing shelves unchanged', () => {
+    const corridorFacing = bookshelfOverlayLayerInstances.filter(
+      (inst) =>
+        inst.w >= MIN_BOOKSHELF_DETAIL_W &&
+        inst.d >= MIN_BOOKSHELF_DETAIL_D &&
+        isWallAttachedShelf(inst.cx, inst.cz, inst.d) &&
+        shelfOpenSignTowardCorridor(inst.cx, inst.cz, inst.yaw) === 1,
+    )
+
+    expect(corridorFacing.length).toBeGreaterThan(0)
+  })
+
+  it('classifies every detailed wall-attached overlay shelf as facing toward or away from the corridor', () => {
+    const detailed = bookshelfOverlayLayerInstances.filter(
+      (inst) =>
+        inst.w >= MIN_BOOKSHELF_DETAIL_W &&
+        inst.d >= MIN_BOOKSHELF_DETAIL_D &&
+        isWallAttachedShelf(inst.cx, inst.cz, inst.d),
+    )
+
+    expect(detailed.length).toBeGreaterThan(0)
+    for (const inst of detailed) {
+      expect([-1, 1]).toContain(shelfOpenSignTowardCorridor(inst.cx, inst.cz, inst.yaw))
+    }
   })
 })

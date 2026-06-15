@@ -1,14 +1,7 @@
 import type { Point2 } from '../data/floorPlan'
-import { NAV_GRID_CELL_M, NAV_SEGMENT_SAMPLE_STEP_M } from '../config/constants'
 import type { NavigationRouteVisual } from '../hooks/useNavigationRoute'
-import {
-  concatPaths,
-  findPathWorldGrid,
-  isSegmentWalkableWorld,
-  type WorldBounds,
-} from './gridPathfinding'
+import { concatPaths } from './gridPathfinding'
 import { robotMapToWorldXz } from './robotMapCoords'
-import type { WalkabilityContext } from './walkability'
 
 export function splitRobotPathByPosition(
   poses: Array<{ x: number; y: number }>,
@@ -42,39 +35,9 @@ function mapPosesToWorld(poses: Array<{ x: number; y: number }>): Point2[] {
   })
 }
 
-function densifyWorldPath(
-  worldPath: Point2[],
-  ctx: WalkabilityContext,
-  bounds: WorldBounds,
-): Point2[] {
-  if (worldPath.length < 2) return worldPath.slice()
-
-  let out: Point2[] = []
-  for (let i = 0; i < worldPath.length - 1; i++) {
-    const from = worldPath[i]
-    const to = worldPath[i + 1]
-    const routed = findPathWorldGrid(from, to, ctx, bounds, NAV_GRID_CELL_M)
-    if (routed && routed.length >= 2) {
-      out = out.length === 0 ? routed.slice() : concatPaths(out, routed)
-      continue
-    }
-    if (isSegmentWalkableWorld(from, to, ctx, NAV_SEGMENT_SAMPLE_STEP_M)) {
-      const segment: Point2[] = [from, to]
-      out = out.length === 0 ? segment : concatPaths(out, segment)
-    }
-  }
-  return out.length > 0 ? out : worldPath.slice()
-}
-
-export type VersoRouteVisualOptions = {
-  walkabilityCtx?: WalkabilityContext
-  bounds?: WorldBounds
-}
-
 export function buildVersoRouteVisual(
   status: { x: number; y: number } | null,
   path: { poses: Array<{ x: number; y: number }> } | null,
-  options?: VersoRouteVisualOptions,
 ): NavigationRouteVisual | null {
   if (!path || path.poses.length === 0) return null
 
@@ -82,14 +45,8 @@ export function buildVersoRouteVisual(
     ? splitRobotPathByPosition(path.poses, status.x, status.y)
     : { traveled: [] as Array<{ x: number; y: number }>, remaining: path.poses }
 
-  let dimPath = mapPosesToWorld(traveled)
-  let highlightPath = mapPosesToWorld(remaining)
-
-  const { walkabilityCtx, bounds } = options ?? {}
-  if (walkabilityCtx && bounds) {
-    dimPath = densifyWorldPath(dimPath, walkabilityCtx, bounds)
-    highlightPath = densifyWorldPath(highlightPath, walkabilityCtx, bounds)
-  }
+  const dimPath = mapPosesToWorld(traveled)
+  const highlightPath = mapPosesToWorld(remaining)
 
   const currentGoal = highlightPath.length > 0 ? highlightPath[highlightPath.length - 1] : null
 

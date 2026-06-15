@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { publishVersoResume } from '../lib/verso/versoMobilityCommands'
+import { logMissionNavStart } from '../lib/verso/rosbridgeConnectionLog'
 import {
   parseUserIntent,
   toolCallForIntent,
@@ -52,7 +53,7 @@ import { mergePlannedToolCall } from './chatAgent/toolCallMerge'
 import { useExistingListGate } from './chatAgent/useExistingListGate'
 import { isProceedToken } from './chatAgent/proceedToken'
 import { resolvePendingConfirmationReply } from './chatAgent/pendingConfirmationReply'
-import { buildNavStartPrompt, CHAT_AGENT_MESSAGES, NAV_START_CONFIRM_PROMPT } from './chatAgent/messages'
+import { buildNavStartPrompt, CHAT_AGENT_MESSAGES } from './chatAgent/messages'
 import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
@@ -62,7 +63,7 @@ import {
   fixtureRobotDirectGoals,
   SERENDIPITY_BROWSE_POOL_INDEX,
 } from '../data/fixtureRobotRoute'
-import { DEMO_DWELL_BOOK, DEMO_RECOMMENDED_BOOK } from '../data/demoScenario'
+import { DEMO_BOOKS, DEMO_DWELL_BOOK, DEMO_RECOMMENDED_BOOK, findDemoBookByTitle } from '../data/demoScenario'
 import { useToolRunner } from './chatAgent/useToolRunner'
 import { useChatAgentSession } from './chatAgent/useChatAgentSession'
 import { completeCheckoutPurchase } from '../agent/tools/checkoutCompletion'
@@ -199,7 +200,6 @@ export function useChatAgent(options: {
   const checkoutArrivalHandledRef = useRef(false)
   const kakaoConfirmInFlightRef = useRef(false)
   const navStartPromptShownRef = useRef(false)
-  const sessionReadyRef = useRef(false)
   useLayoutEffect(() => {
     contextRef.current = context
   }, [context])
@@ -363,14 +363,26 @@ export function useChatAgent(options: {
     return options.initialShoppingList?.length ?? 0
   }, [options.initialShoppingList])
 
-  useLayoutEffect(() => {
-    sessionReadyRef.current = sessionReady
-  }, [sessionReady])
+  /** 현재 쇼핑리스트(또는 카트)에서 데모 도서 poolIndex 배열을 반환. 데모 경로 결정에 사용. */
+  const resolveCurrentPoolIndices = useCallback((): number[] | null => {
+    const list =
+      contextRef.current.cartItems.length > 0
+        ? contextRef.current.cartItems
+        : contextRef.current.shoppingList.length > 0
+          ? contextRef.current.shoppingList
+          : (options.initialShoppingList ?? [])
+    if (list.length === 0) return null
+    const indices = list
+      .map((entry) => findDemoBookByTitle(entry.title)?.poolIndex)
+      .filter((idx): idx is number => idx !== undefined)
+    return indices.length > 0 ? indices : null
+  }, [options.initialShoppingList])
 
   const ensureNavStartPromptShown = useCallback(async () => {
-    if (!sessionReadyRef.current || !activeUsersId) return
-    const navPrompt = buildNavStartPrompt(resolveNavStartBookCount())
+    const bookCount = resolveNavStartBookCount()
+    if (bookCount === 0) return
     if (navStartPromptShownRef.current) return
+    const navPrompt = buildNavStartPrompt(bookCount)
     if (messagesRef.current.some((message) => message.role === 'assistant' && message.text === navPrompt)) {
       navStartPromptShownRef.current = true
       return
@@ -378,9 +390,22 @@ export function useChatAgent(options: {
     if (existingListGateRef.current.status === 'inactive') {
       updateExistingListGate({ status: 'awaiting_nav' })
     }
-    await appendAssistantAndStore(navPrompt)
+    // 동시 호출 시 중복 표시 방지: appendAssistant(동기) 직후, await 전에 플래그 설정
+    // 맵/로봇 PREVIEW_NAV_PLAN과 별개로 채팅 UI에 즉시 표시 (TTS 파이프라인 큐 유실 방지)
     navStartPromptShownRef.current = true
-  }, [activeUsersId, appendAssistantAndStore, existingListGateRef, resolveNavStartBookCount, updateExistingListGate])
+    appendAssistant(navPrompt)
+    await appendAssistantConversationMessage(navPrompt)
+    if (tts.isEnabled()) {
+      void tts.speakAndWait(navPrompt)
+    }
+  }, [
+    appendAssistant,
+    appendAssistantConversationMessage,
+    existingListGateRef,
+    resolveNavStartBookCount,
+    tts,
+    updateExistingListGate,
+  ])
 
   const { handleFollowMeDetour, trackMapSnapshot } = useTransitSerendipityDetour({
     contextRef,
@@ -403,18 +428,24 @@ export function useChatAgent(options: {
   }, [tts])
 
   useEffect(() => {
-    if (!activeUsersId || !sessionReady) return
+    if (!activeUsersId) return
     if (resolveNavStartBookCount() === 0) return
     if (existingListGateRef.current.status === 'nav_started') return
     if (hasInitialShoppingList || isDemoMode()) {
-      dispatchPreviewNavPlan(fixtureRobotDirectGoals())
+      dispatchPreviewNavPlan(fixtureRobotDirectGoals(resolveCurrentPoolIndices()))
+    } else if (!sessionReady) {
+      return
     }
     void ensureNavStartPromptShown()
   }, [
     activeUsersId,
+    context.cartItems.length,
+    context.shoppingList.length,
     ensureNavStartPromptShown,
     existingListGateRef,
     hasInitialShoppingList,
+    options.initialShoppingList?.length,
+    resolveCurrentPoolIndices,
     resolveNavStartBookCount,
     sessionReady,
   ])
@@ -422,7 +453,6 @@ export function useChatAgent(options: {
   useEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type !== 'PREVIEW_NAV_PLAN') return
-      if (!sessionReadyRef.current) return
       void ensureNavStartPromptShown()
     })
   }, [ensureNavStartPromptShown])
@@ -486,10 +516,6 @@ export function useChatAgent(options: {
     const recoBook = candidates[0] ?? DEMO_RECOMMENDED_BOOK
 
     await runToolWithFallback(
-      { name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${skippedBook.title}` } },
-      'add_book',
-    )
-    await runToolWithFallback(
       { name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${recoBook.title}` } },
       'add_book',
     )
@@ -504,7 +530,7 @@ export function useChatAgent(options: {
     dispatchSetDirectGoals(extendedFixtureRobotDirectGoals())
     dispatchMapCommand({ type: 'RESUME_MOBILITY', version: AGENT_MAP_EVENT_VERSION })
     await appendAssistantAndStore(
-      `"${skippedBook.title}"과 "${recoBook.title}"을 경로에 추가했어요. 순서대로 안내할게요!`,
+      `"${recoBook.title}"을 경로에 추가하고 "${DEMO_BOOKS.book2.title}" 안내를 이어갈게요!`,
     )
   }, [appendAssistantAndStore, runToolWithFallback, setContext])
 
@@ -543,22 +569,6 @@ export function useChatAgent(options: {
       setBusy(true)
       setLastFailedUserText(null)
       try {
-        if (
-          existingListGateRef.current.status === 'awaiting_nav' &&
-          !contextRef.current.pendingConfirmation &&
-          isProceedToken(intentText)
-        ) {
-          await appendUserMessageAndStore({
-            text: normalized,
-            conversationId: conversationIdRef.current,
-            intent: 'confirm',
-            setMessages,
-          })
-          updateExistingListGate({ status: 'awaiting_nav_confirm' })
-          await appendAssistantAndStore(NAV_START_CONFIRM_PROMPT)
-          return
-        }
-
         const cartForNav =
           contextRef.current.cartItems.length > 0
             ? contextRef.current.cartItems
@@ -568,7 +578,7 @@ export function useChatAgent(options: {
           isProceedToken(intentText) &&
           existingListGateRef.current.status !== 'nav_started' &&
           cartForNav.length > 0 &&
-          existingListGateRef.current.status === 'awaiting_nav_confirm'
+          existingListGateRef.current.status === 'awaiting_nav'
 
         if (canStartNavigationFromProceed) {
           await appendUserMessageAndStore({
@@ -578,7 +588,8 @@ export function useChatAgent(options: {
             setMessages,
           })
           updateExistingListGate({ status: 'nav_started' })
-          dispatchSetDirectGoals(fixtureRobotDirectGoals())
+          logMissionNavStart('ok_proceed', cartForNav.length)
+          dispatchSetDirectGoals(fixtureRobotDirectGoals(resolveCurrentPoolIndices()))
           dispatchStartNavigation()
           void enqueueAssistant({
             text: '안내를 시작할게요.',
@@ -693,8 +704,7 @@ export function useChatAgent(options: {
           return
         }
 
-        // 경로 확장 제스처: dwell 피드백 후 추천이 표시된 상태에서 "경로/같이/함께" 발화 시
-        // skippedDwellBook(단 한 사람) + 추천 1번(어른이 된다는 것)을 함께 추가하고 확장 경로로 전환.
+        // 경로 확장: dwell 피드백 후 추천 수락 시 어른이 된다는 것 추가 + 오직 두 사람 안내 재개.
         if (
           contextRef.current.skippedDwellBook &&
           !contextRef.current.extendedRouteActive &&
@@ -769,6 +779,14 @@ export function useChatAgent(options: {
             await appendAssistantAndStore(
               `"${dwellBook.title}"에 관심을 보이셨는데 장바구니에 담지 않으셨네요. 어떤 점이 마음에 걸리셨는지 말씀해 주시면 그 책 기준으로 더 잘 맞는 책을 추천해드릴게요.`,
             )
+            return
+          }
+        }
+
+        if (mergedIntent.type === 'follow_robot') {
+          if (isDemoMode() && handleFollowMeDetour()) {
+            await appendAssistantAndStore('우연한 발견 구간으로 안내할게요.')
+            recordIntentOutcome('follow_robot', true)
             return
           }
         }
@@ -882,6 +900,7 @@ export function useChatAgent(options: {
       existingListGateRef,
       updateExistingListGate,
       applyExtendedRouteAfterReco,
+      handleFollowMeDetour,
     ],
   )
 

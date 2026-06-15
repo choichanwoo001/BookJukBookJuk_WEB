@@ -24,10 +24,6 @@ import { subscribeMapCommand } from '../agent/runtime/agentEventBus'
 
 import { isDemoMode } from '../config/demoMode'
 
-import { DemoModeWarningBanner } from './DemoModeWarningBanner'
-
-
-
 const Map3DView = lazy(() => import('./Map3DView'))
 
 
@@ -179,8 +175,6 @@ export function AppMainShell({
   return (
 
     <main className="appShell">
-
-      <DemoModeWarningBanner plannedBooks={plannedBooks} />
 
       <section className="mapPane" onPointerDown={() => setActivePane('map')}>
 

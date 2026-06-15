@@ -1,6 +1,5 @@
-import { floorRects, wallPolylines } from '../data/floorPlan'
-import { getFloorOuterAndHolePolygons, isPointInRingedPolygon } from './floorPolygon'
-import { pointInAnyRect } from './rectUtils'
+import { FLOOR_INCLUSION_PADDING_M, floorRenderRects, wallPolylines } from '../data/floorPlan'
+import { createRectPointIndex } from './rectUtils'
 
 // ─── Geometry helpers ────────────────────────────────────────────────────────
 
@@ -104,13 +103,10 @@ export function closestPointOnWallPolylines(
 
 // ─── Wall-snap helpers ────────────────────────────────────────────────────────
 
-const floorPolyCache = getFloorOuterAndHolePolygons(wallPolylines)
+const floorContainsPoint = createRectPointIndex(floorRenderRects)
 
 function isWalkableFloor(x: number, z: number): boolean {
-  if (floorPolyCache.outer.length >= 3) {
-    return isPointInRingedPolygon(x, z, floorPolyCache.outer, floorPolyCache.holes)
-  }
-  return pointInAnyRect(floorRects, x, z)
+  return floorContainsPoint(x, z, FLOOR_INCLUSION_PADDING_M)
 }
 
 /**

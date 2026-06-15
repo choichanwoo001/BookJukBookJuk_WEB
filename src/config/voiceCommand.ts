@@ -1,5 +1,5 @@
-/** Primary wake word: "산책아". Longer phrases first for greedy match. */
-export const VOICE_WAKE_WORDS = ['산책아', '산책', '들어봐', '들어줘'] as const
+/** Wake word: say "산책아" before a command. */
+export const VOICE_WAKE_WORDS = ['산책아'] as const
 
 /** Command collection window after wake word. */
 export const VOICE_ARM_TIMEOUT_MS = 20_000

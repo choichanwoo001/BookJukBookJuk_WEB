@@ -9,7 +9,7 @@ const REF_CATALOG = [
   { file: '어른이된다는것.jpg', query: '어른이 된다는 것' },
   { file: '오직두사람.jpg', query: '오직 두 사람' },
   { file: '단한사람.jpeg', query: '단 한 사람' },
-  { file: '시선으로부터.webp', query: '시선으로부터' },
+  { file: '너무나많은여름이.jpg', query: '너무나 많은 여름이' },
 ]
 
 const REF_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])

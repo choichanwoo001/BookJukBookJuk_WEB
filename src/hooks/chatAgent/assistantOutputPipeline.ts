@@ -5,6 +5,7 @@ import {
   type AgentDwellEvent,
   type NavigationSyncState,
 } from '../../agent/runtime/agentEventBus'
+import { DESTINATION_ARRIVAL_PAUSE_MS } from '../../config/constants'
 import { isEnRoute } from '../../types/navigationMobility'
 
 export type OutputGate =
@@ -19,6 +20,8 @@ export type PipelineItem = {
   attachments?: string[]
   gate: OutputGate
   narrate?: boolean
+  /** true이면 처리 후에도 mobilityHold 유지 (연속 도착 안내 TTS용) */
+  mobilityHoldThrough?: boolean
 }
 
 type QueuedItem = PipelineItem & {
@@ -31,6 +34,7 @@ export type AssistantOutputPipelineDeps = {
   isTtsEnabled: () => boolean
   onTtsSpeakingChange?: (speaking: boolean) => void
   onMobilityHoldChange?: (held: boolean) => void
+  onResumeMobility?: () => void
 }
 
 type PendingArrival = { kind: 'shelf'; leg: number } | { kind: 'checkout' }
@@ -98,6 +102,12 @@ function handleDwellEvent(event: AgentDwellEvent, pendingArrivals: PendingArriva
   }
 }
 
+function waitForDestinationPause(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, DESTINATION_ARRIVAL_PAUSE_MS)
+  })
+}
+
 export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps) {
   const queue: QueuedItem[] = []
   let processing = false
@@ -127,13 +137,14 @@ export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps)
     void (async () => {
       const shouldNarrate = item.narrate !== false && deps.isTtsEnabled()
       let speechHoldActive = false
-      if (shouldNarrate) {
-        speechHoldActive = true
-        deps.onTtsSpeakingChange?.(true)
-      }
       try {
+        if (isDestinationArrivalGate(item.gate)) {
+          await waitForDestinationPause()
+        }
         await deps.appendAssistant(item.text, item.attachments)
         if (shouldNarrate) {
+          speechHoldActive = true
+          deps.onTtsSpeakingChange?.(true)
           try {
             await deps.speakAndWait(item.text)
           } finally {
@@ -143,8 +154,11 @@ export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps)
         }
       } finally {
         if (speechHoldActive) deps.onTtsSpeakingChange?.(false)
-        if (isDestinationArrivalGate(item.gate)) {
+        if (item.mobilityHoldThrough !== true) {
           deps.onMobilityHoldChange?.(false)
+          if (isDestinationArrivalGate(item.gate)) {
+            deps.onResumeMobility?.()
+          }
         }
         item.onComplete?.()
         processing = false
@@ -161,6 +175,9 @@ export function createAssistantOutputPipeline(deps: AssistantOutputPipelineDeps)
 
   const onDwell = (event: AgentDwellEvent) => {
     if (event.version !== AGENT_MAP_EVENT_VERSION) return
+    if (event.type === 'SHELF_ARRIVED' || event.type === 'CHECKOUT_ARRIVED') {
+      deps.onMobilityHoldChange?.(true)
+    }
     handleDwellEvent(event, pendingArrivals)
     tryProcess()
   }

@@ -80,4 +80,5 @@ export const VERSO_TOPICS = {
   path: '/verso/path',
   event: '/verso/event',
   command: '/verso/command',
+  waypoints: '/verso/waypoints',
 } as const

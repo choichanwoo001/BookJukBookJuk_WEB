@@ -3,16 +3,26 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 // @ts-expect-error Vite plugin (ESM)
 import { bookIdentifyPlugin } from './scripts/viteBookIdentifyPlugin.mjs'
+// @ts-expect-error Vite plugin (ESM)
+import { kakaoPayPlugin } from './scripts/viteKakaoPayPlugin.mjs'
+// @ts-expect-error Vite plugin (ESM)
+import { versoRosbridgeLogPlugin } from './scripts/viteVersoRosbridgeLogPlugin.mjs'
 
 // https://vite.dev/config/
 // `npm run dev` — /book-recognition/identify 는 Vite 미들웨어에서 처리 (별도 8787 불필요)
 export default defineConfig({
-  plugins: [react(), bookIdentifyPlugin()],
+  plugins: [react(), bookIdentifyPlugin(), kakaoPayPlugin(), versoRosbridgeLogPlugin()],
+  server: {
+    host: true,
+  },
+  preview: {
+    host: true,
+  },
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    include: ['src/**/*.{test,spec}.{ts,tsx}', 'scripts/**/*.test.mjs'],
     pool: 'threads',
     maxWorkers: 2,
   },

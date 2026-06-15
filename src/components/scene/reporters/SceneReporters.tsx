@@ -13,23 +13,29 @@ export function PlayerPositionReporter({
   worldRef,
   characterYawRef,
   onPlayerPosition,
+  robotSyncActive = false,
+  playerWorldXzRef,
 }: {
   worldRef: RefObject<Group | null>
   characterYawRef: RefObject<number>
   onPlayerPosition: (pos: MinimapPlayerPos | null) => void
+  /** 로봇 연동 시 /verso/status 기준 위치를 미니맵에 표시 */
+  robotSyncActive?: boolean
+  playerWorldXzRef?: RefObject<Point2 | null>
 }) {
   const lastEmitRef = useRef(0)
   const lastSentRef = useRef<MinimapPlayerPos | null>(null)
   useFrame((state) => {
-    if (!worldRef.current) {
+    const robotXz = robotSyncActive ? playerWorldXzRef?.current : null
+    if (!robotXz && !worldRef.current) {
       if (lastSentRef.current !== null) {
         lastSentRef.current = null
         onPlayerPosition(null)
       }
       return
     }
-    const wx = -worldRef.current.position.x
-    const wz = -worldRef.current.position.z
+    const wx = robotXz ? robotXz[0] : -worldRef.current!.position.x
+    const wz = robotXz ? robotXz[1] : -worldRef.current!.position.z
     const { u, v } = worldXzToMinimapUv(wx, wz)
     const yaw = characterYawRef.current
     const t = state.clock.elapsedTime

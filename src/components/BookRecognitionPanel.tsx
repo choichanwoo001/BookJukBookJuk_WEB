@@ -1,29 +1,48 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { getBookRecognitionClient } from '../agent/bridges/bookRecognitionBridge'
+import { isDemoMode } from '../config/demoMode'
 import { GESTURE_CONFIRM_FRAMES, GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import { useBookRecognitionCamera } from '../hooks/useBookRecognitionCamera'
 import { useGestureRecognition } from '../hooks/useGestureRecognition'
 
+export type RecognizedBookPreview = {
+  title: string
+  author?: string
+}
+
 export type BookRecognitionPanelProps = {
   busy: boolean
-  onCapture: (
+  /** 레거시 UI 캡처 (현재 패널에서는 미사용). */
+  onCapture?: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
     trigger?: 'gesture' | 'ui',
+  ) => void | Promise<void>
+  /** 표지 인식 후 제스처로 담기/빼기 (인식된 제목 기준). */
+  onGestureBookDecision?: (
+    reason: 'add' | 'remove',
+    book: RecognizedBookPreview,
   ) => void | Promise<void>
   onBrowse?: (imageBase64: string) => void | Promise<void>
   onGestureConfirmed?: (gestureId: GestureId) => void
   placement?: 'map' | 'chat'
 }
 
+const IDENTIFY_POLL_MS = 1400
+
 export function BookRecognitionPanel({
   busy,
-  onCapture,
+  onGestureBookDecision,
   onGestureConfirmed,
   placement = 'map',
 }: BookRecognitionPanelProps) {
   const [gestureEnabled, setGestureEnabled] = useState(false)
   const [identifying, setIdentifying] = useState(false)
+  const [recognizedBook, setRecognizedBook] = useState<RecognizedBookPreview | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [gestureHint, setGestureHint] = useState<string | null>(null)
+  const scanInFlightRef = useRef(false)
 
   const {
     videoRef,
@@ -34,18 +53,69 @@ export function BookRecognitionPanel({
     captureFrameBase64,
   } = useBookRecognitionCamera()
 
-  const runCapture = useCallback(
-    (reason: 'add' | 'remove', trigger: 'gesture' | 'ui') => {
-      if (busy || identifying || !onCapture || !isActive) return
+  const handleToggleCamera = useCallback(async () => {
+    if (isActive) {
+      stop()
+      setGestureEnabled(false)
+      setRecognizedBook(null)
+      setGestureHint(null)
+      return
+    }
+    await start()
+  }, [isActive, start, stop])
+
+  useEffect(() => {
+    if (!isActive || busy || identifying) return undefined
+    // 데모 모드에서는 실제 인식 API를 호출하지 않음 → "인식된 책 없음" 상태 유지
+    if (isDemoMode()) return undefined
+
+    const tick = async () => {
+      if (scanInFlightRef.current) return
       const frame = captureFrameBase64()
       if (!frame) return
 
+      scanInFlightRef.current = true
+      setScanning(true)
+      try {
+        const result = await getBookRecognitionClient().identifyBook({
+          reason: 'add',
+          imageBase64: frame,
+        })
+        if (result.ok && result.title?.trim()) {
+          setRecognizedBook({
+            title: result.title.trim(),
+            author: result.author?.trim() || undefined,
+          })
+          setGestureHint(null)
+        } else {
+          setRecognizedBook(null)
+        }
+      } finally {
+        scanInFlightRef.current = false
+        setScanning(false)
+      }
+    }
+
+    void tick()
+    const timerId = window.setInterval(() => {
+      void tick()
+    }, IDENTIFY_POLL_MS)
+    return () => window.clearInterval(timerId)
+  }, [busy, captureFrameBase64, identifying, isActive])
+
+  const runGestureDecision = useCallback(
+    (reason: 'add' | 'remove') => {
+      if (busy || identifying || !onGestureBookDecision) return
+      if (!recognizedBook) {
+        setGestureHint('표지를 인식한 뒤 제스처를 해 주세요.')
+        return
+      }
       setIdentifying(true)
-      void Promise.resolve(onCapture(reason, frame, trigger)).finally(() => {
+      void Promise.resolve(onGestureBookDecision(reason, recognizedBook)).finally(() => {
         setIdentifying(false)
       })
     },
-    [busy, captureFrameBase64, identifying, isActive, onCapture],
+    [busy, identifying, onGestureBookDecision, recognizedBook],
   )
 
   const handleGestureConfirmed = useCallback(
@@ -55,29 +125,20 @@ export function BookRecognitionPanel({
       if (!gestureEnabled) return
 
       if (gestureId === 'thumbs_up') {
-        runCapture('add', 'gesture')
+        runGestureDecision('add')
       } else if (gestureId === 'thumbs_down') {
-        runCapture('remove', 'gesture')
+        runGestureDecision('remove')
       }
     },
-    [gestureEnabled, onGestureConfirmed, runCapture],
+    [gestureEnabled, onGestureConfirmed, runGestureDecision],
   )
 
   const gesture = useGestureRecognition({
     videoRef,
     isActive,
-    enabled: isActive && gestureEnabled && Boolean(onGestureConfirmed),
+    enabled: isActive && gestureEnabled && Boolean(onGestureConfirmed || onGestureBookDecision),
     onConfirmed: handleGestureConfirmed,
   })
-
-  const handleToggleCamera = useCallback(async () => {
-    if (isActive) {
-      stop()
-      setGestureEnabled(false)
-      return
-    }
-    await start()
-  }, [isActive, start, stop])
 
   const previewLabel = gesture.previewGesture ? GESTURE_LABELS_KO[gesture.previewGesture] : null
 
@@ -112,7 +173,7 @@ export function BookRecognitionPanel({
         )}
         {isActive && !gestureEnabled && (
           <div className="bookRecognitionGestureOverlay" aria-live="polite">
-            <span className="bookRecognitionGestureChip muted">제스처 켜기 후 엄지로 담기·빼기</span>
+            <span className="bookRecognitionGestureChip muted">표지 인식 후 제스처로 담기·빼기</span>
           </div>
         )}
         {isActive && gestureEnabled && (
@@ -132,6 +193,30 @@ export function BookRecognitionPanel({
           </div>
         )}
       </div>
+
+      {isActive && (
+        <div className="bookRecognitionDetected" aria-live="polite">
+          {scanning && !recognizedBook ? (
+            <span className="bookRecognitionDetectedStatus">표지 인식 중…</span>
+          ) : recognizedBook ? (
+            <>
+              <span className="bookRecognitionDetectedLabel">인식됨</span>
+              <strong className="bookRecognitionDetectedTitle">{recognizedBook.title}</strong>
+              {recognizedBook.author ? (
+                <span className="bookRecognitionDetectedAuthor">{recognizedBook.author}</span>
+              ) : null}
+              {gestureEnabled ? (
+                <span className="bookRecognitionDetectedHint">엄지 ↑ 담기 · ↓ 빼기</span>
+              ) : null}
+            </>
+          ) : (
+            <span className="bookRecognitionDetectedStatus">인식된 책 없음</span>
+          )}
+          {gestureHint ? (
+            <span className="bookRecognitionDetectedWarn">{gestureHint}</span>
+          ) : null}
+        </div>
+      )}
 
       <div className="bookRecognitionActions">
         <button

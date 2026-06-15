@@ -9,9 +9,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 import { getMinimapWorldBounds } from '../src/utils/minimapBounds'
-import { createFloorPointInclusionTest, pointInPolygon2D } from '../src/utils/floorPolygon'
+import { pointInPolygon2D } from '../src/utils/floorPolygon'
+import { createRectPointIndex } from '../src/utils/rectUtils'
 import { bookshelfOverlayLayerInstances } from '../src/data/bookshelfOverlayLayer'
-import { bookshelfInstances, floorFillRects, wallPolylines } from '../src/data/floorPlan'
+import { bookshelfInstances, floorRenderRects } from '../src/data/mapData'
 import { MAP2D_PNG, hexToRgba } from '../src/data/map2dPngPalette'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -55,9 +56,11 @@ function rotatedBookshelfCorners(cx: number, cz: number, w: number, d: number, y
 }
 
 function fixtureListToQuads(
-  list: { cx: number; cz: number; w: number; d: number; yaw: number }[],
+  list: { cx: number; cz: number; w: number; d: number; yaw: number; footprint?: [number, number][] }[],
 ): [number, number][][] {
-  return list.map((b) => rotatedBookshelfCorners(b.cx, b.cz, b.w, b.d, b.yaw))
+  return list.map((b) => b.footprint && b.footprint.length >= 3
+    ? b.footprint
+    : rotatedBookshelfCorners(b.cx, b.cz, b.w, b.d, b.yaw))
 }
 
 async function main() {
@@ -65,7 +68,7 @@ async function main() {
   const { minX, maxX, minZ, maxZ, spanX, spanZ } = getMinimapWorldBounds()
   const H = Math.max(1, Math.round((W * spanZ) / spanX))
 
-  const floorTest = createFloorPointInclusionTest(wallPolylines, floorFillRects)
+  const floorTest = createRectPointIndex(floorRenderRects)
   const mainShelfQuads = fixtureListToQuads(bookshelfInstances)
   const overlayShelfQuads = includeOverlay ? fixtureListToQuads(bookshelfOverlayLayerInstances) : []
 

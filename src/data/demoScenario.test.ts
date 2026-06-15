@@ -1,21 +1,37 @@
 import { describe, expect, it } from 'vitest'
+import { bookshelfOverlayLayerInstances } from './bookshelfOverlayLayer'
 import {
   DEMO_BOOKS,
+  DEMO_DWELL_BOOK,
   DEMO_PLANNED_BOOK_KEYS,
+  DEMO_RECOMMENDED_BOOK,
   demoBookToEntry,
   demoRefCoverUrl,
   findDemoBookByTitle,
   demoPoolIndicesForKeys,
   resolveDemoMissionKeys,
 } from './demoScenario'
+import { robotMapBook2WorldXz } from '../lib/verso/robotMissionCoords'
 
 describe('demoScenario', () => {
   it('defines four demo books', () => {
     expect(Object.keys(DEMO_BOOKS)).toHaveLength(4)
   })
 
-  it('lists planned demo books for similar-readers selection', () => {
-    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book2', 'alternative'])
+  it('lists planned demo book as 오직 두 사람 only', () => {
+    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book2'])
+  })
+
+  it('maps book2 shelf near robot waypoint world coords', () => {
+    const shelf = bookshelfOverlayLayerInstances[DEMO_BOOKS.book2.poolIndex]
+    const [wx, wz] = robotMapBook2WorldXz()
+    expect(shelf).toBeDefined()
+    expect(Math.hypot(shelf!.cx - wx, shelf!.cz - wz)).toBeLessThan(2.5)
+  })
+
+  it('uses serendipity for dwell and book1 for recommendation', () => {
+    expect(DEMO_DWELL_BOOK.title).toBe(DEMO_BOOKS.serendipity.title)
+    expect(DEMO_RECOMMENDED_BOOK.title).toBe(DEMO_BOOKS.book1.title)
   })
 
   it('uses ref cover urls when no db cover is provided', () => {
@@ -48,8 +64,7 @@ describe('demoScenario', () => {
   it('resolves mission keys from a shopping list in visit order', () => {
     const keys = resolveDemoMissionKeys([
       { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
-      { booksId: 'demo-book-summer', title: '너무나 많은 여름이', authors: '김연수', coverImageUrl: '' },
     ])
-    expect(keys).toEqual(['book2', 'alternative'])
+    expect(keys).toEqual(['book2'])
   })
 })

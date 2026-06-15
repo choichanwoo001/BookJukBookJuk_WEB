@@ -4,8 +4,8 @@ import { useThree } from '@react-three/fiber'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 
 /**
- * OverviewRig unmount 시 makeDefault 복원이 WalkRig 카메라를 덮어쓰는 R3F 타이밍 이슈를 막는다.
- * 마운트 직후(및 한 프레임 뒤) walk 카메라를 다시 default로 고정한다.
+ * OverviewRig unmount 시 makeDefault 복원이 TopDownRig 카메라를 덮어쓰는 R3F 타이밍 이슈를 막는다.
+ * 마운트 직후(및 한 프레임 뒤) topDown 카메라를 다시 default로 고정한다.
  */
 export function useAssertDefaultCamera(
   cameraRef: RefObject<ThreePerspectiveCamera | null>,

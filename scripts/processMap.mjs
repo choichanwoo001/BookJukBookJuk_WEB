@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve, dirname, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { relocateInterAisleWallsBehindShelves } from './aisleWallRelocateCore.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -9,17 +10,106 @@ const FREE = 2
 const UNKNOWN = 0
 
 const DEFAULT_IMAGE = 'KakaoTalk_20260329_205358459.pgm'
-const YAML_PATH = resolve(ROOT, 'b2floor_edited.yaml')
+const YAML_PATH = resolve(ROOT, 'map_info', 'b2floor_edited.yaml')
+const DEFAULT_FRAME_IMAGE = 'map_info/map_masked.pgm'
+const DEFAULT_STRUCTURE_IMAGE = 'map_info/b2floor_edited.pgm'
+const DEFAULT_KEEPOUT_IMAGE = 'map_info/keepout_mask.pgm'
 
 const MIN_CLUSTER_SIZE = 28
 /** Looser snap reduces stair-stepping along diagonals vs strict Manhattan alignment. */
-const AXIS_SNAP_DEG = 22
-const CENTER_LOOP_SIMPLIFY_M = 0.15
-const RENDER_LOOP_SIMPLIFY_M = 0.38
-const HOLE_LOOP_SIMPLIFY_M = 0.08
-const CENTER_LOOP_MIN_SEGMENT_M = 0.12
-const RENDER_LOOP_MIN_SEGMENT_M = 0.28
-const HOLE_LOOP_MIN_SEGMENT_M = 0.08
+const AXIS_SNAP_DEG = 13
+const CENTER_LOOP_SIMPLIFY_M = 0.2
+const RENDER_LOOP_SIMPLIFY_M = 0.32
+const HOLE_LOOP_SIMPLIFY_M = 0.1
+const KEEPOUT_LOOP_SIMPLIFY_M = 0.06
+const CENTER_LOOP_MIN_SEGMENT_M = 0.16
+const RENDER_LOOP_MIN_SEGMENT_M = 0.2
+const HOLE_LOOP_MIN_SEGMENT_M = 0.1
+const KEEPOUT_LOOP_MIN_SEGMENT_M = 0.05
+
+const SOURCE_PATCH_APP_OFFSET_X = -26.7864
+const SOURCE_PATCH_APP_OFFSET_Z = 4.8291
+const SOURCE_OCCLUSION_PATCHES = [
+  {
+    label: 'north service pocket',
+    center: { x: -5.491, z: 4.628 },
+    clearRadiusM: 0.75,
+    wallifyRadiusM: 1.85,
+  },
+  {
+    label: 'west service pocket',
+    center: { x: -14.899, z: -0.645 },
+    clearRadiusM: 0.9,
+    wallifyRadiusM: 2.15,
+  },
+]
+
+const MANUAL_KEEP_OUT_BOOKSHELF_OVERRIDES = [
+  {
+    label: 'west wall shelf from map_masked',
+    center: { x: -18.113, z: -2.627 },
+    w: 2.35,
+    d: 0.55,
+    yaw: 1.9417,
+    replaceRadiusM: 0.8,
+    clearStructure: true,
+  },
+]
+
+const MANUAL_L_CORNER_BOOKSHELF_GROUPS = [
+  {
+    label: 'south room NE corner',
+    corner: { x: 4.099, z: -13.402 },
+    armLengthM: 1.8,
+    armDepthM: 0.55,
+    primaryYaw: 1.8925,
+    replaceRadiusM: 2.3,
+    missingSx: -1,
+    missingSz: -1,
+  },
+  {
+    label: 'south room SW corner',
+    corner: { x: 2.182, z: -19.261 },
+    armLengthM: 1.8,
+    armDepthM: 0.55,
+    primaryYaw: 0.3016,
+    replaceRadiusM: 2.1,
+    missingSx: 1,
+    missingSz: 1,
+  },
+]
+
+const FORCE_RECTANGULAR_BOOKSHELF_OVERRIDES = [
+  { label: 'south room square shelf west', center: { x: -7.345, z: -9.948 }, radiusM: 0.45 },
+  { label: 'south room square shelf north-east', center: { x: -9.895, z: -12.048 }, radiusM: 0.45 },
+  { label: 'south room square shelf south-east', center: { x: -6.895, z: -13.148 }, radiusM: 0.45 },
+]
+
+const STRAIGHTEN_WALL_BACK_OFFSET_M = 0.08
+const STRAIGHTEN_WALL_CLEAR_MARGIN_M = 0.18
+const STRAIGHTEN_WALL_EXTEND_M = 0.24
+const STRAIGHTEN_WALL_THICKNESS_M = 0.08
+
+const MANUAL_POLYLINE_STRAIGHTENING = [
+  { label: 'south room east diagonal wall', loopIndex: 0, start: [1.625, -18.954], end: [3.95, -12.079] },
+  { label: 'west wall protrusion shelf wall', loopIndex: 0, start: [-19.9, -4.579], end: [-18.8, 0.571] },
+  { label: 'inner west room wall', loopIndex: 1, start: [-12.575, 15.596], end: [-15.65, 7.271] },
+  { label: 'north west outer wall', loopIndex: 0, start: [-0.625, 14.046], end: [-13.675, 18.746] },
+  { label: 'east corridor upper wall', loopIndex: 0, start: [42.125, -3.854], end: [9.675, 9.746] },
+  { label: 'east corridor lower wall', loopIndex: 0, start: [13.375, 5.546], end: [43.875, -8.054] },
+]
+
+const MANUAL_PHOTO_BOOKSHELF_ADDITIONS = [
+  {
+    label: 'west wall protrusion bookshelf',
+    cx: -19.661,
+    cz: -1.346,
+    w: 3.6,
+    d: 0.65,
+    yaw: -1.2408,
+    h: 2.34,
+  },
+]
 
 let RESOLUTION = 0.05
 let ORIGIN_X = -53.4
@@ -42,7 +132,7 @@ function parseSimpleYaml(path) {
 
 function parseYamlMapConfig(path) {
   const data = parseSimpleYaml(path)
-  const imageName = (data.image || '').trim() || DEFAULT_IMAGE
+  const imageName = (data.image || '').trim().replace(/^["']|["']$/g, '') || DEFAULT_IMAGE
   const mode = String(data.mode || 'trinary').trim().toLowerCase()
   const negate = Number(data.negate ?? 0)
   const resolution = Number(data.resolution ?? 0.05)
@@ -95,10 +185,166 @@ function parsePGM(filepath) {
   return { width, height, maxval, pixels }
 }
 
-async function parseRasterImage(filepath, negate = 0) {
+function writePGM(filepath, pgm) {
+  const header = `P5\n${pgm.width} ${pgm.height}\n${pgm.maxval ?? 255}\n`
+  const bytes = Buffer.alloc(Buffer.byteLength(header) + pgm.pixels.length)
+  bytes.write(header, 0, 'ascii')
+  Buffer.from(pgm.pixels).copy(bytes, Buffer.byteLength(header))
+  writeFileSync(filepath, bytes)
+}
+
+function appWorldToSourcePixel(x, z, height) {
+  const wx = x + SOURCE_PATCH_APP_OFFSET_X
+  const wz = z + SOURCE_PATCH_APP_OFFSET_Z
+  return {
+    col: Math.round((wx - ORIGIN_X) / RESOLUTION),
+    row: Math.round(height - 1 - ((wz - ORIGIN_Y) / RESOLUTION)),
+  }
+}
+
+function sourcePixelDistanceToRect(col, row, c) {
+  const dx = Math.max(c.minX - col, 0, col - c.maxX)
+  const dy = Math.max(c.minY - row, 0, row - c.maxY)
+  return Math.hypot(dx, dy)
+}
+
+function assertSamePgmSize(a, b, labelA, labelB) {
+  if (a.width !== b.width || a.height !== b.height) {
+    throw new Error(`${labelA} ${a.width}x${a.height} must match ${labelB} ${b.width}x${b.height}`)
+  }
+}
+
+function applySourceOcclusionPatchesToPgms(structurePgm, framePgm, keepoutPgm) {
+  assertSamePgmSize(structurePgm, framePgm, 'structure', 'frame')
+  assertSamePgmSize(structurePgm, keepoutPgm, 'structure', 'keepout')
+
+  const width = structurePgm.width
+  const height = structurePgm.height
+  const wallThreshold = 89
+  const wallValue = 0
+  const unknownValue = 205
+  const keepoutFreeValue = 255
+  let totalWallified = 0
+  let totalClearedFloor = 0
+
+  const keepoutClass = new Uint8Array(keepoutPgm.pixels.length)
+  for (let i = 0; i < keepoutPgm.pixels.length; i++) {
+    if (keepoutPgm.pixels[i] <= wallThreshold) keepoutClass[i] = WALL
+  }
+  const { components: keepoutComponents } = extractComponents(keepoutClass, width, height, WALL)
+
+  for (const patch of SOURCE_OCCLUSION_PATCHES) {
+    const { col, row } = appWorldToSourcePixel(patch.center.x, patch.center.z, height)
+    const clearRadiusPx = Math.max(1, Math.round(patch.clearRadiusM / RESOLUTION))
+    const wallifyRadiusPx = Math.max(clearRadiusPx, Math.round(patch.wallifyRadiusM / RESOLUTION))
+    const selectedComponents = keepoutComponents.filter(
+      c => !c.touchesBoundary && sourcePixelDistanceToRect(col, row, c) <= wallifyRadiusPx,
+    )
+
+    const blocked = new Uint8Array(width * height)
+    for (let i = 0; i < blocked.length; i++) {
+      if (
+        structurePgm.pixels[i] <= wallThreshold ||
+        framePgm.pixels[i] <= wallThreshold ||
+        keepoutPgm.pixels[i] <= wallThreshold
+      ) {
+        blocked[i] = 1
+      }
+    }
+
+    const queue = []
+    const visited = new Uint8Array(width * height)
+    const seedIdx = row * width + col
+    if (col >= 0 && col < width && row >= 0 && row < height && !blocked[seedIdx]) {
+      visited[seedIdx] = 1
+      queue.push(seedIdx)
+    }
+    let clearedFloor = 0
+    for (let qi = 0; qi < queue.length; qi++) {
+      const idx = queue[qi]
+      const x = idx % width
+      const y = (idx - x) / width
+      const dx = x - col
+      const dy = y - row
+      if (Math.hypot(dx, dy) > clearRadiusPx) continue
+      if (structurePgm.pixels[idx] >= 250 || framePgm.pixels[idx] >= 250) {
+        structurePgm.pixels[idx] = unknownValue
+        framePgm.pixels[idx] = unknownValue
+        clearedFloor++
+      }
+      const neighbors = [idx - 1, idx + 1, idx - width, idx + width]
+      for (const ni of neighbors) {
+        if (ni < 0 || ni >= visited.length || visited[ni] || blocked[ni]) continue
+        const nx = ni % width
+        const ny = (ni - nx) / width
+        if (Math.abs(nx - col) > clearRadiusPx || Math.abs(ny - row) > clearRadiusPx) continue
+        visited[ni] = 1
+        queue.push(ni)
+      }
+    }
+
+    let wallified = 0
+    for (const component of selectedComponents) {
+      for (const idx of component.indices) {
+        structurePgm.pixels[idx] = wallValue
+        framePgm.pixels[idx] = wallValue
+        keepoutPgm.pixels[idx] = keepoutFreeValue
+        wallified++
+      }
+    }
+
+    // Add a small solid cap at the selected floor area so the deleted pocket is visibly sealed.
+    for (let y = Math.max(0, row - 2); y <= Math.min(height - 1, row + 2); y++) {
+      for (let x = Math.max(0, col - 2); x <= Math.min(width - 1, col + 2); x++) {
+        const idx = y * width + x
+        structurePgm.pixels[idx] = wallValue
+        framePgm.pixels[idx] = wallValue
+      }
+    }
+
+    totalWallified += wallified
+    totalClearedFloor += clearedFloor
+    console.log(
+      `  source patch ${patch.label}: seed=(${col},${row}), wallified=${wallified}, cleared-floor=${clearedFloor}`,
+    )
+  }
+
+  // Normalize keepout background in patched files.
+  for (let i = 0; i < keepoutPgm.pixels.length; i++) {
+    if (keepoutPgm.pixels[i] > wallThreshold) keepoutPgm.pixels[i] = keepoutFreeValue
+  }
+
+  return { wallified: totalWallified, clearedFloor: totalClearedFloor }
+}
+
+function writePatchedSourcePgms(structureImageName, frameImageName, keepoutImageName) {
+  const structurePath = resolve(ROOT, structureImageName)
+  const framePath = resolve(ROOT, frameImageName)
+  const keepoutPath = resolve(ROOT, keepoutImageName)
+  const structurePgm = parsePGM(structurePath)
+  const framePgm = parsePGM(framePath)
+  const keepoutPgm = parsePGM(keepoutPath)
+  const stats = applySourceOcclusionPatchesToPgms(structurePgm, framePgm, keepoutPgm)
+  writePGM(structurePath, structurePgm)
+  writePGM(framePath, framePgm)
+  writePGM(keepoutPath, keepoutPgm)
+  console.log(
+    `Wrote source PGM patches: wallified=${stats.wallified}, cleared-floor=${stats.clearedFloor}`,
+  )
+}
+
+async function parseRasterImage(filepath, negate = 0, resizeTo = null) {
   const { default: sharp } = await import('sharp')
-  const { data, info } = await sharp(filepath)
-    .greyscale()
+  let pipeline = sharp(filepath).greyscale()
+  if (resizeTo) {
+    pipeline = pipeline.resize({
+      width: resizeTo.width,
+      height: resizeTo.height,
+      fit: 'fill',
+      kernel: 'nearest',
+    })
+  }
+  const { data, info } = await pipeline
     .raw()
     .toBuffer({ resolveWithObject: true })
 
@@ -169,6 +415,236 @@ function classify(pixels, wallThreshold, freeThreshold, mode) {
     if (pv >= freeThreshold) grid[i] = FREE
   }
   return grid
+}
+
+async function readClassifiedImage(imageName, config, wallThreshold, freeThreshold, options = {}) {
+  const imagePath = resolve(ROOT, imageName)
+  const imageExt = extname(imageName).toLowerCase()
+  const isPgm = imageExt === '.pgm' || imageExt === '.pnm'
+  const raster = isPgm
+    ? null
+    : await parseRasterImage(imagePath, config.negate, options.resizeTo ?? null)
+  const { width, height, pixels } = isPgm
+    ? parsePGM(imagePath)
+    : raster
+  const classifyMode = isPgm ? config.mode : 'scale'
+  const grid = isPgm
+    ? classify(pixels, wallThreshold, freeThreshold, classifyMode)
+    : classifyRaster(
+      pixels,
+      wallThreshold,
+      Math.max(freeThreshold, 245),
+      raster.backgroundValue,
+      30,
+    )
+
+  return {
+    imageName,
+    imagePath,
+    isPgm,
+    raster,
+    width,
+    height,
+    pixels,
+    classifyMode,
+    grid,
+  }
+}
+
+async function buildProcessedGrid(imageName, config, wallThreshold, freeThreshold, label, keepoutGrid = null, options = {}) {
+  const loaded = await readClassifiedImage(imageName, config, wallThreshold, freeThreshold, options)
+  const { grid, width, height } = loaded
+  console.log(`Reading ${label}: ${loaded.imagePath}`)
+  console.log(`  Dimensions: ${width}x${height}, resolution: ${RESOLUTION}`)
+  console.log(`  mode: ${loaded.classifyMode}, thresholds -> wall <= ${wallThreshold}, free >= ${freeThreshold}`)
+  if (!loaded.isPgm) {
+    console.log(`  raster background(gray): ${loaded.raster.backgroundValue}, raster free cutoff: ${Math.max(freeThreshold, 245)}`)
+    if (options.resizeTo) {
+      console.log(`  raster resized in memory to: ${options.resizeTo.width}x${options.resizeTo.height}`)
+    }
+  }
+
+  if (keepoutGrid) {
+    if (keepoutGrid.width !== width || keepoutGrid.height !== height) {
+      throw new Error(`Keepout image ${keepoutGrid.width}x${keepoutGrid.height} must match ${label} ${width}x${height}`)
+    }
+    let cleared = 0
+    for (let i = 0; i < grid.length; i++) {
+      if (keepoutGrid.grid[i] === WALL && grid[i] === WALL) {
+        grid[i] = FREE
+        cleared++
+      }
+    }
+    console.log(`  removed keepout shelf pixels from structure grid: ${cleared}`)
+  }
+
+  console.log(`Processing ${label}: removing wall noise while preserving pillar-like components...`)
+  const firstCleanup = removeWallNoisePreservingPillars(grid, width, height)
+  console.log(`  removed: ${firstCleanup.removed}, pillar-like kept: ${firstCleanup.pillarLike}`)
+
+  const closed = morphClose(grid, width, height)
+  grid.set(closed)
+  const secondCleanup = removeWallNoisePreservingPillars(grid, width, height)
+  console.log(`  post-close removed: ${secondCleanup.removed}, pillar-like kept: ${secondCleanup.pillarLike}`)
+
+  const enclosedResolve = resolveEnclosedRegions(grid, width, height)
+  const freeSelection = keepSignificantFreeComponents(grid, width, height)
+  console.log(
+    `  enclosed regions: ${enclosedResolve.enclosedCount}, free-assigned: ${enclosedResolve.freeAssigned}, wall-assigned: ${enclosedResolve.wallAssigned}, largest-enclosed: ${enclosedResolve.largestEnclosedSize}, kept free: ${freeSelection.totalKeptSize} (${freeSelection.keptCount} components), interior-priority: ${freeSelection.usedInterior}, candidates: ${freeSelection.candidateCount}`,
+  )
+  const wallFilter = pruneWallsNotAdjacentToFree(grid, width, height)
+  console.log(`  wall components kept near interior: ${wallFilter.kept}, wall pixels removed: ${wallFilter.removed}`)
+
+  return loaded
+}
+
+async function intersectKeepoutWithPhotoWalls(keepoutGrid, photoImageName, config, wallThreshold, freeThreshold) {
+  const photo = await readClassifiedImage(photoImageName, config, wallThreshold, freeThreshold, {
+    resizeTo: { width: keepoutGrid.width, height: keepoutGrid.height },
+  })
+  assertSamePgmSize(keepoutGrid, photo, 'keepout', 'photo wall grid')
+
+  const photoWallMask = dilate(photo.grid, photo.width, photo.height, WALL)
+  let kept = 0
+  let removed = 0
+  for (let i = 0; i < keepoutGrid.grid.length; i++) {
+    const keepoutWall = keepoutGrid.grid[i] === WALL
+    const photoWall = photoWallMask[i] === WALL
+    if (keepoutWall && photoWall) {
+      keepoutGrid.grid[i] = WALL
+      kept++
+    } else {
+      if (keepoutWall) removed++
+      keepoutGrid.grid[i] = UNKNOWN
+    }
+  }
+
+  console.log(
+    `  photo/keepout bookshelf intersection: kept=${kept}, removed=${removed}, photo=${photo.imagePath}`,
+  )
+  return { kept, removed }
+}
+
+function axisAngleDiff(a, b) {
+  let diff = normalizeAnglePi(a - b)
+  if (diff > Math.PI / 2) diff -= Math.PI
+  if (diff < -Math.PI / 2) diff += Math.PI
+  return Math.abs(diff)
+}
+
+function summarizeWallBridgeComponent(component, width) {
+  if (component.size < 10) return null
+  const obb = componentOrientedBBox(component, width)
+  let theta = -obb.angle
+  let longPx = obb.w / RESOLUTION
+  let shortPx = obb.d / RESOLUTION
+  if (shortPx > longPx) {
+    theta += Math.PI / 2
+    const tmp = longPx
+    longPx = shortPx
+    shortPx = tmp
+  }
+  const aspect = longPx / Math.max(1e-6, shortPx)
+  if (longPx < 7 || aspect < 2.2) return null
+  return {
+    component,
+    theta: normalizeAnglePi(theta),
+    col: obb.centerCol,
+    row: obb.centerRow,
+    halfLen: longPx / 2,
+    halfThick: shortPx / 2,
+  }
+}
+
+function drawBridgeLineIfClear(grid, width, height, keepoutGrid, x0, y0, x1, y1) {
+  const points = []
+  let x = Math.round(x0)
+  let y = Math.round(y0)
+  const tx = Math.round(x1)
+  const ty = Math.round(y1)
+  const dx = Math.abs(tx - x)
+  const dy = -Math.abs(ty - y)
+  const sx = x < tx ? 1 : -1
+  const sy = y < ty ? 1 : -1
+  let err = dx + dy
+
+  while (true) {
+    if (x < 0 || x >= width || y < 0 || y >= height) return 0
+    const idx = y * width + x
+    if (keepoutGrid?.grid?.[idx] === WALL) return 0
+    points.push(idx)
+    if (x === tx && y === ty) break
+    const e2 = 2 * err
+    if (e2 >= dy) {
+      err += dy
+      x += sx
+    }
+    if (e2 <= dx) {
+      err += dx
+      y += sy
+    }
+  }
+
+  let placed = 0
+  for (const idx of points) {
+    if (grid[idx] !== WALL) {
+      grid[idx] = WALL
+      placed++
+    }
+  }
+  return placed
+}
+
+function bridgeWallGaps(grid, width, height, keepoutGrid) {
+  const maxGapPx = Math.max(2, Math.round(0.9 / RESOLUTION))
+  const maxPerpPx = Math.max(2, Math.round(0.18 / RESOLUTION))
+  const maxAngleDiff = 14 * Math.PI / 180
+  const { components } = extractComponents(grid, width, height, WALL)
+  const candidates = components
+    .map(c => summarizeWallBridgeComponent(c, width))
+    .filter(Boolean)
+
+  let bridges = 0
+  let placed = 0
+  for (let i = 0; i < candidates.length; i++) {
+    const a = candidates[i]
+    const cos = Math.cos(a.theta)
+    const sin = Math.sin(a.theta)
+    const aU = a.col * cos + a.row * sin
+    const aV = -a.col * sin + a.row * cos
+    const aMin = aU - a.halfLen
+    const aMax = aU + a.halfLen
+
+    for (let j = i + 1; j < candidates.length; j++) {
+      const b = candidates[j]
+      if (axisAngleDiff(a.theta, b.theta) > maxAngleDiff) continue
+      const bU = b.col * cos + b.row * sin
+      const bV = -b.col * sin + b.row * cos
+      const perpGap = Math.abs(aV - bV)
+      if (perpGap > Math.max(maxPerpPx, a.halfThick + b.halfThick + 1)) continue
+
+      const bMin = bU - b.halfLen
+      const bMax = bU + b.halfLen
+      const gap = bMin > aMax ? bMin - aMax : aMin > bMax ? aMin - bMax : 0
+      if (gap < 2 || gap > maxGapPx) continue
+
+      const startU = bMin > aMax ? aMax : bMax
+      const endU = bMin > aMax ? bMin : aMin
+      const v = (aV + bV) / 2
+      const x0 = startU * cos - v * sin
+      const y0 = startU * sin + v * cos
+      const x1 = endU * cos - v * sin
+      const y1 = endU * sin + v * cos
+      const added = drawBridgeLineIfClear(grid, width, height, keepoutGrid, x0, y0, x1, y1)
+      if (added > 0) {
+        bridges++
+        placed += added
+      }
+    }
+  }
+
+  console.log(`  wall gap bridges: candidates=${candidates.length}, bridges=${bridges}, placed=${placed}`)
+  return { candidates: candidates.length, bridges, placed }
 }
 
 function extractComponents(grid, width, height, targetValue) {
@@ -570,6 +1046,68 @@ function extractFreeBoundaryLoops(grid, width, height) {
   return loops
 }
 
+function extractCellBoundaryLoops(grid, width, height, targetValue) {
+  const segments = []
+  const isTarget = (x, y) => x >= 0 && x < width && y >= 0 && y < height && grid[y * width + x] === targetValue
+  const add = (a, b) => segments.push({ a, b })
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!isTarget(x, y)) continue
+      if (!isTarget(x, y - 1)) add([x, y], [x + 1, y])
+      if (!isTarget(x + 1, y)) add([x + 1, y], [x + 1, y + 1])
+      if (!isTarget(x, y + 1)) add([x + 1, y + 1], [x, y + 1])
+      if (!isTarget(x - 1, y)) add([x, y + 1], [x, y])
+    }
+  }
+
+  const pKey = p => `${p[0]},${p[1]}`
+  const adjacency = new Map()
+  for (let i = 0; i < segments.length; i++) {
+    const ak = pKey(segments[i].a)
+    const bk = pKey(segments[i].b)
+    if (!adjacency.has(ak)) adjacency.set(ak, [])
+    if (!adjacency.has(bk)) adjacency.set(bk, [])
+    adjacency.get(ak).push(i)
+    adjacency.get(bk).push(i)
+  }
+
+  const used = new Uint8Array(segments.length)
+  const loops = []
+  for (let i = 0; i < segments.length; i++) {
+    if (used[i]) continue
+    used[i] = 1
+    const first = segments[i]
+    const loop = [[first.a[0], first.a[1]], [first.b[0], first.b[1]]]
+    let currentKey = pKey(first.b)
+    const startKey = pKey(first.a)
+    let guard = 0
+    while (guard++ < segments.length + 20) {
+      if (currentKey === startKey) break
+      const connected = adjacency.get(currentKey) || []
+      let nextIndex = -1
+      for (const ci of connected) {
+        if (!used[ci]) {
+          nextIndex = ci
+          break
+        }
+      }
+      if (nextIndex < 0) break
+      used[nextIndex] = 1
+      const seg = segments[nextIndex]
+      const last = loop[loop.length - 1]
+      const aMatch = seg.a[0] === last[0] && seg.a[1] === last[1]
+      const nextPoint = aMatch ? seg.b : seg.a
+      loop.push([nextPoint[0], nextPoint[1]])
+      currentKey = pKey(nextPoint)
+    }
+    if (loop.length >= 4 && currentKey === startKey) {
+      loop.pop()
+      loops.push(loop)
+    }
+  }
+  return loops
+}
+
 function distToSegment(p, a, b) {
   const vx = b[0] - a[0]
   const vz = b[1] - a[1]
@@ -703,6 +1241,31 @@ function finalizeLoop(loop, imgHeight, offsetX, offsetZ, simplifyTolerance, minS
   return dedupeLoop(pruneShortSegments(snapped2, minSegmentLength))
 }
 
+function finalizeMaskLoop(loop, imgHeight, offsetX, offsetZ) {
+  const world = gridLoopToWorld(loop, imgHeight, offsetX, offsetZ)
+  const simplified = KEEPOUT_LOOP_SIMPLIFY_M > 0 ? simplifyLoop(world, KEEPOUT_LOOP_SIMPLIFY_M) : world
+  return dedupeLoop(pruneShortSegments(simplified, KEEPOUT_LOOP_MIN_SEGMENT_M))
+}
+
+function computeFloorOffset(rawFloorRects, imgHeight) {
+  let sumX = 0
+  let sumZ = 0
+  let totalArea = 0
+  for (const r of rawFloorRects) {
+    const [x1, z1] = pxToWorld(r.x, r.y, imgHeight)
+    const [x2, z2] = pxToWorld(r.x + r.w, r.y + r.h, imgHeight)
+    const area = Math.abs(x2 - x1) * Math.abs(z2 - z1)
+    sumX += ((x1 + x2) / 2) * area
+    sumZ += ((z1 + z2) / 2) * area
+    totalArea += area
+  }
+  return {
+    offsetX: totalArea > 0 ? sumX / totalArea : 0,
+    offsetZ: totalArea > 0 ? sumZ / totalArea : 0,
+    totalArea,
+  }
+}
+
 function pixelRectsToWorld(rawRects, imgHeight, offsetX, offsetZ) {
   return rawRects.map(r => {
     const [x1, z1] = pxToWorld(r.x, r.y, imgHeight)
@@ -730,6 +1293,28 @@ function gridLoopToWorld(loop, imgHeight, offsetX, offsetZ) {
   })
   if (loopSignedArea(world) < 0) world.reverse()
   return world
+}
+
+function componentFootprint(component, imgWidth, imgHeight, offsetX, offsetZ) {
+  const componentGrid = new Uint8Array(imgWidth * imgHeight)
+  for (const idx of component.indices) componentGrid[idx] = FREE
+  const loops = extractCellBoundaryLoops(componentGrid, imgWidth, imgHeight, FREE)
+    .map(loop => finalizeMaskLoop(loop, imgHeight, offsetX, offsetZ))
+    .filter(loop => loop.length >= 3)
+  if (loops.length === 0) return []
+  loops.sort((a, b) => Math.abs(loopSignedArea(b)) - Math.abs(loopSignedArea(a)))
+  return loops[0]
+}
+
+function componentRect(component, imgHeight, offsetX, offsetZ) {
+  const [x1, z1] = pxToWorld(component.minX, component.minY, imgHeight)
+  const [x2, z2] = pxToWorld(component.maxX + 1, component.maxY + 1, imgHeight)
+  return {
+    cx: Math.round((((x1 + x2) / 2) - offsetX) * 1000) / 1000,
+    cz: Math.round((((z1 + z2) / 2) - offsetZ) * 1000) / 1000,
+    w: Math.round(Math.abs(x2 - x1) * 1000) / 1000,
+    d: Math.round(Math.abs(z2 - z1) * 1000) / 1000,
+  }
 }
 
 function nearestDistanceToLoop(point, loop) {
@@ -812,7 +1397,11 @@ function snapYawToNearestAxis(rawAngle, principalAxes) {
 
 function componentOrientedBBox(component, imgWidth) {
   const n = component.indices.length
-  if (n < 2) return { angle: 0, w: RESOLUTION, d: RESOLUTION }
+  if (n < 2) {
+    const idx0 = component.indices[0] ?? 0
+    const col0 = idx0 % imgWidth
+    return { angle: 0, w: RESOLUTION, d: RESOLUTION, centerCol: col0, centerRow: (idx0 - col0) / imgWidth }
+  }
 
   let sumCol = 0, sumRow = 0
   for (const idx of component.indices) {
@@ -859,8 +1448,684 @@ function componentOrientedBBox(component, imgWidth) {
   const extentU = (maxU - minU + 1) * RESOLUTION
   const extentV = (maxV - minV + 1) * RESOLUTION
 
+  // Oriented-box center in pixel space (midpoint of projected extents, not pixel mean).
+  const midU = (minU + maxU) / 2
+  const midV = (minV + maxV) / 2
+  const centerCol = meanCol + midU * cosT - midV * sinT
+  const centerRow = meanRow + midU * sinT + midV * cosT
+
   // World angle: negate pixel angle because row↓ maps to world Z↑
-  return { angle: -thetaPx, w: extentU, d: extentV }
+  return { angle: -thetaPx, w: extentU, d: extentV, centerCol, centerRow }
+}
+
+function normalizeAnglePi(angle) {
+  let a = angle
+  while (a > Math.PI) a -= 2 * Math.PI
+  while (a < -Math.PI) a += 2 * Math.PI
+  return a
+}
+
+function footprintOrientedBBox(footprint) {
+  if (footprint.length < 3) return null
+  let best = null
+  for (let i = 0; i < footprint.length; i++) {
+    const a = footprint[i]
+    const b = footprint[(i + 1) % footprint.length]
+    const dx = b[0] - a[0]
+    const dz = b[1] - a[1]
+    const len = Math.hypot(dx, dz)
+    if (len <= 1e-6) continue
+
+    const angle = Math.atan2(dz, dx)
+    const cosT = dx / len
+    const sinT = dz / len
+    let minU = Infinity, maxU = -Infinity
+    let minV = Infinity, maxV = -Infinity
+    for (const p of footprint) {
+      const u = p[0] * cosT + p[1] * sinT
+      const v = -p[0] * sinT + p[1] * cosT
+      if (u < minU) minU = u
+      if (u > maxU) maxU = u
+      if (v < minV) minV = v
+      if (v > maxV) maxV = v
+    }
+
+    const w = maxU - minU
+    const d = maxV - minV
+    const area = w * d
+    if (!Number.isFinite(area) || area <= 0) continue
+    if (!best || area < best.area - 1e-9) {
+      best = { angle, minU, maxU, minV, maxV, w, d, area }
+    }
+  }
+  if (!best) return null
+
+  const midU = (best.minU + best.maxU) / 2
+  const midV = (best.minV + best.maxV) / 2
+  const cosT = Math.cos(best.angle)
+  const sinT = Math.sin(best.angle)
+  let w = best.w
+  let d = best.d
+  let angle = best.angle
+  if (d > w) {
+    const previousW = w
+    w = d
+    d = previousW
+    angle += Math.PI / 2
+  }
+
+  return {
+    angle: normalizeAnglePi(angle),
+    w,
+    d,
+    centerX: midU * cosT - midV * sinT,
+    centerZ: midU * sinT + midV * cosT,
+  }
+}
+
+function roundN(value, digits = 3) {
+  const scale = 10 ** digits
+  return Math.round(value * scale) / scale
+}
+
+function renderedBookshelfFootprint({ cx, cz, w, d, yaw }) {
+  const hw = w * 0.5
+  const hd = d * 0.5
+  const c = Math.cos(yaw)
+  const s = Math.sin(yaw)
+  return [
+    [-hw, -hd],
+    [hw, -hd],
+    [hw, hd],
+    [-hw, hd],
+  ].map(([lx, lz]) => [
+    cx + lx * c + lz * s,
+    cz - lx * s + lz * c,
+  ])
+}
+
+function makeManualBookshelfOverride(spec) {
+  const shelf = {
+    cx: roundN(spec.center.x),
+    cz: roundN(spec.center.z),
+    w: roundN(spec.w),
+    d: roundN(spec.d),
+    yaw: roundN(spec.yaw, 4),
+    h: 2.34,
+  }
+  return {
+    ...shelf,
+    footprint: renderedBookshelfFootprint(shelf).map(([x, z]) => [roundN(x), roundN(z)]),
+    manualLabel: spec.label,
+    clearStructure: spec.clearStructure,
+  }
+}
+
+function makeCornerBookshelfPair(spec) {
+  const armLengthM = roundN(spec.armLengthM)
+  const armDepthM = roundN(spec.armDepthM)
+  const parent = {
+    cx: roundN(spec.corner.x),
+    cz: roundN(spec.corner.z),
+    yaw: roundN(spec.primaryYaw, 4),
+    w: armLengthM,
+    d: armLengthM,
+    h: 2.34,
+  }
+  const { missingSx, missingSz } = spec
+  const t = armDepthM
+  const xArm = makeShelfFromLocalRect(
+    parent,
+    0,
+    -missingSz * (parent.d * 0.5 - t * 0.5),
+    parent.w,
+    t,
+  )
+  const zArm = makeShelfFromLocalRect(
+    parent,
+    -missingSx * (parent.w * 0.5 - t * 0.5),
+    missingSz * (t * 0.5),
+    parent.w,
+    t,
+    Math.PI / 2,
+  )
+  return [
+    { ...xArm, manualLabel: `${spec.label} primary arm` },
+    { ...zArm, manualLabel: `${spec.label} secondary arm` },
+  ]
+}
+
+function isShelfNearManualOverride(shelf) {
+  return MANUAL_KEEP_OUT_BOOKSHELF_OVERRIDES.some(spec =>
+    Math.hypot(shelf.cx - spec.center.x, shelf.cz - spec.center.z) <= spec.replaceRadiusM,
+  )
+}
+
+function isShelfNearCornerGroup(shelf) {
+  return MANUAL_L_CORNER_BOOKSHELF_GROUPS.some(spec =>
+    Math.hypot(shelf.cx - spec.corner.x, shelf.cz - spec.corner.z) <= spec.replaceRadiusM,
+  )
+}
+
+function applyManualBookshelfOverrides(shelves) {
+  const filtered = shelves.filter(shelf =>
+    !isShelfNearManualOverride(shelf) && !isShelfNearCornerGroup(shelf),
+  )
+  filtered.push(...MANUAL_KEEP_OUT_BOOKSHELF_OVERRIDES.map(makeManualBookshelfOverride))
+  for (const group of MANUAL_L_CORNER_BOOKSHELF_GROUPS) {
+    filtered.push(...makeCornerBookshelfPair(group))
+  }
+  filtered.sort((a, b) => {
+    if (Math.abs(a.cz - b.cz) > 1e-6) return b.cz - a.cz
+    return a.cx - b.cx
+  })
+  return filtered
+}
+
+function appWorldToPixel(x, z, height, offsetX, offsetZ) {
+  const wx = x + offsetX
+  const wz = z + offsetZ
+  return {
+    col: (wx - ORIGIN_X) / RESOLUTION,
+    row: height - 1 - ((wz - ORIGIN_Y) / RESOLUTION),
+  }
+}
+
+function pointInPolygon(px, py, polygon) {
+  let inside = false
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].col
+    const yi = polygon[i].row
+    const xj = polygon[j].col
+    const yj = polygon[j].row
+    const intersects = ((yi > py) !== (yj > py))
+      && (px < ((xj - xi) * (py - yi)) / Math.max(1e-9, yj - yi) + xi)
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
+function clearManualShelfStructurePixels(grid, width, height, offsetX, offsetZ) {
+  let cleared = 0
+  for (const spec of MANUAL_KEEP_OUT_BOOKSHELF_OVERRIDES) {
+    if (!spec.clearStructure) continue
+    const shelf = makeManualBookshelfOverride(spec)
+    const pixelPoly = shelf.footprint.map(([x, z]) => appWorldToPixel(x, z, height, offsetX, offsetZ))
+    const minCol = Math.max(0, Math.floor(Math.min(...pixelPoly.map(p => p.col))) - 1)
+    const maxCol = Math.min(width - 1, Math.ceil(Math.max(...pixelPoly.map(p => p.col))) + 1)
+    const minRow = Math.max(0, Math.floor(Math.min(...pixelPoly.map(p => p.row))) - 1)
+    const maxRow = Math.min(height - 1, Math.ceil(Math.max(...pixelPoly.map(p => p.row))) + 1)
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        if (!pointInPolygon(col + 0.5, row + 0.5, pixelPoly)) continue
+        const idx = row * width + col
+        if (grid[idx] === WALL) {
+          grid[idx] = FREE
+          cleared++
+        }
+      }
+    }
+  }
+  console.log(`  manual bookshelf wall pixels cleared: ${cleared}`)
+}
+
+function pixelCenterToAppWorld(col, row, imgHeight, offsetX, offsetZ) {
+  const wx = ORIGIN_X + (col + 0.5) * RESOLUTION
+  const wz = ORIGIN_Y + (imgHeight - 1 - (row + 0.5)) * RESOLUTION
+  return { x: wx - offsetX, z: wz - offsetZ }
+}
+
+function isShelfLocalRectPoint(px, pz, shelf, halfW, minZ, maxZ) {
+  const { lx, lz } = shelfWorldToLocal(px, pz, shelf)
+  return Math.abs(lx) <= halfW && lz >= minZ && lz <= maxZ
+}
+
+function countFreeNearShelfSide(grid, width, height, imgHeight, offsetX, offsetZ, shelf, side) {
+  let free = 0
+  const sampleCount = 5
+  const sampleZ = side * (shelf.d * 0.5 + 0.45)
+  const halfW = Math.max(0.05, shelf.w * 0.5 - 0.08)
+  for (let i = 0; i < sampleCount; i++) {
+    const t = sampleCount === 1 ? 0 : i / (sampleCount - 1)
+    const lx = -halfW + t * halfW * 2
+    const p = localToShelfWorld(lx, sampleZ, shelf)
+    const pp = appWorldToPixel(p.x, p.z, imgHeight, offsetX, offsetZ)
+    const c0 = Math.round(pp.col)
+    const r0 = Math.round(pp.row)
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        const c = c0 + dc
+        const r = r0 + dr
+        if (c < 0 || c >= width || r < 0 || r >= height) continue
+        if (grid[r * width + c] === FREE) free++
+      }
+    }
+  }
+  return free
+}
+
+function shelfOpenSignFromGrid(grid, width, height, imgHeight, offsetX, offsetZ, shelf) {
+  const posFree = countFreeNearShelfSide(grid, width, height, imgHeight, offsetX, offsetZ, shelf, 1)
+  const negFree = countFreeNearShelfSide(grid, width, height, imgHeight, offsetX, offsetZ, shelf, -1)
+  return posFree >= negFree ? 1 : -1
+}
+
+function clearWallPixelsAroundShelf(grid, width, height, imgHeight, offsetX, offsetZ, shelf) {
+  const corners = [
+    localToShelfWorld(-shelf.w * 0.5 - STRAIGHTEN_WALL_CLEAR_MARGIN_M, -shelf.d * 0.5 - STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf),
+    localToShelfWorld(shelf.w * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M, -shelf.d * 0.5 - STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf),
+    localToShelfWorld(shelf.w * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf.d * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf),
+    localToShelfWorld(-shelf.w * 0.5 - STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf.d * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M, shelf),
+  ].map(p => appWorldToPixel(p.x, p.z, imgHeight, offsetX, offsetZ))
+
+  const minCol = Math.max(0, Math.floor(Math.min(...corners.map(p => p.col))) - 1)
+  const maxCol = Math.min(width - 1, Math.ceil(Math.max(...corners.map(p => p.col))) + 1)
+  const minRow = Math.max(0, Math.floor(Math.min(...corners.map(p => p.row))) - 1)
+  const maxRow = Math.min(height - 1, Math.ceil(Math.max(...corners.map(p => p.row))) + 1)
+  const halfW = shelf.w * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M
+  const minZ = -shelf.d * 0.5 - STRAIGHTEN_WALL_CLEAR_MARGIN_M
+  const maxZ = shelf.d * 0.5 + STRAIGHTEN_WALL_CLEAR_MARGIN_M
+  let cleared = 0
+
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      const world = pixelCenterToAppWorld(col, row, imgHeight, offsetX, offsetZ)
+      if (!isShelfLocalRectPoint(world.x, world.z, shelf, halfW, minZ, maxZ)) continue
+      const idx = row * width + col
+      if (grid[idx] === WALL) {
+        grid[idx] = FREE
+        cleared++
+      }
+    }
+  }
+  return cleared
+}
+
+function drawStraightWallBehindShelf(grid, width, height, imgHeight, offsetX, offsetZ, shelf, backSign) {
+  const wallHalfT = STRAIGHTEN_WALL_THICKNESS_M * 0.5
+  const halfW = shelf.w * 0.5 + STRAIGHTEN_WALL_EXTEND_M
+  const wallZ = backSign * (shelf.d * 0.5 + STRAIGHTEN_WALL_BACK_OFFSET_M)
+  const corners = [
+    localToShelfWorld(-halfW, wallZ - wallHalfT, shelf),
+    localToShelfWorld(halfW, wallZ - wallHalfT, shelf),
+    localToShelfWorld(halfW, wallZ + wallHalfT, shelf),
+    localToShelfWorld(-halfW, wallZ + wallHalfT, shelf),
+  ].map(p => appWorldToPixel(p.x, p.z, imgHeight, offsetX, offsetZ))
+
+  const minCol = Math.max(0, Math.floor(Math.min(...corners.map(p => p.col))) - 1)
+  const maxCol = Math.min(width - 1, Math.ceil(Math.max(...corners.map(p => p.col))) + 1)
+  const minRow = Math.max(0, Math.floor(Math.min(...corners.map(p => p.row))) - 1)
+  const maxRow = Math.min(height - 1, Math.ceil(Math.max(...corners.map(p => p.row))) + 1)
+  let placed = 0
+
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let col = minCol; col <= maxCol; col++) {
+      const world = pixelCenterToAppWorld(col, row, imgHeight, offsetX, offsetZ)
+      const { lx, lz } = shelfWorldToLocal(world.x, world.z, shelf)
+      if (Math.abs(lx) > halfW || Math.abs(lz - wallZ) > wallHalfT) continue
+      const idx = row * width + col
+      if (grid[idx] !== WALL) placed++
+      grid[idx] = WALL
+    }
+  }
+  return placed
+}
+
+function straightenWallsBehindShelves(grid, width, height, imgHeight, offsetX, offsetZ, shelves) {
+  let affectedShelves = 0
+  let clearedPixels = 0
+  let placedPixels = 0
+
+  for (const shelf of shelves) {
+    const cleared = clearWallPixelsAroundShelf(grid, width, height, imgHeight, offsetX, offsetZ, shelf)
+    if (cleared === 0) continue
+    const openSign = shelfOpenSignFromGrid(grid, width, height, imgHeight, offsetX, offsetZ, shelf)
+    const backSign = -openSign
+    const placed = drawStraightWallBehindShelf(grid, width, height, imgHeight, offsetX, offsetZ, shelf, backSign)
+    affectedShelves++
+    clearedPixels += cleared
+    placedPixels += placed
+  }
+
+  return { affectedShelves, clearedPixels, placedPixels }
+}
+
+function localToShelfWorld(lx, lz, shelf) {
+  const c = Math.cos(shelf.yaw)
+  const s = Math.sin(shelf.yaw)
+  return {
+    x: shelf.cx + lx * c + lz * s,
+    z: shelf.cz - lx * s + lz * c,
+  }
+}
+
+function shelfWorldToLocal(px, pz, shelf) {
+  const dx = px - shelf.cx
+  const dz = pz - shelf.cz
+  const c = Math.cos(shelf.yaw)
+  const s = Math.sin(shelf.yaw)
+  return {
+    lx: dx * c - dz * s,
+    lz: dx * s + dz * c,
+  }
+}
+
+function makeShelfFromLocalRect(parent, lx, lz, w, d, yawOffset = 0) {
+  const center = localToShelfWorld(lx, lz, parent)
+  const shelf = {
+    cx: roundN(center.x),
+    cz: roundN(center.z),
+    w: roundN(w),
+    d: roundN(d),
+    yaw: roundN(normalizeAnglePi(parent.yaw + yawOffset), 4),
+    h: parent.h,
+  }
+  return {
+    ...shelf,
+    footprint: renderedBookshelfFootprint(shelf).map(([x, z]) => [roundN(x), roundN(z)]),
+    splitFrom: parent.splitFrom ?? parent.sourceSize ?? null,
+  }
+}
+
+function findRectangularBookshelfOverride(shelf) {
+  return FORCE_RECTANGULAR_BOOKSHELF_OVERRIDES.find(spec =>
+    Math.hypot(shelf.cx - spec.center.x, shelf.cz - spec.center.z) <= spec.radiusM,
+  ) ?? null
+}
+
+function forceShelfToRenderedRectangle(shelf, override) {
+  return {
+    ...shelf,
+    footprint: renderedBookshelfFootprint(shelf).map(([x, z]) => [roundN(x), roundN(z)]),
+    cornerSplit: null,
+    forcedRectangular: override.label,
+  }
+}
+
+function isConcaveFootprint(footprint) {
+  if (!footprint || footprint.length < 5) return false
+  let positive = 0
+  let negative = 0
+  for (let i = 0; i < footprint.length; i++) {
+    const a = footprint[i]
+    const b = footprint[(i + 1) % footprint.length]
+    const c = footprint[(i + 2) % footprint.length]
+    const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+    if (Math.abs(cross) < 1e-6) continue
+    if (cross > 0) positive++
+    else negative++
+  }
+  return positive > 0 && negative > 0
+}
+
+function estimateCornerShelfSplit(component, imgWidth, imgHeight, offsetX, offsetZ, shelf) {
+  const aspect = Math.max(shelf.w, shelf.d) / Math.max(1e-6, Math.min(shelf.w, shelf.d))
+  const obbFill = component.size * RESOLUTION * RESOLUTION / Math.max(1e-6, shelf.w * shelf.d)
+  const concaveFootprint = isConcaveFootprint(shelf.footprint)
+  if (shelf.w < 1 || shelf.d < 1 || aspect > 1.8) return null
+  if (!concaveFootprint && obbFill > 0.82) return null
+
+  const quadrants = new Map([
+    ['-1,-1', 0],
+    ['-1,1', 0],
+    ['1,-1', 0],
+    ['1,1', 0],
+  ])
+  for (const idx of component.indices) {
+    const col = idx % imgWidth
+    const row = (idx - col) / imgWidth
+    const [wx, wz] = pxToWorld(col + 0.5, row + 0.5, imgHeight)
+    const { lx, lz } = shelfWorldToLocal(wx - offsetX, wz - offsetZ, shelf)
+    const sx = lx >= 0 ? 1 : -1
+    const sz = lz >= 0 ? 1 : -1
+    quadrants.set(`${sx},${sz}`, (quadrants.get(`${sx},${sz}`) ?? 0) + 1)
+  }
+
+  const ranked = [...quadrants.entries()].sort((a, b) => a[1] - b[1])
+  const total = component.indices.length
+  const [missingKey, missingCount] = ranked[0]
+  const filledCounts = ranked.slice(1).map(([, count]) => count)
+  const nextCount = ranked[1]?.[1] ?? total
+  const isCorner = concaveFootprint
+    ? filledCounts.every(count => count >= total * 0.05)
+    : missingCount <= total * 0.08 && filledCounts.every(count => count >= total * 0.12)
+  void nextCount
+  if (!isCorner) return null
+
+  const [missingSx, missingSz] = missingKey.split(',').map(Number)
+  return {
+    missingSx,
+    missingSz,
+    obbFill,
+  }
+}
+
+function splitCornerShelves(shelves) {
+  const straightDepths = shelves
+    .filter(s => !s.cornerSplit && Math.max(s.w, s.d) / Math.max(1e-6, Math.min(s.w, s.d)) >= 1.8)
+    .map(s => Math.min(s.w, s.d))
+    .filter(v => v >= 0.35 && v <= 1.1)
+  const defaultDepth = median(straightDepths) || 0.65
+  const out = []
+  let splitCount = 0
+
+  for (const shelf of shelves) {
+    if (!shelf.cornerSplit) {
+      out.push(shelf)
+      continue
+    }
+
+    const { missingSx, missingSz } = shelf.cornerSplit
+    const t = Math.min(defaultDepth, shelf.w * 0.45, shelf.d * 0.45)
+    const xArm = makeShelfFromLocalRect(
+      shelf,
+      0,
+      -missingSz * (shelf.d * 0.5 - t * 0.5),
+      shelf.w,
+      t,
+    )
+    const zArm = makeShelfFromLocalRect(
+      shelf,
+      -missingSx * (shelf.w * 0.5 - t * 0.5),
+      missingSz * (t * 0.5),
+      Math.max(t, shelf.d - t),
+      t,
+      Math.PI / 2,
+    )
+    out.push(xArm, zArm)
+    splitCount++
+  }
+
+  console.log(`  corner bookshelf splits: ${splitCount} shelf components -> ${splitCount * 2} straight shelves`)
+  return out
+}
+
+function stripInternalShelfFields(shelf) {
+  const { sourceSize, cornerSplit, splitFrom, manualLabel, clearStructure, forcedRectangular, ...publicShelf } = shelf
+  void sourceSize
+  void cornerSplit
+  void splitFrom
+  void manualLabel
+  void clearStructure
+  void forcedRectangular
+  return publicShelf
+}
+
+function pointsNearlyEqual(a, b, tolerance = 0.03) {
+  return Math.abs(a[0] - b[0]) <= tolerance && Math.abs(a[1] - b[1]) <= tolerance
+}
+
+function replaceClosedLoopForwardRange(loop, start, end) {
+  const startIndex = loop.findIndex(p => pointsNearlyEqual(p, start))
+  const endIndex = loop.findIndex(p => pointsNearlyEqual(p, end))
+  if (startIndex < 0 || endIndex < 0 || startIndex === endIndex) return null
+  if (startIndex < endIndex) {
+    return [
+      ...loop.slice(0, startIndex + 1),
+      loop[endIndex],
+      ...loop.slice(endIndex + 1),
+    ]
+  }
+  return loop.slice(endIndex, startIndex + 1)
+}
+
+function applyManualPolylineStraightening(polylines) {
+  const out = polylines.map(loop => loop.map(p => [...p]))
+  let applied = 0
+  for (const spec of MANUAL_POLYLINE_STRAIGHTENING) {
+    const loop = out[spec.loopIndex]
+    if (!loop || loop.length < 3) continue
+    const replaced = replaceClosedLoopForwardRange(loop, spec.start, spec.end)
+    if (!replaced || replaced.length < 3) {
+      console.log(`  manual wall straightening skipped: ${spec.label}`)
+      continue
+    }
+    out[spec.loopIndex] = replaced
+    applied++
+    console.log(`  manual wall straightening: ${spec.label}`)
+  }
+  return { polylines: out, applied }
+}
+
+function makeManualPhotoBookshelf(spec) {
+  const shelf = {
+    cx: spec.cx,
+    cz: spec.cz,
+    w: spec.w,
+    d: spec.d,
+    yaw: spec.yaw,
+    h: spec.h,
+  }
+  return {
+    ...shelf,
+    footprint: renderedBookshelfFootprint(shelf).map(([x, z]) => [roundN(x), roundN(z)]),
+    manualLabel: spec.label,
+  }
+}
+
+function addManualPhotoBookshelves(shelves) {
+  const out = [...shelves]
+  let added = 0
+  for (const spec of MANUAL_PHOTO_BOOKSHELF_ADDITIONS) {
+    const duplicate = out.some(shelf =>
+      Math.hypot(shelf.cx - spec.cx, shelf.cz - spec.cz) <= 0.5,
+    )
+    if (duplicate) continue
+    out.push(makeManualPhotoBookshelf(spec))
+    added++
+  }
+  out.sort((a, b) => {
+    if (Math.abs(a.cz - b.cz) > 1e-6) return b.cz - a.cz
+    return a.cx - b.cx
+  })
+  console.log(`  manual photo bookshelf additions: ${added}`)
+  return out
+}
+
+function clearManualPhotoBookshelfWallPixels(grid, width, height, offsetX, offsetZ) {
+  let cleared = 0
+  for (const spec of MANUAL_PHOTO_BOOKSHELF_ADDITIONS) {
+    const shelf = makeManualPhotoBookshelf(spec)
+    const pixelPoly = shelf.footprint.map(([x, z]) => appWorldToPixel(x, z, height, offsetX, offsetZ))
+    const minCol = Math.max(0, Math.floor(Math.min(...pixelPoly.map(p => p.col))) - 1)
+    const maxCol = Math.min(width - 1, Math.ceil(Math.max(...pixelPoly.map(p => p.col))) + 1)
+    const minRow = Math.max(0, Math.floor(Math.min(...pixelPoly.map(p => p.row))) - 1)
+    const maxRow = Math.min(height - 1, Math.ceil(Math.max(...pixelPoly.map(p => p.row))) + 1)
+    for (let row = minRow; row <= maxRow; row++) {
+      for (let col = minCol; col <= maxCol; col++) {
+        if (!pointInPolygon(col + 0.5, row + 0.5, pixelPoly)) continue
+        const idx = row * width + col
+        if (grid[idx] === WALL) {
+          grid[idx] = FREE
+          cleared++
+        }
+      }
+    }
+  }
+  console.log(`  manual photo bookshelf wall pixels cleared: ${cleared}`)
+  return cleared
+}
+
+function extractKeepoutBookshelves(keepoutGrid, offsetX, offsetZ, options = {}) {
+  const applyManualOverridesEnabled = options.applyManualOverrides ?? true
+  const splitCornerShelvesEnabled = options.splitCornerShelves ?? false
+  const { width, height, grid } = keepoutGrid
+  const { components } = extractComponents(grid, width, height, WALL)
+  const shelves = []
+  for (const c of components) {
+    if (c.touchesBoundary || c.size < 100) continue
+    const footprint = componentFootprint(c, width, height, offsetX, offsetZ)
+    if (footprint.length < 3) continue
+    const pcaObb = componentOrientedBBox(c, width)
+    const footprintObb = footprintOrientedBBox(footprint)
+    const obb = footprintObb ?? pcaObb
+    const longSide = Math.max(obb.w, obb.d)
+    const shortSide = Math.min(obb.w, obb.d)
+    const rawAngle = obb.w >= obb.d ? obb.angle : obb.angle + Math.PI / 2
+    const [pcaMx, pcaMz] = pxToWorld(pcaObb.centerCol, pcaObb.centerRow, height)
+    const cx = roundN(footprintObb ? footprintObb.centerX : pcaMx - offsetX)
+    const cz = roundN(footprintObb ? footprintObb.centerZ : pcaMz - offsetZ)
+    const yaw = roundN(normalizeAnglePi(-rawAngle), 4)
+    let shelf = {
+      cx,
+      cz,
+      w: roundN(longSide),
+      d: roundN(shortSide),
+      yaw,
+      h: 2.34,
+      footprint: footprint.map(([x, z]) => [roundN(x), roundN(z)]),
+      sourceSize: c.size,
+    }
+    const rectangularOverride = findRectangularBookshelfOverride(shelf)
+    if (rectangularOverride) {
+      shelf = forceShelfToRenderedRectangle(shelf, rectangularOverride)
+    } else {
+      shelf.cornerSplit = estimateCornerShelfSplit(c, width, height, offsetX, offsetZ, shelf)
+    }
+    shelves.push(shelf)
+  }
+  let outputShelves = splitCornerShelvesEnabled ? splitCornerShelves(shelves) : shelves
+  if (applyManualOverridesEnabled) outputShelves = applyManualBookshelfOverrides(outputShelves)
+  outputShelves.sort((a, b) => {
+    if (Math.abs(a.cz - b.cz) > 1e-6) return b.cz - a.cz
+    return a.cx - b.cx
+  })
+  return outputShelves.map(stripInternalShelfFields)
+}
+
+function writeBookshelfOverlayLayer(shelves) {
+  const compactShelves = shelves.map(s => ({
+    cx: s.cx,
+    cz: s.cz,
+    w: s.w,
+    d: s.d,
+    yaw: s.yaw,
+    h: s.h,
+    footprint: s.footprint,
+  }))
+  const text = `// Auto-generated from map_info/keepout_mask.pgm -- do not edit manually.
+// Run: node scripts/processMap.mjs
+
+import type { FixtureRenderInstance } from '../types/scene'
+
+export const counterOverlayLayerInstances: FixtureRenderInstance[] = []
+
+export function isCounterOverlaidByBookshelfOverlayLayer(c: FixtureRenderInstance): boolean {
+  void c
+  return false
+}
+
+const KEEPOUT_MASK_BOOKSHELVES: Omit<FixtureRenderInstance, 'kind'>[] = ${JSON.stringify(compactShelves)}
+
+export const bookshelfOverlayLayerInstances: FixtureRenderInstance[] = KEEPOUT_MASK_BOOKSHELVES.map((r) => ({
+  kind: 'bookshelf' as const,
+  ...r,
+}))
+`
+  const outPath = resolve(ROOT, 'src', 'data', 'bookshelfOverlayLayer.ts')
+  writeFileSync(outPath, text, 'utf-8')
+  console.log(`Wrote ${outPath}`)
+  console.log(`  keepout bookshelf fixtures: ${shelves.length}`)
 }
 
 function clamp(value, min, max) {
@@ -880,71 +2145,84 @@ async function main() {
   const deltaImageName = deltaArg >= 0 ? process.argv[deltaArg + 1] : null
   const imageArg = process.argv.indexOf('--image')
   const imageOverride = imageArg >= 0 ? process.argv[imageArg + 1] : null
+  const frameImageArg = process.argv.indexOf('--frame-image')
+  const frameImageOverride = frameImageArg >= 0 ? process.argv[frameImageArg + 1] : null
+  const keepoutImageArg = process.argv.indexOf('--keepout-image')
+  const keepoutImageOverride = keepoutImageArg >= 0 ? process.argv[keepoutImageArg + 1] : null
   const mapOffsetOnly = process.argv.includes('--map-offset-only')
+  const writeSourcePatches = process.argv.includes('--write-source-patches')
+  const noCorrections = process.argv.includes('--no-corrections')
+  const splitCornerShelvesEnabled = process.argv.includes('--split-corner-shelves')
+  const straightenWallsBehindShelvesEnabled = process.argv.includes('--straighten-walls-behind-shelves')
+  const photoKeepoutIntersectionEnabled = process.argv.includes('--photo-keepout-intersection')
+  const bridgeWallGapsEnabled = process.argv.includes('--bridge-wall-gaps')
+  const noManualShelfOverrides = process.argv.includes('--no-manual-shelf-overrides')
 
   const config = parseYamlMapConfig(YAML_PATH)
   RESOLUTION = config.resolution
   ORIGIN_X = config.originX
   ORIGIN_Y = config.originY
-  const configImageName = imageOverride ?? config.imageName
-  const imagePath = resolve(ROOT, configImageName)
-  const imageExt = extname(configImageName).toLowerCase()
-  const isPgm = imageExt === '.pgm' || imageExt === '.pnm'
+  const structureImageName = imageOverride ?? DEFAULT_STRUCTURE_IMAGE
+  const frameImageName = frameImageOverride ?? DEFAULT_FRAME_IMAGE
+  const keepoutImageName = keepoutImageOverride ?? DEFAULT_KEEPOUT_IMAGE
   const { wallThreshold, freeThreshold } = thresholdsFromYaml(config.occupiedThresh, config.freeThresh)
 
-  console.log(`Reading map image: ${imagePath}`)
-  const raster = isPgm
-    ? null
-    : await parseRasterImage(imagePath, config.negate)
-  const { width, height, pixels } = isPgm
-    ? parsePGM(imagePath)
-    : raster
-  const classifyMode = isPgm ? config.mode : 'scale'
-  console.log(`  Dimensions: ${width}x${height}, resolution: ${RESOLUTION}`)
-  console.log(`  mode: ${classifyMode}, thresholds -> wall <= ${wallThreshold}, free >= ${freeThreshold}`)
+  console.log(`YAML map config: ${YAML_PATH}`)
+  console.log(`  structure image: ${structureImageName}`)
+  console.log(`  frame image: ${frameImageName}`)
+  console.log(`  keepout image: ${keepoutImageName}`)
+  console.log(`  corrections: ${noCorrections ? 'disabled' : 'enabled'}`)
+  console.log(`  corner shelf splitting: ${splitCornerShelvesEnabled ? 'enabled' : 'disabled'}`)
+  console.log(`  straighten walls behind shelves: ${straightenWallsBehindShelvesEnabled ? 'enabled' : 'disabled'}`)
+  console.log(`  photo/keepout bookshelf intersection: ${photoKeepoutIntersectionEnabled ? 'enabled' : 'disabled'}`)
+  console.log(`  bridge wall gaps: ${bridgeWallGapsEnabled ? 'enabled' : 'disabled'}`)
+  console.log(`  manual shelf overrides: ${noManualShelfOverrides || noCorrections ? 'disabled' : 'enabled'}`)
 
-  let grid = isPgm
-    ? classify(pixels, wallThreshold, freeThreshold, classifyMode)
-    : classifyRaster(
-      pixels,
-      wallThreshold,
-      Math.max(freeThreshold, 245),
-      raster.backgroundValue,
-      30,
-    )
-  if (!isPgm) {
-    console.log(`  raster background(gray): ${raster.backgroundValue}, raster free cutoff: ${Math.max(freeThreshold, 245)}`)
+  if (writeSourcePatches && !noCorrections) {
+    writePatchedSourcePgms(structureImageName, frameImageName, keepoutImageName)
+  } else if (writeSourcePatches && noCorrections) {
+    console.log('  skipped source PGM patches because --no-corrections is set')
   }
-  console.log('Removing wall noise while preserving pillar-like components...')
-  const firstCleanup = removeWallNoisePreservingPillars(grid, width, height)
-  console.log(`  removed: ${firstCleanup.removed}, pillar-like kept: ${firstCleanup.pillarLike}`)
 
-  grid = morphClose(grid, width, height)
-  const secondCleanup = removeWallNoisePreservingPillars(grid, width, height)
-  console.log(`  post-close removed: ${secondCleanup.removed}, pillar-like kept: ${secondCleanup.pillarLike}`)
-
-  const enclosedResolve = resolveEnclosedRegions(grid, width, height)
-  const freeSelection = keepSignificantFreeComponents(grid, width, height)
-  console.log(
-    `  enclosed regions: ${enclosedResolve.enclosedCount}, free-assigned: ${enclosedResolve.freeAssigned}, wall-assigned: ${enclosedResolve.wallAssigned}, largest-enclosed: ${enclosedResolve.largestEnclosedSize}, kept free: ${freeSelection.totalKeptSize} (${freeSelection.keptCount} components), interior-priority: ${freeSelection.usedInterior}, candidates: ${freeSelection.candidateCount}`,
+  const keepoutGrid = await readClassifiedImage(keepoutImageName, config, wallThreshold, freeThreshold)
+  if (photoKeepoutIntersectionEnabled) {
+    await intersectKeepoutWithPhotoWalls(keepoutGrid, structureImageName, config, wallThreshold, freeThreshold)
+  }
+  const rasterResizeTo = { width: keepoutGrid.width, height: keepoutGrid.height }
+  const structure = await buildProcessedGrid(
+    structureImageName,
+    config,
+    wallThreshold,
+    freeThreshold,
+    'structure image',
+    keepoutGrid,
+    { resizeTo: rasterResizeTo },
   )
-  const wallFilter = pruneWallsNotAdjacentToFree(grid, width, height)
-  console.log(`  wall components kept near interior: ${wallFilter.kept}, wall pixels removed: ${wallFilter.removed}`)
+  const frame = await buildProcessedGrid(
+    frameImageName,
+    config,
+    wallThreshold,
+    freeThreshold,
+    'frame image',
+    null,
+    { resizeTo: rasterResizeTo },
+  )
 
-  const rawFloorRects = greedyMesh(grid, width, height, FREE)
-  let sumX = 0
-  let sumZ = 0
-  let totalArea = 0
-  for (const r of rawFloorRects) {
-    const [x1, z1] = pxToWorld(r.x, r.y, height)
-    const [x2, z2] = pxToWorld(r.x + r.w, r.y + r.h, height)
-    const area = Math.abs(x2 - x1) * Math.abs(z2 - z1)
-    sumX += ((x1 + x2) / 2) * area
-    sumZ += ((z1 + z2) / 2) * area
-    totalArea += area
+  const { width, height, grid } = structure
+  if (frame.width !== width || frame.height !== height) {
+    throw new Error(`Frame image ${frame.width}x${frame.height} must match structure image ${width}x${height}`)
   }
-  const offsetX = totalArea > 0 ? sumX / totalArea : 0
-  const offsetZ = totalArea > 0 ? sumZ / totalArea : 0
+  if (keepoutGrid.width !== width || keepoutGrid.height !== height) {
+    throw new Error(`Keepout image ${keepoutGrid.width}x${keepoutGrid.height} must match structure image ${width}x${height}`)
+  }
+
+  if (bridgeWallGapsEnabled) {
+    bridgeWallGaps(grid, width, height, keepoutGrid)
+  }
+
+  let rawFloorRects = greedyMesh(grid, width, height, FREE)
+  const frameFloorRects = greedyMesh(frame.grid, frame.width, frame.height, FREE)
+  const { offsetX, offsetZ } = computeFloorOffset(frameFloorRects, frame.height)
   console.log(`  center offset: (${offsetX.toFixed(2)}, ${offsetZ.toFixed(2)})`)
 
   if (mapOffsetOnly) {
@@ -957,10 +2235,20 @@ async function main() {
         originX: ORIGIN_X,
         originZ: ORIGIN_Y,
         resolution: RESOLUTION,
-        image: configImageName,
+        image: structureImageName,
+        frameImage: frameImageName,
+        keepoutImage: keepoutImageName,
       }),
     )
     process.exit(0)
+  }
+
+  if (!noCorrections && !noManualShelfOverrides) {
+    clearManualShelfStructurePixels(grid, width, height, offsetX, offsetZ)
+  } else if (noManualShelfOverrides) {
+    console.log('  skipped manual bookshelf wall clearing because --no-manual-shelf-overrides is set')
+  } else {
+    console.log('  skipped manual bookshelf wall clearing because --no-corrections is set')
   }
 
   const rawLoops = extractFreeBoundaryLoops(grid, width, height)
@@ -986,6 +2274,53 @@ async function main() {
       outerArea = a
       outerLoop = loop
     }
+  }
+
+  let keepoutShelves = extractKeepoutBookshelves(keepoutGrid, offsetX, offsetZ, {
+    applyManualOverrides: !noCorrections && !noManualShelfOverrides,
+    splitCornerShelves: splitCornerShelvesEnabled,
+  })
+  keepoutShelves = addManualPhotoBookshelves(keepoutShelves)
+  if (clearManualPhotoBookshelfWallPixels(grid, width, height, offsetX, offsetZ) > 0) {
+    rawFloorRects = greedyMesh(grid, width, height, FREE)
+  }
+  if (straightenWallsBehindShelvesEnabled) {
+    const straightenStats = straightenWallsBehindShelves(
+      grid,
+      width,
+      height,
+      height,
+      offsetX,
+      offsetZ,
+      keepoutShelves,
+    )
+    rawFloorRects = greedyMesh(grid, width, height, FREE)
+    console.log(
+      `  bookshelf-backed wall straightening: shelves=${straightenStats.affectedShelves}, cleared=${straightenStats.clearedPixels}, placed=${straightenStats.placedPixels}`,
+    )
+  }
+  if (!noCorrections) {
+    const preRelocateWallExtract = extractComponents(grid, width, height, WALL)
+    const aisleRelocateStats = relocateInterAisleWallsBehindShelves({
+      grid,
+      width,
+      height,
+      imgHeight: height,
+      offsetX,
+      offsetZ,
+      resolution: RESOLUTION,
+      originX: ORIGIN_X,
+      originY: ORIGIN_Y,
+      shelves: keepoutShelves,
+      wallLoops: centerLoops,
+      wallComponents: preRelocateWallExtract.components,
+    })
+    console.log(
+      `  inter-aisle wall components relocated: ${aisleRelocateStats.relocatedComponents}, pixels moved: ${aisleRelocateStats.movedPixels}, corridor pixels cleared: ${aisleRelocateStats.corridorCleared}, footprint cleared: ${aisleRelocateStats.footprintCleared}`,
+    )
+    rawFloorRects = greedyMesh(grid, width, height, FREE)
+  } else {
+    console.log('  skipped inter-aisle wall relocation because --no-corrections is set')
   }
 
   const wallExtract = extractComponents(grid, width, height, WALL)
@@ -1060,7 +2395,7 @@ async function main() {
       area >= 0.12 &&
       area <= 4.84
     )
-    const looksLikeShelf = looksLikeShelfNearOuterWall || looksLikeInteriorShelfBlock
+    const looksLikeShelf = false && (looksLikeShelfNearOuterWall || looksLikeInteriorShelfBlock)
     if (pillarLike) {
       pillarCandidateRects.push({
         label: c.label,
@@ -1197,17 +2532,21 @@ async function main() {
       outerLoopIdx = i
     }
   }
-  const wallPolylines = classifiedLoops.map(c => c.renderLoop)
+  let wallPolylines = classifiedLoops.map(c => c.renderLoop)
   const wallHolePolylines = classifiedLoops
     .filter((c, i) => i !== outerLoopIdx && !c.isRoom)
     .map(c => c.holeLoop)
+  const manualStraightening = applyManualPolylineStraightening(wallPolylines)
+  wallPolylines = manualStraightening.polylines
+  console.log(`  manual wall straightening applied: ${manualStraightening.applied}`)
   console.log(`  classified loops: ${classifiedLoops.length} total, ${wallHolePolylines.length} holes, ${classifiedLoops.filter(c => c.isRoom).length} rooms`)
   const fallbackPolylines = wallPolylines.length > 0 ? wallPolylines : centerLoops
   const principalAxes = computePrincipalAxes(fallbackPolylines)
   console.log(`  principal axes: [${principalAxes.map(a => a.toFixed(4)).join(', ')}]`)
 
-  let finalBookshelfRects = bookshelfRects
-  let finalBookshelfInstances
+  console.log(`  keepout bookshelf components: ${keepoutShelves.length}`)
+  let finalBookshelfRects = keepoutShelves.map(({ cx, cz, w, d }) => ({ cx, cz, w, d }))
+  let finalBookshelfInstances = keepoutShelves.map(({ cx, cz, w, d, yaw }) => ({ cx, cz, w, d, yaw }))
 
   if (deltaImageName) {
     console.log(`\nDelta mode: extracting new shelves from ${deltaImageName}`)
@@ -1306,7 +2645,7 @@ async function main() {
         yaw: Math.round(snappedYaw * 10000) / 10000,
       }
     })
-  } else {
+  } else if (finalBookshelfInstances.length === 0) {
     finalBookshelfInstances = bookshelfRects.map((r, i) => {
       const comp = shelfComponentObjects[i]
       const obb = componentOrientedBBox(comp, width)
@@ -1343,9 +2682,20 @@ async function main() {
   const mapWidth = Math.round((maxX - minX) * 100) / 100
   const mapDepth = Math.round((maxZ - minZ) * 100) / 100
 
-  const sourceLabel = deltaImageName ? `${config.imageName} + delta ${deltaImageName}` : config.imageName
+  const sourceLabel = deltaImageName
+    ? `${structureImageName} + delta ${deltaImageName}`
+    : `${structureImageName} (frame ${frameImageName}, keepout ${keepoutImageName}${photoKeepoutIntersectionEnabled ? ', photo/keepout intersection' : ''})`
+  const runFlags = [
+    deltaImageName ? `--delta ${deltaImageName}` : '',
+    noCorrections ? '--no-corrections' : '',
+    splitCornerShelvesEnabled ? '--split-corner-shelves' : '',
+    straightenWallsBehindShelvesEnabled ? '--straighten-walls-behind-shelves' : '',
+    photoKeepoutIntersectionEnabled ? '--photo-keepout-intersection' : '',
+    bridgeWallGapsEnabled ? '--bridge-wall-gaps' : '',
+    noManualShelfOverrides ? '--no-manual-shelf-overrides' : '',
+  ].filter(Boolean).join(' ')
   const ts = `// Auto-generated from ${sourceLabel} — do not edit manually.
-// Run: node scripts/processMap.mjs${deltaImageName ? ' --delta ' + deltaImageName : ''}
+// Run: node scripts/processMap.mjs${runFlags ? ' ' + runFlags : ''}
 
 export type WallRect = { cx: number; cz: number; w: number; d: number }
 export type BookshelfInstance = { cx: number; cz: number; w: number; d: number; yaw: number }
@@ -1364,12 +2714,14 @@ export const mapImageOffsetX = ${Math.round(offsetX * 10000) / 10000}
 export const mapImageOffsetZ = ${Math.round(offsetZ * 10000) / 10000}
 
 export const wallRects: WallRect[] = ${JSON.stringify(wallRects)}
+export const wallRenderRects: WallRect[] = wallRects
 export const bookshelfRects: WallRect[] = ${JSON.stringify(finalBookshelfRects)}
 export const bookshelfInstances: BookshelfInstance[] = ${JSON.stringify(finalBookshelfInstances)}
 export const pillarRects: WallRect[] = ${JSON.stringify(pillarRects)}
 export const wallPolylines: Point2[][] = ${JSON.stringify(wallPolylines)}
 export const wallHolePolylines: Point2[][] = ${JSON.stringify(wallHolePolylines)}
 export const floorRects: WallRect[] = ${JSON.stringify(floorRects)}
+export const floorRenderRects: WallRect[] = floorRects
 `
   const outPath = resolve(ROOT, 'src', 'data', 'mapData.ts')
   writeFileSync(outPath, ts, 'utf-8')
@@ -1379,6 +2731,7 @@ export const floorRects: WallRect[] = ${JSON.stringify(floorRects)}
   console.log(`  pillarRects: ${pillarRects.length}`)
   console.log(`  wallPolylines: ${wallPolylines.length}, wallHolePolylines: ${wallHolePolylines.length}`)
   console.log(`  floorRects: ${floorRects.length}`)
+  writeBookshelfOverlayLayer(keepoutShelves)
 }
 
 main().catch(err => {

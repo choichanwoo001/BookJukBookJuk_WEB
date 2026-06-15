@@ -1,0 +1,1180 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>BookJuk 로봇 통신 로그</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0c0a08;
+        --panel: rgba(18, 14, 10, 0.96);
+        --border: rgba(255, 255, 255, 0.12);
+        --text: #f3ece2;
+        --muted: rgba(243, 236, 226, 0.65);
+        --accent-in: #78c8ff;
+        --accent-out: #ff9a72;
+        --gold: #e6c06a;
+        --mono: Consolas, Monaco, 'Courier New', monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100dvh;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+      }
+
+      header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.85rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+
+      header h1 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 700;
+      }
+
+      header p {
+        margin: 0.2rem 0 0;
+        font-size: 0.78rem;
+        color: var(--muted);
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+      }
+
+      .statusPill {
+        font-size: 0.74rem;
+        padding: 0.25rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+      }
+
+      .statusPill[data-live='true'] {
+        color: #b8f0c8;
+        border-color: rgba(120, 220, 150, 0.45);
+      }
+
+      .statusPill[data-state='connecting'] {
+        color: #ffe08a;
+        border-color: rgba(255, 220, 120, 0.45);
+      }
+
+      .statusPill[data-state='connected'] {
+        color: #b8f0c8;
+        border-color: rgba(120, 220, 150, 0.45);
+      }
+
+      .statusPill[data-state='error'] {
+        color: #ffb0a8;
+        border-color: rgba(255, 120, 100, 0.45);
+      }
+
+      button {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 0.45rem 0.75rem;
+        font-size: 0.82rem;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      button.testBtn {
+        font-size: 0.78rem;
+        padding: 0.38rem 0.62rem;
+      }
+
+      button.testBtn[data-kind='mission'] {
+        border-color: rgba(100, 220, 154, 0.35);
+      }
+
+      button.testBtn[data-kind='waypoints-only'] {
+        border-color: rgba(120, 180, 255, 0.35);
+      }
+
+      button.testBtn[data-kind='command'] {
+        border-color: rgba(255, 140, 100, 0.35);
+      }
+
+      .connectionBar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        align-items: center;
+        width: 100%;
+        margin-top: 0.35rem;
+      }
+
+      .connectionBar input {
+        flex: 1 1 12rem;
+        min-width: 10rem;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.35);
+        color: var(--text);
+        border-radius: 10px;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.82rem;
+        font-family: var(--mono);
+      }
+
+      .testPanel {
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .testGroup + .testGroup {
+        margin-top: 0.55rem;
+      }
+
+      .testGroup h3 {
+        margin: 0 0 0.35rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      .testButtons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+      }
+
+      main {
+        flex: 1 1 0;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      .column {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        border-right: 1px solid var(--border);
+      }
+
+      .column:last-child {
+        border-right: none;
+      }
+
+      .columnHeader {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.02);
+      }
+
+      .columnHeader h2 {
+        margin: 0;
+        font-size: 0.92rem;
+      }
+
+      .columnHeader span {
+        font-size: 0.74rem;
+        color: var(--muted);
+      }
+
+      .columnHeader.incoming h2 {
+        color: var(--accent-in);
+      }
+
+      .columnHeader.outgoing h2 {
+        color: var(--accent-out);
+      }
+
+      .logList {
+        flex: 1 1 auto;
+        overflow: auto;
+        padding: 0.45rem;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .empty {
+        margin: 0.75rem;
+        font-size: 0.82rem;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+
+      .entry {
+        padding: 0.45rem 0.55rem;
+        margin-bottom: 0.35rem;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.03);
+        border-left: 3px solid rgba(255, 255, 255, 0.18);
+      }
+
+      .entry.status {
+        border-left-color: var(--accent-in);
+      }
+      .entry.path {
+        border-left-color: #b48cff;
+      }
+      .entry.event {
+        border-left-color: #ffd278;
+      }
+      .entry.command {
+        border-left-color: #ff8c64;
+      }
+      .entry.waypoints {
+        border-left-color: #ffaa5a;
+      }
+      .entry.connection {
+        border-left-color: #a0a0a0;
+      }
+      .entry.mission {
+        border-left-color: #64dc9a;
+      }
+
+      .liveBadge {
+        padding: 0.05rem 0.32rem;
+        border-radius: 4px;
+        background: rgba(120, 200, 255, 0.15);
+        color: var(--accent-in);
+      }
+
+      .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: var(--muted);
+      }
+
+      .kind {
+        padding: 0.05rem 0.32rem;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        text-transform: uppercase;
+      }
+
+      .topic {
+        color: var(--gold);
+      }
+
+      .summary {
+        margin: 0.25rem 0 0;
+        font-size: 0.8rem;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+
+      .detail {
+        margin: 0.3rem 0 0;
+        padding: 0.35rem 0.45rem;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.35);
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        line-height: 1.35;
+        color: var(--muted);
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 6rem;
+        overflow: auto;
+      }
+
+      @media (max-width: 820px) {
+        main {
+          grid-template-columns: 1fr;
+          grid-template-rows: 1fr 1fr;
+        }
+
+        .column {
+          border-right: none;
+          border-bottom: 1px solid var(--border);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div style="flex: 1 1 14rem">
+        <h1>로봇 통신 로그</h1>
+        <p>여기서 rosbridge에 연결하고 목적지·제스처 명령을 테스트합니다. 메인 앱과 같은 Wi‑Fi dev 서버에서 로그를 공유합니다.</p>
+        <form id="connectForm" class="connectionBar">
+          <input
+            id="rosbridgeUrl"
+            type="text"
+            placeholder="ws://로봇IP:9090"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <button type="submit" id="connectBtn">연결</button>
+          <button type="button" id="disconnectBtn" disabled>해제</button>
+        </form>
+      </div>
+      <div class="toolbar">
+        <button type="button" id="refreshBtn" title="페이지 새로고침">↺ 새로고침</button>
+        <button type="button" id="fullscreenBtn">전체화면</button>
+        <span id="robotStatus" class="statusPill" data-state="disconnected">로봇 미연결</span>
+        <span id="liveStatus" class="statusPill">로그 수신 확인 중…</span>
+      </div>
+    </header>
+
+    <section class="testPanel" aria-label="로봇 테스트 명령">
+      <div class="testGroup">
+        <h3>시연 미션 (waypoints + escort)</h3>
+        <div id="missionButtons" class="testButtons"></div>
+      </div>
+      <div class="testGroup">
+        <h3>목적지만 전송 (waypoints)</h3>
+        <div id="waypointsOnlyButtons" class="testButtons"></div>
+      </div>
+      <div class="testGroup">
+        <h3>명령 / 제스처</h3>
+        <div id="commandButtons" class="testButtons"></div>
+      </div>
+    </section>
+
+    <main>
+      <section class="column">
+        <div class="columnHeader incoming">
+          <h2>수신 ←</h2>
+          <span id="incomingCount">0건</span>
+        </div>
+        <div id="incomingList" class="logList" aria-live="polite"></div>
+      </section>
+      <section class="column">
+        <div class="columnHeader outgoing">
+          <h2>송신 →</h2>
+          <span id="outgoingCount">0건</span>
+        </div>
+        <div id="outgoingList" class="logList" aria-live="polite"></div>
+      </section>
+    </main>
+
+    <script>
+      const LS_URL_KEY = 'bjbj:verso-rosbridge-url'
+      const TOPICS = {
+        status: '/verso/status',
+        path: '/verso/path',
+        event: '/verso/event',
+        command: '/verso/command',
+        waypoints: '/verso/waypoints',
+      }
+      const HOME = { x: -22.362, y: 5.197 }
+
+      const BOOK2 = { id: 'book2', x: -24.117, y: -8.361, label: '오직 두 사람' }
+      const BOOK1 = { id: 'book1', x: -46.2197, y: 0.2907, label: '어른이 된다는 것' }
+      const SERENDIPITY = { id: 'serendipity-browse', x: -23.9527, y: 14.2477, label: '단 한 사람' }
+
+      /** 시나리오 미션 — docs/demo-scenario-flow.md 기준 */
+      const MISSION_PRESETS = [
+        {
+          id: 'p1-book2',
+          label: 'P1 · 목적지1 시작 (책2)',
+          waypoints: [BOOK2],
+        },
+        {
+          id: 'p4-book2-book1',
+          label: 'P4 · 목적지1+2 (책2→책1)',
+          waypoints: [BOOK2, BOOK1],
+        },
+        {
+          id: 'p4-book1-only',
+          label: 'P4 · 목적지2만 (책1)',
+          waypoints: [BOOK1],
+        },
+        {
+          id: 'serendipity',
+          label: '우연한 발견 browse (단 한 사람)',
+          waypoints: [SERENDIPITY],
+        },
+      ]
+
+      const WAYPOINTS_ONLY_PRESETS = [
+        { id: 'wp-p1-book2', label: 'P1 · 목적지1 (책2)', waypoints: [BOOK2] },
+        { id: 'wp-p4-both', label: 'P4 · 목적지1+2 (책2→책1)', waypoints: [BOOK2, BOOK1] },
+        { id: 'wp-p4-book1', label: 'P4 · 목적지2만 (책1)', waypoints: [BOOK1] },
+      ]
+
+      const COMMAND_PRESETS = [
+        {
+          id: 'start-escort',
+          label: 'P1/P4 · 주행 시작 (escort)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'set_mode', mode: 'escort' },
+        },
+        {
+          id: 'stop',
+          label: 'P3 · 정지 (stop)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'stop' },
+        },
+        {
+          id: 'guidance',
+          label: 'P3 · 나 따라와 (guidance)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'set_mode', mode: 'guidance' },
+        },
+        {
+          id: 'resume',
+          label: 'P6 · 재개 (resume)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'resume' },
+        },
+        {
+          id: 'escort',
+          label: '다시 리드 (escort)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'set_mode', mode: 'escort' },
+        },
+        {
+          id: 'end_session',
+          label: 'P8 · 세션 종료 (홈 복귀)',
+          topic: TOPICS.command,
+          payload: { type: 'command', action: 'end_session', x: HOME.x, y: HOME.y },
+        },
+      ]
+
+      const incomingList = document.getElementById('incomingList')
+      const outgoingList = document.getElementById('outgoingList')
+      const incomingCount = document.getElementById('incomingCount')
+      const outgoingCount = document.getElementById('outgoingCount')
+      const liveStatus = document.getElementById('liveStatus')
+      const robotStatus = document.getElementById('robotStatus')
+      const connectForm = document.getElementById('connectForm')
+      const rosbridgeUrlInput = document.getElementById('rosbridgeUrl')
+      const connectBtn = document.getElementById('connectBtn')
+      const disconnectBtn = document.getElementById('disconnectBtn')
+      const missionButtons = document.getElementById('missionButtons')
+      const waypointsOnlyButtons = document.getElementById('waypointsOnlyButtons')
+      const commandButtons = document.getElementById('commandButtons')
+      const fullscreenBtn = document.getElementById('fullscreenBtn')
+      const refreshBtn = document.getElementById('refreshBtn')
+
+      const incomingEntries = []
+      const outgoingEntries = []
+      let nextSince = 0
+      let pollTimer = null
+      let ws = null
+      let activeUrl = ''
+      let robotConnectionState = 'disconnected'
+      let hasReceivedStatus = false
+      let localIncomingSeq = 0
+      let localOutgoingSeq = 0
+      const recentOutgoingKeys = new Set()
+      const MAX_OUTGOING_DEDUPE = 80
+
+      /** 좌표만 주기적으로 바뀌는 수신 — 한 줄에서 갱신 */
+      const INCOMING_COALESCE_KINDS = new Set(['status'])
+
+      const KIND_LABEL = {
+        status: 'status',
+        path: 'path',
+        event: 'event',
+        command: 'command',
+        waypoints: 'waypoints',
+        connection: '연결',
+        mission: '미션',
+      }
+
+      const STATE_LABEL = {
+        disconnected: '로봇 미연결',
+        connecting: '로봇 연결 중…',
+        connected: '로봇 연결됨',
+        error: '로봇 연결 오류',
+      }
+
+      function readStoredUrl() {
+        try {
+          return localStorage.getItem(LS_URL_KEY)?.trim() ?? ''
+        } catch {
+          return ''
+        }
+      }
+
+      function writeStoredUrl(url) {
+        try {
+          const trimmed = url.trim()
+          if (trimmed) localStorage.setItem(LS_URL_KEY, trimmed)
+          else localStorage.removeItem(LS_URL_KEY)
+        } catch {
+          // ignore
+        }
+      }
+
+      function setRobotConnectionState(state) {
+        robotConnectionState = state
+        robotStatus.textContent = STATE_LABEL[state] ?? state
+        robotStatus.dataset.state = state
+        robotStatus.dataset.live = state === 'connected' ? 'true' : 'false'
+        const connected = state === 'connected' || state === 'connecting'
+        disconnectBtn.disabled = !connected
+        connectBtn.textContent = connected ? '재연결' : '연결'
+      }
+
+      function incomingCoalesceKey(entry) {
+        return `${entry.kind}::${entry.topic ?? ''}`
+      }
+
+      function canCoalesceIncoming(prev, next) {
+        if (!prev || !next) return false
+        if (!INCOMING_COALESCE_KINDS.has(next.kind)) return false
+        return incomingCoalesceKey(prev) === incomingCoalesceKey(next)
+      }
+
+      function foldIncomingEntries(entries) {
+        const folded = []
+        for (const entry of entries) {
+          const prev = folded[folded.length - 1]
+          if (prev && canCoalesceIncoming(prev, entry)) {
+            folded[folded.length - 1] = {
+              ...prev,
+              at: entry.at,
+              summary: entry.summary,
+              detail: entry.detail,
+              _updateCount: (prev._updateCount ?? 1) + 1,
+              _coalesceLive: true,
+            }
+          } else {
+            folded.push({
+              ...entry,
+              _updateCount: 1,
+              _coalesceLive: INCOMING_COALESCE_KINDS.has(entry.kind),
+            })
+          }
+        }
+        return folded
+      }
+
+      function formatTime(at) {
+        const d = new Date(at)
+        const h = String(d.getHours()).padStart(2, '0')
+        const m = String(d.getMinutes()).padStart(2, '0')
+        const s = String(d.getSeconds()).padStart(2, '0')
+        const ms = String(d.getMilliseconds()).padStart(3, '0')
+        return `${h}:${m}:${s}.${ms}`
+      }
+
+      function renderEntry(entry) {
+        const article = document.createElement('article')
+        article.className = `entry ${entry.kind}`
+        article.dataset.id = String(entry.id)
+
+        const meta = document.createElement('div')
+        meta.className = 'meta'
+        const liveBadge =
+          entry._coalesceLive && (entry._updateCount ?? 1) > 1
+            ? `<span class="liveBadge">실시간 갱신 ×${entry._updateCount}</span>`
+            : ''
+        meta.innerHTML = `
+          <time>${formatTime(entry.at)}</time>
+          <span class="kind">${KIND_LABEL[entry.kind] ?? entry.kind}</span>
+          ${entry.topic ? `<span class="topic">${entry.topic}</span>` : ''}
+          ${liveBadge}
+        `
+
+        const summary = document.createElement('p')
+        summary.className = 'summary'
+        summary.textContent = entry.summary
+
+        article.append(meta, summary)
+
+        if (entry.detail) {
+          const detail = document.createElement('pre')
+          detail.className = 'detail'
+          detail.textContent = entry.detail
+          article.append(detail)
+        }
+
+        return article
+      }
+
+      function patchEntryElement(article, entry) {
+        const timeEl = article.querySelector('time')
+        if (timeEl) timeEl.textContent = formatTime(entry.at)
+
+        const meta = article.querySelector('.meta')
+        if (meta) {
+          const liveBadge =
+            entry._coalesceLive && (entry._updateCount ?? 1) > 1
+              ? `<span class="liveBadge">실시간 갱신 ×${entry._updateCount}</span>`
+              : ''
+          meta.innerHTML = `
+            <time>${formatTime(entry.at)}</time>
+            <span class="kind">${KIND_LABEL[entry.kind] ?? entry.kind}</span>
+            ${entry.topic ? `<span class="topic">${entry.topic}</span>` : ''}
+            ${liveBadge}
+          `
+        }
+
+        const summaryEl = article.querySelector('.summary')
+        if (summaryEl) summaryEl.textContent = entry.summary
+
+        let detailEl = article.querySelector('.detail')
+        if (entry.detail) {
+          if (!detailEl) {
+            detailEl = document.createElement('pre')
+            detailEl.className = 'detail'
+            article.append(detailEl)
+          }
+          detailEl.textContent = entry.detail
+        } else if (detailEl) {
+          detailEl.remove()
+        }
+      }
+
+      function refreshIncomingCount() {
+        incomingCount.textContent = `${incomingEntries.length}건`
+      }
+
+      /** 수신 로그 — status 등은 마지막 줄 갱신, 그 외는 새 줄 추가 */
+      function pushIncomingEntry(entry) {
+        const normalized = { ...entry, at: entry.at ?? Date.now() }
+
+        if (incomingEntries.length === 0 && incomingList.querySelector('.empty')) {
+          incomingList.innerHTML = ''
+        }
+
+        const last = incomingEntries[incomingEntries.length - 1]
+        if (last && canCoalesceIncoming(last, normalized)) {
+          const merged = {
+            ...last,
+            at: normalized.at,
+            summary: normalized.summary,
+            detail: normalized.detail,
+            _updateCount: (last._updateCount ?? 1) + 1,
+            _coalesceLive: true,
+          }
+          incomingEntries[incomingEntries.length - 1] = merged
+          const article = incomingList.querySelector(`[data-id="${String(last.id)}"]`)
+          if (article) patchEntryElement(article, merged)
+          return { coalesced: true, entry: merged }
+        }
+
+        const withId = {
+          ...normalized,
+          id: normalized.id ?? `local-in-${++localIncomingSeq}`,
+          _updateCount: 1,
+          _coalesceLive: INCOMING_COALESCE_KINDS.has(normalized.kind),
+        }
+        incomingEntries.push(withId)
+        incomingList.append(renderEntry(withId))
+        incomingList.scrollTop = incomingList.scrollHeight
+        refreshIncomingCount()
+        return { coalesced: false, entry: withId }
+      }
+
+      function appendOutgoingEntries(entries, listEl, buffer) {
+        let added = false
+        for (const entry of entries) {
+          if (buffer.some((item) => item.id === entry.id)) continue
+          const key = outgoingDedupeKey(entry)
+          if (recentOutgoingKeys.has(key)) continue
+          buffer.push(entry)
+          listEl.append(renderEntry(entry))
+          rememberOutgoingKey(entry)
+          added = true
+        }
+        if (added) listEl.scrollTop = listEl.scrollHeight
+      }
+
+      function appendIncomingEntries(entries) {
+        for (const entry of entries) {
+          if (incomingEntries.some((item) => item.id === entry.id)) continue
+          pushIncomingEntry(entry)
+        }
+      }
+
+      function renderEmptyStates() {
+        if (incomingEntries.length === 0) {
+          incomingList.innerHTML =
+            '<p class="empty">아직 수신 로그가 없습니다. 위에서 로봇을 연결하면 /verso/status (~1Hz), path, event가 표시됩니다.</p>'
+        }
+        if (outgoingEntries.length === 0) {
+          outgoingList.innerHTML =
+            '<p class="empty">아직 송신 로그가 없습니다. 목적지·명령 테스트 버튼을 누르면 여기 표시됩니다.</p>'
+        }
+      }
+
+      function applySnapshot(payload) {
+        incomingList.innerHTML = ''
+        outgoingList.innerHTML = ''
+        incomingEntries.length = 0
+        outgoingEntries.length = 0
+
+        for (const entry of foldIncomingEntries(payload.incoming ?? [])) {
+          incomingEntries.push(entry)
+          incomingList.append(renderEntry(entry))
+        }
+        for (const entry of payload.outgoing ?? []) {
+          outgoingEntries.push(entry)
+          outgoingList.append(renderEntry(entry))
+          rememberOutgoingKey(entry)
+        }
+
+        nextSince = payload.nextSince ?? nextSince
+        incomingCount.textContent = `${incomingEntries.length}건`
+        outgoingCount.textContent = `${outgoingEntries.length}건`
+        renderEmptyStates()
+      }
+
+      function applyDelta(payload) {
+        if ((payload.incoming?.length ?? 0) === 0 && (payload.outgoing?.length ?? 0) === 0) {
+          nextSince = payload.nextSince ?? nextSince
+          return
+        }
+
+        if (incomingEntries.length === 0) incomingList.innerHTML = ''
+        if (outgoingEntries.length === 0) outgoingList.innerHTML = ''
+
+        appendIncomingEntries(payload.incoming ?? [])
+        appendOutgoingEntries(payload.outgoing ?? [], outgoingList, outgoingEntries)
+
+        nextSince = payload.nextSince ?? nextSince
+        incomingCount.textContent = `${incomingEntries.length}건`
+        outgoingCount.textContent = `${outgoingEntries.length}건`
+      }
+
+      async function recordLog(entry) {
+        await fetch('/verso-rosbridge-log/entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...entry, at: Date.now() }),
+        }).catch(() => {})
+      }
+
+      async function recordIncoming(entry, options = {}) {
+        const { skipHubIfCoalesced = true } = options
+        const { coalesced } = pushIncomingEntry({ ...entry, at: Date.now() })
+        if (!skipHubIfCoalesced || !coalesced) {
+          await recordLog(entry)
+        }
+        return coalesced
+      }
+
+      function outgoingDedupeKey(entry) {
+        return `${entry.kind}::${entry.topic ?? ''}::${entry.summary}`
+      }
+
+      function rememberOutgoingKey(entry) {
+        recentOutgoingKeys.add(outgoingDedupeKey(entry))
+        if (recentOutgoingKeys.size > MAX_OUTGOING_DEDUPE) {
+          const first = recentOutgoingKeys.values().next().value
+          recentOutgoingKeys.delete(first)
+        }
+      }
+
+      function pushOutgoingEntry(entry) {
+        const normalized = { ...entry, direction: 'outgoing', at: entry.at ?? Date.now() }
+        if (outgoingEntries.length === 0 && outgoingList.querySelector('.empty')) {
+          outgoingList.innerHTML = ''
+        }
+        const withId = {
+          ...normalized,
+          id: normalized.id ?? `local-out-${++localOutgoingSeq}`,
+        }
+        outgoingEntries.push(withId)
+        outgoingList.append(renderEntry(withId))
+        outgoingList.scrollTop = outgoingList.scrollHeight
+        outgoingCount.textContent = `${outgoingEntries.length}건`
+        rememberOutgoingKey(withId)
+        return withId
+      }
+
+      async function recordOutgoing(entry, options = {}) {
+        const { sent = false } = options
+        const summary = sent ? entry.summary : `${entry.summary} · (로봇 미연결 — 송신 로그만)`
+        const full = { ...entry, direction: 'outgoing', summary }
+        pushOutgoingEntry(full)
+        await recordLog(full)
+      }
+
+      async function logConnection(message) {
+        await recordIncoming({
+          direction: 'incoming',
+          kind: 'connection',
+          summary: message,
+        }, { skipHubIfCoalesced: false })
+      }
+
+      function buildSubscribe(topic) {
+        return JSON.stringify({ op: 'subscribe', topic, type: 'std_msgs/String' })
+      }
+
+      function buildPublish(topic, jsonPayload) {
+        return JSON.stringify({
+          op: 'publish',
+          topic,
+          msg: { data: JSON.stringify(jsonPayload) },
+        })
+      }
+
+      function summarizeWaypoints(waypoints) {
+        return waypoints
+          .map((wp, i) => `${i + 1}.${wp.label ?? wp.id}(${wp.x.toFixed(2)},${wp.y.toFixed(2)})`)
+          .join(' → ')
+      }
+
+      function publishRaw(topic, payload) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false
+        ws.send(buildPublish(topic, payload))
+        return true
+      }
+
+      async function publishCommandPreset(preset) {
+        const ok = publishRaw(preset.topic, preset.payload)
+        const summary =
+          preset.payload.action === 'set_mode'
+            ? `set_mode → ${preset.payload.mode}`
+            : `command → ${preset.payload.action}`
+        await recordOutgoing(
+          {
+            kind: 'command',
+            topic: preset.topic,
+            summary,
+            detail: JSON.stringify(preset.payload),
+          },
+          { sent: ok },
+        )
+      }
+
+      async function publishMission(preset) {
+        const waypointsOk = publishRaw(TOPICS.waypoints, { type: 'waypoints', waypoints: preset.waypoints })
+        await recordOutgoing(
+          {
+            kind: 'waypoints',
+            topic: TOPICS.waypoints,
+            summary: `${preset.waypoints.length}곳 · ${summarizeWaypoints(preset.waypoints)}`,
+            detail: JSON.stringify({ type: 'waypoints', waypoints: preset.waypoints }),
+          },
+          { sent: waypointsOk },
+        )
+
+        const escortOk = waypointsOk
+          ? publishRaw(TOPICS.command, { type: 'command', action: 'set_mode', mode: 'escort' })
+          : false
+        await recordOutgoing(
+          {
+            kind: 'command',
+            topic: TOPICS.command,
+            summary: 'set_mode → escort',
+            detail: JSON.stringify({ type: 'command', action: 'set_mode', mode: 'escort' }),
+          },
+          { sent: escortOk },
+        )
+
+        const missionSummary =
+          waypointsOk && escortOk
+            ? `[목적지 전송 완료] ${preset.label}`
+            : waypointsOk
+              ? `[목적지 부분 전송] ${preset.label} — escort 실패`
+              : `[목적지 테스트] ${preset.label}`
+        await recordOutgoing(
+          {
+            kind: 'mission',
+            summary: missionSummary,
+          },
+          { sent: waypointsOk && escortOk },
+        )
+      }
+
+      async function publishWaypointsOnly(preset) {
+        const ok = publishRaw(TOPICS.waypoints, { type: 'waypoints', waypoints: preset.waypoints })
+        await recordOutgoing(
+          {
+            kind: 'waypoints',
+            topic: TOPICS.waypoints,
+            summary: `${preset.waypoints.length}곳 · ${summarizeWaypoints(preset.waypoints)}`,
+            detail: JSON.stringify({ type: 'waypoints', waypoints: preset.waypoints }),
+          },
+          { sent: ok },
+        )
+        await recordOutgoing(
+          {
+            kind: 'mission',
+            summary: `[목적지만 전송] ${preset.label}`,
+          },
+          { sent: ok },
+        )
+      }
+
+      function parseIncomingPublish(raw) {
+        let data
+        try {
+          data = JSON.parse(raw)
+        } catch {
+          return null
+        }
+        if (!data || data.op !== 'publish' || typeof data.topic !== 'string') return null
+        const payload = data.msg?.data
+        if (typeof payload !== 'string') return null
+        return { topic: data.topic, payload }
+      }
+
+      async function handleIncoming(topic, payloadStr) {
+        let payload
+        try {
+          payload = JSON.parse(payloadStr)
+        } catch {
+          return
+        }
+
+        if (topic === TOPICS.status && payload?.type === 'status') {
+          if (!hasReceivedStatus) {
+            hasReceivedStatus = true
+            void logConnection(`WebSocket 준비됨 — /verso/status 수신 시작: ${activeUrl}`)
+          }
+          const pos = payload.position ?? {}
+          const wp = payload.current_waypoint_id ?? '—'
+          await recordIncoming({
+            direction: 'incoming',
+            kind: 'status',
+            topic,
+            summary:
+              `pos (${Number(pos.x).toFixed(3)}, ${Number(pos.y).toFixed(3)}) · heading ${Number(pos.heading).toFixed(3)} · ` +
+              `${payload.mode} · moving=${payload.is_moving} · wp=${wp} · remaining=${payload.remaining_waypoints}`,
+            detail: payloadStr,
+          })
+          return
+        }
+
+        if (topic === TOPICS.path && payload?.type === 'path' && Array.isArray(payload.poses)) {
+          const n = payload.poses.length
+          const first = payload.poses[0]
+          const last = payload.poses[n - 1]
+          const summary =
+            n === 0
+              ? 'empty path'
+              : `${n} poses · start (${first.x.toFixed(2)}, ${first.y.toFixed(2)}) → end (${last.x.toFixed(2)}, ${last.y.toFixed(2)})`
+          await recordIncoming({
+            direction: 'incoming',
+            kind: 'path',
+            topic,
+            summary,
+            detail: payloadStr,
+          }, { skipHubIfCoalesced: false })
+          return
+        }
+
+        if (topic === TOPICS.event && payload?.type === 'event') {
+          const parts = [payload.event]
+          if (payload.waypoint_id) parts.push(`wp=${payload.waypoint_id}`)
+          if (payload.label) parts.push(`label=${payload.label}`)
+          await recordIncoming({
+            direction: 'incoming',
+            kind: 'event',
+            topic,
+            summary: parts.join(' · '),
+            detail: payloadStr,
+          }, { skipHubIfCoalesced: false })
+        }
+      }
+
+      function teardownSocket() {
+        const socket = ws
+        ws = null
+        if (!socket) return
+        socket.onopen = null
+        socket.onmessage = null
+        socket.onerror = null
+        socket.onclose = null
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close()
+        }
+      }
+
+      function connectRosbridge(url) {
+        const trimmed = url.trim()
+        if (!trimmed) return
+
+        teardownSocket()
+        activeUrl = trimmed
+        hasReceivedStatus = false
+        writeStoredUrl(trimmed)
+        setRobotConnectionState('connecting')
+        void logConnection(`연결 시도: ${trimmed}`)
+
+        const socket = new WebSocket(trimmed)
+        ws = socket
+
+        socket.onopen = () => {
+          if (ws !== socket) return
+          setRobotConnectionState('connected')
+          void logConnection(`WebSocket 연결됨 — 토픽 구독 중: ${trimmed}`)
+          socket.send(buildSubscribe(TOPICS.status))
+          socket.send(buildSubscribe(TOPICS.path))
+          socket.send(buildSubscribe(TOPICS.event))
+        }
+
+        socket.onmessage = (event) => {
+          if (ws !== socket || typeof event.data !== 'string') return
+          const publish = parseIncomingPublish(event.data)
+          if (!publish) return
+          void handleIncoming(publish.topic, publish.payload)
+        }
+
+        socket.onerror = () => {
+          if (ws !== socket) return
+          setRobotConnectionState('error')
+          void logConnection(`WebSocket 오류: ${trimmed}`)
+        }
+
+        socket.onclose = (event) => {
+          if (ws !== socket) return
+          ws = null
+          setRobotConnectionState('error')
+          void logConnection(
+            `연결 종료 (code=${event.code}${event.reason ? `, reason=${event.reason}` : ''})`,
+          )
+        }
+      }
+
+      function disconnectRosbridge() {
+        teardownSocket()
+        activeUrl = ''
+        hasReceivedStatus = false
+        writeStoredUrl('')
+        setRobotConnectionState('disconnected')
+        void logConnection('연결 해제됨')
+      }
+
+      function buildTestButtons() {
+        for (const preset of MISSION_PRESETS) {
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'testBtn'
+          btn.dataset.kind = 'mission'
+          btn.textContent = preset.label
+          btn.addEventListener('click', () => void publishMission(preset))
+          missionButtons.append(btn)
+        }
+
+        for (const preset of WAYPOINTS_ONLY_PRESETS) {
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'testBtn'
+          btn.dataset.kind = 'waypoints-only'
+          btn.textContent = preset.label
+          btn.addEventListener('click', () => void publishWaypointsOnly(preset))
+          waypointsOnlyButtons.append(btn)
+        }
+
+        for (const preset of COMMAND_PRESETS) {
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'testBtn'
+          btn.dataset.kind = 'command'
+          btn.textContent = preset.label
+          btn.addEventListener('click', () => void publishCommandPreset(preset))
+          commandButtons.append(btn)
+        }
+      }
+
+      async function poll() {
+        try {
+          const route =
+            nextSince === 0
+              ? '/verso-rosbridge-log/snapshot'
+              : `/verso-rosbridge-log/entries?since=${nextSince}`
+          const res = await fetch(route, { cache: 'no-store' })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          const payload = await res.json()
+          if (nextSince === 0) applySnapshot(payload)
+          else applyDelta(payload)
+          liveStatus.textContent = '로그 실시간 수신 중'
+          liveStatus.dataset.live = 'true'
+        } catch {
+          liveStatus.textContent = 'dev 서버 연결 실패'
+          liveStatus.dataset.live = 'false'
+        }
+      }
+
+      function startPolling() {
+        if (pollTimer) clearInterval(pollTimer)
+        void poll()
+        pollTimer = setInterval(() => void poll(), 800)
+      }
+
+      connectForm.addEventListener('submit', (event) => {
+        event.preventDefault()
+        connectRosbridge(rosbridgeUrlInput.value)
+      })
+
+      disconnectBtn.addEventListener('click', () => {
+        disconnectRosbridge()
+      })
+
+      function syncFullscreenUi() {
+        const active = Boolean(document.fullscreenElement)
+        if (fullscreenBtn) {
+          fullscreenBtn.textContent = active ? '전체화면 종료' : '전체화면'
+          fullscreenBtn.setAttribute('aria-pressed', active ? 'true' : 'false')
+        }
+      }
+
+      async function toggleFullscreen() {
+        if (!document.fullscreenEnabled) return
+        try {
+          if (document.fullscreenElement) {
+            await document.exitFullscreen()
+          } else {
+            await document.documentElement.requestFullscreen()
+          }
+        } catch (error) {
+          console.warn('[fullscreen] toggle failed', error)
+        }
+      }
+
+      if (!document.fullscreenEnabled && fullscreenBtn) {
+        fullscreenBtn.disabled = true
+        fullscreenBtn.title = '이 브라우저에서는 전체화면을 지원하지 않습니다'
+      }
+
+      fullscreenBtn?.addEventListener('click', () => void toggleFullscreen())
+      refreshBtn?.addEventListener('click', () => location.reload())
+      document.addEventListener('fullscreenchange', syncFullscreenUi)
+
+      rosbridgeUrlInput.value = readStoredUrl()
+      buildTestButtons()
+      setRobotConnectionState('disconnected')
+
+      // 새로고침(새 세션)마다 서버 측 로그 초기화
+      fetch('/verso-rosbridge-log/clear', { method: 'POST' }).catch(() => {})
+
+      startPolling()
+    </script>
+  </body>
+</html>

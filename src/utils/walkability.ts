@@ -1,19 +1,15 @@
 import type { WallRect } from '../data/mapData'
 import {
-  floorFillRects,
+  FLOOR_INCLUSION_PADDING_M,
+  floorRenderRects,
   pillarRects as defaultPillarRects,
   PLAYER_RADIUS_M,
-  wallPolylines,
-  wallRects as defaultWallRects,
 } from '../data/floorPlan'
-import { createFloorPointInclusionTest } from './floorPolygon'
-import { pointInAnyRect } from './rectUtils'
+import { createRectPointIndex, pointInAnyRect } from './rectUtils'
 
-/** 3D FloorPolygonMesh·미니맵 PNG와 동일한 바닥 영역 판정. */
-const polygonFloorTest = createFloorPointInclusionTest(wallPolylines, floorFillRects)
+const renderFloorTest = createRectPointIndex(floorRenderRects)
 
 export type WalkabilityContext = {
-  /** 렌더/조명 등 다른 용도. 보행 판정에는 polygonFloorTest를 사용합니다. */
   floorRects: WallRect[]
   wallRects: WallRect[]
   bookshelfRects: WallRect[]
@@ -22,7 +18,7 @@ export type WalkabilityContext = {
 }
 
 export function isOnPolygonFloor(x: number, z: number): boolean {
-  return polygonFloorTest(x, z)
+  return renderFloorTest(x, z, FLOOR_INCLUSION_PADDING_M)
 }
 
 export function createNavWalkabilityContext(
@@ -30,8 +26,8 @@ export function createNavWalkabilityContext(
   overrides?: Partial<Pick<WalkabilityContext, 'wallRects' | 'pillarRects' | 'playerRadiusM' | 'floorRects'>>,
 ): WalkabilityContext {
   return {
-    floorRects: overrides?.floorRects ?? [],
-    wallRects: overrides?.wallRects ?? defaultWallRects,
+    floorRects: overrides?.floorRects ?? floorRenderRects,
+    wallRects: overrides?.wallRects ?? [],
     bookshelfRects,
     pillarRects: overrides?.pillarRects ?? defaultPillarRects,
     playerRadiusM: overrides?.playerRadiusM ?? PLAYER_RADIUS_M,
@@ -40,7 +36,10 @@ export function createNavWalkabilityContext(
 
 export function isWalkablePoint(ctx: WalkabilityContext, x: number, z: number): boolean {
   const r = ctx.playerRadiusM
-  if (!polygonFloorTest(x, z)) return false
+  const isOnFloor = ctx.floorRects === floorRenderRects
+    ? renderFloorTest(x, z, FLOOR_INCLUSION_PADDING_M)
+    : pointInAnyRect(ctx.floorRects, x, z, FLOOR_INCLUSION_PADDING_M)
+  if (!isOnFloor) return false
   if (pointInAnyRect(ctx.wallRects, x, z, r)) return false
   if (pointInAnyRect(ctx.bookshelfRects, x, z, r)) return false
   if (pointInAnyRect(ctx.pillarRects, x, z, r)) return false

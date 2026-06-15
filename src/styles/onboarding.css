@@ -88,6 +88,18 @@
   margin-top: 1.25rem;
 }
 
+.onboardingChrome {
+  position: relative;
+  min-height: 100vh;
+}
+
+.onboardingFullscreenToggle {
+  position: fixed;
+  top: clamp(0.75rem, 2vw, 1.25rem);
+  right: clamp(0.75rem, 2vw, 1.25rem);
+  z-index: 20;
+}
+
 .onboardingShell,
 .similarReadersPage {
   --onboarding-text-secondary: #4f574d;

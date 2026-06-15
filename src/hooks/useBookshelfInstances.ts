@@ -1,13 +1,15 @@
 import { useCallback, useMemo, useState } from 'react'
 import { bookshelfInstances } from '../data/floorPlan'
+import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 import { DEFAULT_BOOKSHELF_SIZE, FIXED_SELECTION_RADIUS_M } from '../config/constants'
 import { nearestWallInfo } from '../utils/wallAlignment'
 import { offsetDuplicateBookshelf, clampFixturePlanDimension } from '../utils/bookshelfClipboard'
 import { findNearestBookshelfInCircle } from '../utils/bookshelfSelection'
+import { buildMissionShelfPool } from '../utils/missionShelfPool'
 import type { FixtureRenderInstance, PickPoint } from '../types/scene'
 
 function buildInitialInstances(): FixtureRenderInstance[] {
-  return bookshelfInstances.map<FixtureRenderInstance>(item => ({
+  const main = bookshelfInstances.map<FixtureRenderInstance>(item => ({
     kind: 'bookshelf',
     cx: item.cx,
     cz: item.cz,
@@ -16,6 +18,7 @@ function buildInitialInstances(): FixtureRenderInstance[] {
     yaw: item.yaw,
     h: DEFAULT_BOOKSHELF_SIZE.h,
   }))
+  return buildMissionShelfPool(main, bookshelfOverlayLayerInstances)
 }
 
 export function useBookshelfInstances() {

@@ -93,7 +93,7 @@ function shortcutPathForDisplay(path: Point2[], ctx?: WalkabilityContext): Point
   return out
 }
 
-/** 표시 전용: 폴리라인을 Catmull-Rom 곡선으로 리샘플링. 이동/재생 로직에는 사용하지 않음. */
+/** 폴리라인을 Catmull-Rom 곡선으로 리샘플링. 표시 및 이동 경로 생성에 사용. */
 export function smoothPathForDisplay(
   path: Point2[],
   options?: SmoothPathOptions,

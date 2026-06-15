@@ -3,7 +3,7 @@ import {
   pillarRects,
   PLAYER_RADIUS_M,
 } from '../data/floorPlan'
-import { bookshelfOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
+import { bookshelfOverlayLayerInstances, counterOverlayLayerInstances } from '../data/bookshelfOverlayLayer'
 import { NAV_GOAL_MARGIN_M, NAV_GRID_CELL_M } from '../config/constants'
 import { buildMissionShelfPool, buildNavBookshelfRects } from './missionShelfPool'
 import { getMinimapWorldBounds } from './minimapBounds'
@@ -71,6 +71,11 @@ describe('nav bookshelf goals', () => {
     const { ctx, bounds } = buildContext()
     const from: [number, number] = [-6.813732721703468, 4.034893318923967]
     const goal = pickCheckoutGoalFromWorld(from, ctx, bounds)
+
+    if (counterOverlayLayerInstances.length === 0) {
+      expect(goal).toBeNull()
+      return
+    }
 
     expect(goal).not.toBeNull()
     expect(goal && isWalkablePoint(ctx, goal[0], goal[1])).toBe(true)

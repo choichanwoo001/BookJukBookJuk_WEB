@@ -30,7 +30,7 @@
 | 제스처 | 의미 | rosbridge payload |
 |--------|------|-------------------|
 | `stop` | 즉시 정지 | `{"type":"command","action":"stop"}` |
-| `follow_me` | 로봇이 사람을 따라감 | `{"type":"command","action":"set_mode","mode":"guidance"}` |
+| `follow_me` | 로봇이 사람을 따라감 (detour 대기 중이면 어른이 된다는 것 browse waypoints + escort) | `guidance` 또는 `/verso/waypoints` + `escort` |
 | `lead_again` | 로봇이 웨이포인트 경로를 다시 리드 | `{"type":"command","action":"set_mode","mode":"escort"}` |
 
 ### 로봇 모드 설명
@@ -134,7 +134,7 @@ python -m book_recognition.gesture_test
 | 구분 | Python 제스처 데모 | 웹 React 앱 |
 |------|-------------------|-------------|
 | 제스처 인식 | MediaPipe + 규칙 기반 | 없음 |
-| 이동체 제어 | rosbridge 직접 publish | 채팅/음성 → `mobilityControlTool` → Verso (`stop` / `resume` / `go_checkout`) |
+| 이동체 제어 | rosbridge 직접 publish | 채팅/음성 → `mobilityControlTool` → Verso (`stop` / `resume`); 계산대 → `checkoutTool` → waypoints + escort |
 | 책 담기/빼기 | thumbs_up/down + ORB | `BookRecognitionPanel` 버튼 + HTTP `/identify` |
 
 향후 웹에서도 “나 따라와” / “다시 리드해”를 지원하려면 Agent intent + `set_mode` 명령 확장이 별도 작업입니다.

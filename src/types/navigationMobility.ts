@@ -12,8 +12,8 @@ export function resolveNavigationMobilityPhase(args: {
   highlightPathLength: number
 }): NavigationMobilityPhase {
   if (!args.demoNavigationActive) return 'idle'
-  if (args.highlightPathLength < 2) return 'calculating'
   if (args.demoAutoWalkActive) return 'walking'
+  if (args.highlightPathLength < 2) return 'calculating'
   return 'idle'
 }
 

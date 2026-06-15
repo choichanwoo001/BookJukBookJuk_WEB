@@ -27,6 +27,7 @@ export function VersoConnectionPanel({
   const [draftUrl, setDraftUrl] = useState(() => readStoredVersoRosbridgeUrl())
   const [expanded, setExpanded] = useState(false)
   const isConnected = connectionState === 'connected' || connectionState === 'connecting'
+  const showRetryLabel = isConnected || connectionState === 'error'
 
   const handleUrlChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     setDraftUrl(e.target.value)
@@ -81,8 +82,8 @@ export function VersoConnectionPanel({
             autoComplete="off"
           />
           <div className="versoConnectionActions">
-            <button type="submit" disabled={connectionState === 'connecting'}>
-              {isConnected ? '재연결' : '연결'}
+            <button type="submit">
+              {showRetryLabel ? '재연결' : '연결'}
             </button>
             {isConnected && (
               <button type="button" onClick={handleDisconnect}>

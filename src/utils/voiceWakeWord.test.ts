@@ -22,22 +22,9 @@ describe('voiceWakeWord', () => {
     })
   })
 
-  it('detects alias wake word when STT inserts spaces', () => {
-    expect(stripWakeWord('들어 줘 멈춰', VOICE_WAKE_WORDS)).toBe('멈춰')
-  })
-
-  it('prefers longer wake word at same position', () => {
-    expect(findWakeWordMatch('산책아', VOICE_WAKE_WORDS)?.word).toBe('산책아')
-    expect(findWakeWordMatch('산책 추천', VOICE_WAKE_WORDS)?.word).toBe('산책')
-  })
-
   it('strips wake word and leaves command', () => {
     expect(stripWakeWord('산책아 추천해줘', VOICE_WAKE_WORDS)).toBe('추천해줘')
     expect(stripWakeWord('산책아', VOICE_WAKE_WORDS)).toBe('')
-  })
-
-  it('supports alias wake words', () => {
-    expect(stripWakeWord('들어줘 멈춰', VOICE_WAKE_WORDS)).toBe('멈춰')
   })
 
   it('extracts command when not yet armed', () => {

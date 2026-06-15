@@ -8,6 +8,7 @@ export type VoiceStatusIndicatorProps = {
   busy: boolean
   ttsSpeaking: boolean
   armRemainingMs?: number | null
+  isMicOn?: boolean
   compact?: boolean
 }
 
@@ -24,6 +25,7 @@ export function VoiceStatusIndicator({
   busy,
   ttsSpeaking,
   armRemainingMs,
+  isMicOn = false,
   compact = false,
 }: VoiceStatusIndicatorProps) {
   if (!isSupported) return null
@@ -35,6 +37,8 @@ export function VoiceStatusIndicator({
       </div>
     )
   }
+
+  if (!isMicOn) return null
 
   let label = '산책아 하고 말해 주세요'
   let showDot = false

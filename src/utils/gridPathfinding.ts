@@ -279,8 +279,7 @@ export function findPathWorldGrid(
         out.push(gridToWorldCenter(cx, cz, bounds, cellSize))
       }
       out.reverse()
-      const col = simplifyPathCollinear(out)
-      return shortcutPathWorld(col, ctx, NAV_SEGMENT_SAMPLE_STEP_M)
+      return shortcutPathWorld(out, ctx, NAV_SEGMENT_SAMPLE_STEP_M)
     }
 
     for (let k = 0; k < NEI.length; k++) {
@@ -292,6 +291,16 @@ export function findPathWorldGrid(
       if (!isCellWalkable(nix, niz, nx, nz, ctx, bounds, cellSize)) continue
       if (
         !isDiagonalNeighborAllowed(cur.ix, cur.iz, dix, diz, nx, nz, ctx, bounds, cellSize)
+      ) {
+        continue
+      }
+      if (
+        !isSegmentWalkableWorld(
+          gridToWorldCenter(cur.ix, cur.iz, bounds, cellSize),
+          gridToWorldCenter(nix, niz, bounds, cellSize),
+          ctx,
+          Math.max(0.04, cellSize * 0.25),
+        )
       ) {
         continue
       }

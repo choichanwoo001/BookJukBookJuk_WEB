@@ -11,7 +11,7 @@ import { getSpeechRecognitionCtor } from '../lib/speechRecognition'
 import { isUtteranceSubmittable } from '../utils/voiceUtterance'
 import { extractCommandFromTranscript, findWakeWordMatch } from '../utils/voiceWakeWord'
 
-export type VoiceCommandPhase = 'unsupported' | 'idle' | 'armed' | 'paused'
+export type VoiceCommandPhase = 'unsupported' | 'off' | 'idle' | 'armed' | 'paused'
 
 type VoiceCommandLoopOptions = {
   onUtteranceComplete: (transcript: string) => void
@@ -29,6 +29,10 @@ export type UseVoiceCommandLoopReturn = {
   isSupported: boolean
   permissionDenied: boolean
   armRemainingMs: number | null
+  isMicOn: boolean
+  startMic: () => void
+  stopMic: () => void
+  toggleMic: () => void
 }
 
 type ListenPhase = 'idle' | 'armed'
@@ -42,6 +46,7 @@ export function useVoiceCommandLoop({
   silenceMs = VOICE_SILENCE_MS,
   lang = VOICE_LANG,
 }: VoiceCommandLoopOptions): UseVoiceCommandLoopReturn {
+  const [isMicOn, setIsMicOn] = useState(false)
   const [listenPhase, setListenPhase] = useState<ListenPhase>('idle')
   const [livePreview, setLivePreview] = useState('')
   const [permissionDenied, setPermissionDenied] = useState(false)
@@ -50,6 +55,7 @@ export function useVoiceCommandLoop({
   const onUtteranceCompleteRef = useRef(onUtteranceComplete)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
   const micSessionRef = useRef(false)
+  const isMicOnRef = useRef(false)
   const userRequestedStopRef = useRef(false)
   const discardOnStopRef = useRef(false)
   const finalBufferRef = useRef('')
@@ -81,6 +87,10 @@ export function useVoiceCommandLoop({
   useEffect(() => {
     enabledRef.current = enabled
   }, [enabled])
+
+  useEffect(() => {
+    isMicOnRef.current = isMicOn
+  }, [isMicOn])
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -138,7 +148,7 @@ export function useVoiceCommandLoop({
     clearSilenceTimer()
     silenceTimerRef.current = setTimeout(() => {
       silenceTimerRef.current = null
-      if (listenPhaseRef.current !== 'armed' || pausedRef.current) return
+      if (listenPhaseRef.current !== 'armed' || pausedRef.current || !isMicOnRef.current) return
       if (submitCommand()) {
         discardOnStopRef.current = true
         userRequestedStopRef.current = true
@@ -170,7 +180,7 @@ export function useVoiceCommandLoop({
   }, [armTimeoutMs, clearArmTimerRefs, flushRecognitionBuffers, resetListenState])
 
   const processTranscript = useCallback(() => {
-    if (pausedRef.current) return
+    if (pausedRef.current || !isMicOnRef.current) return
 
     const transcript = getFullTranscript()
     const hadWake = findWakeWordMatch(transcript, wakeWords) !== null
@@ -183,6 +193,8 @@ export function useVoiceCommandLoop({
     if (!armed) {
       if (listenPhaseRef.current === 'armed') {
         resetListenState()
+      } else {
+        finalBufferRef.current = ''
       }
       return
     }
@@ -206,7 +218,14 @@ export function useVoiceCommandLoop({
 
   const startRecognitionInstance = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor || !micSessionRef.current || userRequestedStopRef.current || pausedRef.current || !enabledRef.current) {
+    if (
+      !Ctor ||
+      !micSessionRef.current ||
+      !isMicOnRef.current ||
+      userRequestedStopRef.current ||
+      pausedRef.current ||
+      !enabledRef.current
+    ) {
       return
     }
 
@@ -237,11 +256,13 @@ export function useVoiceCommandLoop({
       if (ev.error === 'aborted') return
       if (ev.error === 'not-allowed' || ev.error === 'audio-capture') {
         micSessionRef.current = false
+        isMicOnRef.current = false
         userRequestedStopRef.current = false
         discardOnStopRef.current = false
         flushRecognitionBuffers()
         recognitionRef.current = null
         resetListenState()
+        setIsMicOn(false)
         setPermissionDenied(true)
       }
     }
@@ -255,7 +276,7 @@ export function useVoiceCommandLoop({
           discardOnStopRef.current = false
           flushRecognitionBuffers()
         }
-        if (micSessionRef.current && !pausedRef.current && enabledRef.current) {
+        if (micSessionRef.current && isMicOnRef.current && !pausedRef.current && enabledRef.current) {
           queueMicrotask(() => {
             startRecognitionRef.current()
           })
@@ -265,7 +286,7 @@ export function useVoiceCommandLoop({
         return
       }
 
-      if (micSessionRef.current && !pausedRef.current && enabledRef.current) {
+      if (micSessionRef.current && isMicOnRef.current && !pausedRef.current && enabledRef.current) {
         queueMicrotask(() => {
           startRecognitionRef.current()
         })
@@ -283,6 +304,7 @@ export function useVoiceCommandLoop({
       discardOnStopRef.current = false
       recognitionRef.current = null
       resetListenState()
+      setIsMicOn(false)
     }
   }, [flushRecognitionBuffers, lang, processTranscript, resetListenState])
 
@@ -306,7 +328,8 @@ export function useVoiceCommandLoop({
 
   const startListening = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor || micSessionRef.current || pausedRef.current || !enabledRef.current) return
+    if (!Ctor || pausedRef.current || !enabledRef.current || permissionDenied || !isMicOnRef.current) return
+    if (micSessionRef.current && recognitionRef.current) return
 
     micSessionRef.current = true
     userRequestedStopRef.current = false
@@ -314,10 +337,33 @@ export function useVoiceCommandLoop({
     flushRecognitionBuffers()
     resetListenState()
     startRecognitionInstance()
-  }, [flushRecognitionBuffers, resetListenState, startRecognitionInstance])
+  }, [flushRecognitionBuffers, permissionDenied, resetListenState, startRecognitionInstance])
+
+  const stopMic = useCallback(() => {
+    setIsMicOn(false)
+    isMicOnRef.current = false
+    stopRecognition({ discard: true })
+    resetListenState()
+    flushRecognitionBuffers()
+  }, [flushRecognitionBuffers, resetListenState, stopRecognition])
+
+  const startMic = useCallback(() => {
+    if (!isSupported || permissionDenied || pausedRef.current || !enabledRef.current) return
+    setIsMicOn(true)
+    isMicOnRef.current = true
+    startListening()
+  }, [isSupported, permissionDenied, startListening])
+
+  const toggleMic = useCallback(() => {
+    if (isMicOnRef.current) {
+      stopMic()
+      return
+    }
+    startMic()
+  }, [startMic, stopMic])
 
   useEffect(() => {
-    if (!isSupported || !enabled) return undefined
+    if (!isSupported || !enabled || !isMicOn) return undefined
 
     if (paused) {
       if (resumeTimerRef.current) {
@@ -337,10 +383,14 @@ export function useVoiceCommandLoop({
       }
     }
 
-    resumeTimerRef.current = setTimeout(() => {
-      resumeTimerRef.current = null
-      startListening()
-    }, VOICE_RESUME_DELAY_MS)
+    if (!micSessionRef.current && !recognitionRef.current) {
+      resumeTimerRef.current = setTimeout(() => {
+        resumeTimerRef.current = null
+        if (isMicOnRef.current && !pausedRef.current) {
+          startListening()
+        }
+      }, VOICE_RESUME_DELAY_MS)
+    }
 
     return () => {
       if (resumeTimerRef.current) {
@@ -351,6 +401,7 @@ export function useVoiceCommandLoop({
   }, [
     enabled,
     flushRecognitionBuffers,
+    isMicOn,
     isSupported,
     paused,
     resetListenStateRefs,
@@ -364,6 +415,7 @@ export function useVoiceCommandLoop({
       clearArmTimerRefs()
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current)
       micSessionRef.current = false
+      isMicOnRef.current = false
       userRequestedStopRef.current = false
       discardOnStopRef.current = false
       recognitionRef.current?.stop()
@@ -373,9 +425,11 @@ export function useVoiceCommandLoop({
 
   const phase: VoiceCommandPhase = !isSupported
     ? 'unsupported'
-    : paused
-      ? 'paused'
-      : listenPhase
+    : !isMicOn
+      ? 'off'
+      : paused
+        ? 'paused'
+        : listenPhase
 
   return {
     phase,
@@ -383,5 +437,9 @@ export function useVoiceCommandLoop({
     isSupported,
     permissionDenied,
     armRemainingMs,
+    isMicOn,
+    startMic,
+    stopMic,
+    toggleMic,
   }
 }

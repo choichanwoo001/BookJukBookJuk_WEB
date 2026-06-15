@@ -13,3 +13,4 @@ export function buildNavStartPrompt(bookCount: number): string {
   }
   return `책 ${bookCount}권 찾아뒀어요! 경로도 보이게 해뒀는데, 한번 보시고 시작하실 땐 "시작"이나 "오케이"라고 말해 주세요.`
 }
+

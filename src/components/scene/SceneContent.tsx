@@ -7,6 +7,7 @@ import { isEditableDomTarget } from '../../utils/domTarget'
 import {
   pillarRects,
   floorRenderRects,
+  buildFixtureFloorSupportRects,
   wallRenderRects,
   FLOOR_HEIGHT_M,
   ENTRANCE_SPAWN,
@@ -164,6 +165,14 @@ export function SceneContent({
   const displayRenderInstances = useMemo(
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
+  )
+  const fixtureFloorSupportRects = useMemo(
+    () => buildFixtureFloorSupportRects([
+      ...bookshelfRenderInstances,
+      ...counterRenderInstances,
+      ...displayRenderInstances,
+    ]),
+    [bookshelfRenderInstances, counterRenderInstances, displayRenderInstances],
   )
   const bookshelfCollisionRects = useMemo(
     () =>
@@ -424,6 +433,11 @@ export function SceneContent({
             rects={floorRenderRects}
             onPointerDown={floorPickHandler}
             onPointerMove={floorPointerMoveHandler}
+          />
+          <FloorPolygonMesh
+            yOffset={0.004}
+            material={floorMaterial}
+            rects={fixtureFloorSupportRects}
           />
         </group>
         <BookshelfOverlayInterior

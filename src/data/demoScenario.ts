@@ -43,8 +43,8 @@ export const DEMO_BOOKS: Record<DemoBookKey, DemoBookDef> = {
     synopsisBrief: '두 사람의 만남과 이별을 따라가는 소설입니다.',
     reviewBrief: '평점 4.4, 감정선이 섬세하다는 리뷰가 많아요.',
     authorBioBrief: '김영하 작가는 일상 속 관계를 담담하게 그리는 소설가예요.',
-    /** bookshelfOverlayLayerInstances[35] — NE corner north arm, robot map (-24.117, -8.361) / world (2.66, -13.19) */
-    poolIndex: 35,
+    /** bookshelfOverlayLayerInstances[36] — NE corner north arm, robot map (-24.117, -8.361) / world (2.66, -13.19) */
+    poolIndex: 36,
   },
   serendipity: {
     key: 'serendipity',

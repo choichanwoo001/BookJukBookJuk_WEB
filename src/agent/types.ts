@@ -1,3 +1,4 @@
+import type { DemoBookKey } from '../data/demoScenario'
 import type { KakaoPaySession } from '../lib/payment/kakaoPay'
 
 export type AgentState =
@@ -128,6 +129,7 @@ export type TransitDetourPhase =
   | 'idle'
   | 'paused_for_follow'
   | 'serendipity_nav'
+  | 'serendipity_arrived'
   | 'serendipity_dwell'
   | 'await_reco_accept'
 
@@ -162,6 +164,8 @@ export type AgentContext = {
   recommendationDiversityRound: number
   pendingConfirmation: PendingConfirmation | null
   lastToolResult: ToolResult | null
+  dwellDialogueActiveBookKey: DemoBookKey | null
+  dwellDialogueStep: 'intro' | 'feedback' | 'done' | null
 }
 
 export type RecognitionKind = 'voice' | 'gesture'

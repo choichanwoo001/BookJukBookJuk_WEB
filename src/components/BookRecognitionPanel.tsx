@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getBookRecognitionClient } from '../agent/bridges/bookRecognitionBridge'
+import { DESTINATION_ARRIVAL_PAUSE_MS } from '../config/constants'
 import { isDemoMode } from '../config/demoMode'
 import { GESTURE_CONFIRM_FRAMES, GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import { useBookRecognitionCamera } from '../hooks/useBookRecognitionCamera'
@@ -26,6 +27,14 @@ export type BookRecognitionPanelProps = {
   ) => void | Promise<void>
   onBrowse?: (imageBase64: string) => void | Promise<void>
   onGestureConfirmed?: (gestureId: GestureId) => void
+  /** 데모 시나리오: 서가/우연한 발견 구간에서 표시할 책. */
+  activeBook?: RecognizedBookPreview | null
+  /** 카메라 켜진 뒤 책 살펴보기 카운트다운 표시. */
+  dwellCountdownActive?: boolean
+  dwellCountdownMs?: number
+  /** 카운트다운 완료 시 관심 있음으로 보고 (우연한 발견). */
+  trackBrowseInterest?: boolean
+  onBrowseInterestDetected?: (book: RecognizedBookPreview) => void
   placement?: 'map' | 'chat'
 }
 
@@ -35,6 +44,11 @@ export function BookRecognitionPanel({
   busy,
   onGestureBookDecision,
   onGestureConfirmed,
+  activeBook = null,
+  dwellCountdownActive = false,
+  dwellCountdownMs = DESTINATION_ARRIVAL_PAUSE_MS,
+  trackBrowseInterest = false,
+  onBrowseInterestDetected,
   placement = 'map',
 }: BookRecognitionPanelProps) {
   const [gestureEnabled, setGestureEnabled] = useState(false)
@@ -42,7 +56,9 @@ export function BookRecognitionPanel({
   const [recognizedBook, setRecognizedBook] = useState<RecognizedBookPreview | null>(null)
   const [scanning, setScanning] = useState(false)
   const [gestureHint, setGestureHint] = useState<string | null>(null)
+  const [countdownSec, setCountdownSec] = useState<number | null>(null)
   const scanInFlightRef = useRef(false)
+  const interestReportedRef = useRef(false)
 
   const {
     videoRef,
@@ -59,14 +75,57 @@ export function BookRecognitionPanel({
       setGestureEnabled(false)
       setRecognizedBook(null)
       setGestureHint(null)
+      setCountdownSec(null)
+      interestReportedRef.current = false
       return
     }
     await start()
   }, [isActive, start, stop])
 
   useEffect(() => {
+    if (!isDemoMode() || !isActive || !activeBook) {
+      if (isDemoMode() && !isActive) {
+        setRecognizedBook(null)
+      }
+      return
+    }
+    setRecognizedBook(activeBook)
+    setGestureHint(null)
+  }, [activeBook, isActive])
+
+  useEffect(() => {
+    interestReportedRef.current = false
+    setCountdownSec(null)
+    if (!dwellCountdownActive || !isActive || !activeBook) return undefined
+
+    const totalMs = dwellCountdownMs
+    const startedAt = Date.now()
+    setCountdownSec(Math.ceil(totalMs / 1000))
+
+    const timerId = window.setInterval(() => {
+      const remaining = Math.max(0, totalMs - (Date.now() - startedAt))
+      setCountdownSec(Math.ceil(remaining / 1000))
+      if (remaining <= 0) {
+        window.clearInterval(timerId)
+        if (trackBrowseInterest && !interestReportedRef.current) {
+          interestReportedRef.current = true
+          onBrowseInterestDetected?.(activeBook)
+        }
+      }
+    }, 200)
+
+    return () => window.clearInterval(timerId)
+  }, [
+    activeBook,
+    dwellCountdownActive,
+    dwellCountdownMs,
+    isActive,
+    onBrowseInterestDetected,
+    trackBrowseInterest,
+  ])
+
+  useEffect(() => {
     if (!isActive || busy || identifying) return undefined
-    // 데모 모드에서는 실제 인식 API를 호출하지 않음 → "인식된 책 없음" 상태 유지
     if (isDemoMode()) return undefined
 
     const tick = async () => {
@@ -170,6 +229,17 @@ export function BookRecognitionPanel({
         />
         {!isActive && (
           <div className="bookRecognitionVideoPlaceholder">카메라 미리보기</div>
+        )}
+        {isActive && countdownSec !== null && countdownSec > 0 && (
+          <div className="bookRecognitionCountdownOverlay" aria-live="polite">
+            <span className="bookRecognitionCountdownLabel">책 살펴보기</span>
+            <span className="bookRecognitionCountdownValue">{countdownSec}초</span>
+          </div>
+        )}
+        {isActive && countdownSec === 0 && trackBrowseInterest && (
+          <div className="bookRecognitionCountdownOverlay" aria-live="polite">
+            <span className="bookRecognitionCountdownDone">관심 있음으로 기록됨</span>
+          </div>
         )}
         {isActive && !gestureEnabled && (
           <div className="bookRecognitionGestureOverlay" aria-live="polite">

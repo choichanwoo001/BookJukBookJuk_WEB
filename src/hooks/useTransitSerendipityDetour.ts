@@ -69,24 +69,14 @@ export function useTransitSerendipityDetour({
     const ctx = contextRef.current
     if (ctx.transitDetourPhase !== 'serendipity_nav') return
 
-    const dwellBook: DwellBookCandidate = {
-      booksId: DEMO_DWELL_BOOK.booksId,
-      title: DEMO_DWELL_BOOK.title,
-      authors: DEMO_DWELL_BOOK.authors,
-      detectedAt: Date.now(),
-      source: 'route',
-    }
-
     dispatchPauseMobility()
     setContext({
-      transitDetourPhase: 'serendipity_dwell',
-      pendingDwellBook: dwellBook,
-      awaitingDwellFeedback: true,
+      transitDetourPhase: 'serendipity_arrived',
       mobilityPaused: true,
     })
 
     void appendAssistant(
-      `"${DEMO_DWELL_BOOK.title}"에 관심을 보이셨는데 장바구니에 담지 않으셨네요. 어떤 점이 마음에 걸리셨는지 말씀해 주시면 그 책 기준으로 더 잘 맞는 책을 추천해드릴게요.`,
+      `우연한 서가에 도착했습니다. 「단 한 사람」 책을 충분히 둘러보세요. 다 보신 후 계속 진행하시려면 "오케이"라고 말씀하시거나 OK 사인을 보내주세요.`,
     )
   }), [appendAssistant, contextRef, setContext])
 

@@ -121,7 +121,7 @@ describe('useTransitSerendipityDetour', () => {
     mapUnsub()
   })
 
-  it('enters serendipity_dwell on serendipity pool arrival during serendipity_nav', () => {
+  it('enters serendipity_arrived on serendipity pool arrival during serendipity_nav', () => {
     const contextRef = {
       current: makeContext({ transitDetourPhase: 'serendipity_nav' }),
     }
@@ -145,10 +145,12 @@ describe('useTransitSerendipityDetour', () => {
 
     expect(setContext).toHaveBeenCalledWith(
       expect.objectContaining({
-        transitDetourPhase: 'serendipity_dwell',
-        awaitingDwellFeedback: true,
+        transitDetourPhase: 'serendipity_arrived',
+        mobilityPaused: true,
       }),
     )
-    expect(appendAssistant).toHaveBeenCalled()
+    expect(appendAssistant).toHaveBeenCalledWith(
+      '우연한 서가에 도착했습니다. 「단 한 사람」 책을 충분히 둘러보세요. 다 보신 후 계속 진행하시려면 "오케이"라고 말씀하시거나 OK 사인을 보내주세요.'
+    )
   })
 })

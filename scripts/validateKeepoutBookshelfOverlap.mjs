@@ -7,7 +7,7 @@ const LAYER_PATH = resolve(ROOT, 'src', 'data', 'bookshelfOverlayLayer.ts')
 const OUT_PATH = resolve(ROOT, 'map_info', 'keepout_bookshelf_overlap_validation.png')
 
 const source = readFileSync(LAYER_PATH, 'utf-8')
-const match = source.match(/const KEEPOUT_MASK_BOOKSHELVES:[^\n]+ = (\[.*\])\n/)
+const match = source.match(/const KEEPOUT_MASK_BOOKSHELVES:[^\n]+ = (\[.*\])/)
 if (!match) throw new Error(`Could not parse KEEPOUT_MASK_BOOKSHELVES from ${LAYER_PATH}`)
 
 const shelves = JSON.parse(match[1])

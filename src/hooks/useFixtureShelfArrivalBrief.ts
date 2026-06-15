@@ -1,10 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import {
   AGENT_MAP_EVENT_VERSION,
+  dispatchPauseMobility,
   subscribeDwellEvent,
   subscribeMapCommand,
 } from '../agent/runtime/agentEventBus'
-import { DEMO_BOOKS } from '../data/demoScenario'
+import type { AgentContext } from '../agent/types'
+import { isDemoMode } from '../config/demoMode'
+import { DEMO_BOOKS, type DemoBookKey } from '../data/demoScenario'
 import { resolveFixtureBookForShelfArrival } from '../data/fixtureRobotRoute'
 import type { PipelineItem } from './chatAgent/assistantOutputPipeline'
 import { buildBookArrivalBriefItems } from './chatAgent/bookArrivalBrief'
@@ -12,6 +15,9 @@ import { claimArrivalEvent } from '../utils/arrivalDedupe'
 
 export type UseFixtureShelfArrivalBriefDeps = {
   enqueueAssistantMany: (items: PipelineItem[]) => Promise<void>
+  appendAssistant: (text: string) => Promise<void>
+  contextRef: RefObject<AgentContext>
+  setContext: (patch: Partial<AgentContext>) => void
 }
 
 export function useFixtureShelfArrivalBrief(deps: UseFixtureShelfArrivalBriefDeps): void {
@@ -49,8 +55,32 @@ export function useFixtureShelfArrivalBrief(deps: UseFixtureShelfArrivalBriefDep
       })
       if (!bookKey) return
 
+      if (bookKey === 'serendipity') return
+
       const def = DEMO_BOOKS[bookKey]
-      void depsRef.current.enqueueAssistantMany(buildBookArrivalBriefItems(def, event.legIndex))
+      const runDwellDialogue = isDemoMode()
+
+      if (runDwellDialogue) {
+        dispatchPauseMobility()
+        depsRef.current.setContext({
+          dwellDialogueActiveBookKey: bookKey as DemoBookKey,
+          dwellDialogueStep: null,
+          mobilityPaused: true,
+        })
+      }
+
+      void (async () => {
+        await depsRef.current.enqueueAssistantMany(
+          buildBookArrivalBriefItems(def, event.legIndex, {
+            holdMobilityAfterBrief: runDwellDialogue,
+          }),
+        )
+        if (!runDwellDialogue) return
+        depsRef.current.setContext({ dwellDialogueStep: 'intro' })
+        await depsRef.current.appendAssistant(
+          `「${def.title}」 서가에 도착했습니다. 책을 한번 보시겠어요? 어떠신가요?`,
+        )
+      })()
     })
   }, [])
 }

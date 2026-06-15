@@ -4,9 +4,13 @@ import {
   publishVersoResume,
   publishVersoStop,
 } from '../../lib/verso/versoMobilityCommands'
+import { isDemoMode } from '../../config/demoMode'
 import { AGENT_MAP_EVENT_VERSION, dispatchMapCommand } from '../runtime/agentEventBus'
 import type { ToolDefinition } from './types'
 import { validateMobilityArgs } from './toolValidators'
+
+const DEMO_RESUME_HINT =
+  '데모 시나리오에서는 "오케이"라고 말씀하시거나 OK 사인으로 진행해 주세요.'
 
 export const mobilityControlTool: ToolDefinition = {
   name: 'mobilityControlTool',
@@ -27,6 +31,13 @@ export const mobilityControlTool: ToolDefinition = {
       }
     }
     if (action === 'resume') {
+      if (isDemoMode()) {
+        return {
+          ok: true,
+          toolName: 'mobilityControlTool',
+          message: DEMO_RESUME_HINT,
+        }
+      }
       ctx.setContext({ mobilityPaused: false })
       const published = publishVersoResume()
       return {
@@ -49,6 +60,13 @@ export const mobilityControlTool: ToolDefinition = {
       }
     }
     if (action === 'escort') {
+      if (isDemoMode()) {
+        return {
+          ok: true,
+          toolName: 'mobilityControlTool',
+          message: DEMO_RESUME_HINT,
+        }
+      }
       ctx.setContext({ mobilityPaused: false })
       const published = publishVersoEscort()
       dispatchMapCommand({ type: 'RESUME_MOBILITY', version: AGENT_MAP_EVENT_VERSION })

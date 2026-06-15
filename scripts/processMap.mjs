@@ -92,11 +92,14 @@ const STRAIGHTEN_WALL_THICKNESS_M = 0.08
 
 const MANUAL_POLYLINE_STRAIGHTENING = [
   { label: 'south room east diagonal wall', loopIndex: 0, start: [1.625, -18.954], end: [3.95, -12.079] },
-  { label: 'west wall protrusion shelf wall', loopIndex: 0, start: [-19.9, -4.579], end: [-18.8, 0.571] },
+  { label: 'west wall protrusion shelf wall committed loop', loopIndex: 0, start: [-22.35, -10.329], end: [-18.15, 0.571], startOverride: [-22.56, -10.329] },
+  { label: 'west wall protrusion shelf wall', loopIndex: 0, start: [-23.147, -11.13], end: [-17.597, -1.03], startOverride: [-23.35, -11.13] },
   { label: 'inner west room wall', loopIndex: 1, start: [-12.575, 15.596], end: [-15.65, 7.271] },
   { label: 'north west outer wall', loopIndex: 0, start: [-0.625, 14.046], end: [-13.675, 18.746] },
   { label: 'east corridor upper wall', loopIndex: 0, start: [42.125, -3.854], end: [9.675, 9.746] },
-  { label: 'east corridor lower wall', loopIndex: 0, start: [13.375, 5.546], end: [43.875, -8.054] },
+  { label: 'east corridor lower wall', loopIndex: 0, start: [13.375, 5.196], end: [43.875, -8.054], startOverride: [13.375, 5.096], endOverride: [43.875, -8.4] },
+  { label: 'west room bend wall committed loop', loopIndex: 0, start: [-20.5, 1.021], end: [-24.4, -9.679], endOverride: [-24.62, -9.679] },
+  { label: 'west room bend wall', loopIndex: 0, start: [-18.647, 0.47], end: [-23.35, -11.13] },
 ]
 
 const MANUAL_PHOTO_BOOKSHELF_ADDITIONS = [
@@ -1975,10 +1978,22 @@ function applyManualPolylineStraightening(polylines) {
   for (const spec of MANUAL_POLYLINE_STRAIGHTENING) {
     const loop = out[spec.loopIndex]
     if (!loop || loop.length < 3) continue
-    const replaced = replaceClosedLoopForwardRange(loop, spec.start, spec.end)
+    let replaced = replaceClosedLoopForwardRange(loop, spec.start, spec.end)
     if (!replaced || replaced.length < 3) {
       console.log(`  manual wall straightening skipped: ${spec.label}`)
       continue
+    }
+    if (spec.startOverride) {
+      const idx = replaced.findIndex(p => pointsNearlyEqual(p, spec.start))
+      if (idx >= 0) {
+        replaced[idx] = [...spec.startOverride]
+      }
+    }
+    if (spec.endOverride) {
+      const idx = replaced.findIndex(p => pointsNearlyEqual(p, spec.end))
+      if (idx >= 0) {
+        replaced[idx] = [...spec.endOverride]
+      }
     }
     out[spec.loopIndex] = replaced
     applied++

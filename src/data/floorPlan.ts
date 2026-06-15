@@ -60,7 +60,23 @@ export const wallRenderRects = wallRects
 export const floorFillRects: WallRect[] = []
 export const floorRenderRects = rawFloorRects
 export const floorRects = rawFloorRects
-export const pillarRects = rawPillarRects
+const MANUAL_PILLAR_SELECTION_RADIUS_M = 0.35
+const MANUAL_PILLAR_RADIUS_M = MANUAL_PILLAR_SELECTION_RADIUS_M / 2
+const MANUAL_PILLAR_REPLACE_RADIUS_M = MANUAL_PILLAR_SELECTION_RADIUS_M + MAP_RESOLUTION * 2
+
+const manualPillarRects: WallRect[] = [
+  { cx: 0.582, cz: 3.958, w: MANUAL_PILLAR_RADIUS_M * 2, d: MANUAL_PILLAR_RADIUS_M * 2 },
+  { cx: -1.732, cz: -1.769, w: MANUAL_PILLAR_RADIUS_M * 2, d: MANUAL_PILLAR_RADIUS_M * 2 },
+  { cx: -3.742, cz: -7.534, w: MANUAL_PILLAR_RADIUS_M * 2, d: MANUAL_PILLAR_RADIUS_M * 2 },
+]
+
+const rawPillarRectsOutsideManualAreas = rawPillarRects.filter((pillar) =>
+  !manualPillarRects.some((manual) =>
+    Math.hypot(pillar.cx - manual.cx, pillar.cz - manual.cz) <= MANUAL_PILLAR_REPLACE_RADIUS_M,
+  ),
+)
+
+export const pillarRects = [...rawPillarRectsOutsideManualAreas, ...manualPillarRects]
 export const wallPolylines = rawWallPolylines.filter(loop => loop.length >= 3)
 export const wallHolePolylines = rawWallHolePolylines.filter(loop => loop.length >= 3)
 

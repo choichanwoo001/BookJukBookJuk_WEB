@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 
 import ChatPanel from './ChatPanel'
 
@@ -23,6 +23,8 @@ import type { TasteSeed } from '../types/onboarding'
 import { subscribeMapCommand } from '../agent/runtime/agentEventBus'
 
 import { isDemoMode } from '../config/demoMode'
+
+import { resolveDemoActiveBook, shouldTrackDemoBrowseInterest } from '../lib/demoActiveBook'
 
 const Map3DView = lazy(() => import('./Map3DView'))
 
@@ -65,6 +67,18 @@ export function AppMainShell({
   const [activePane, setActivePane] = useState<'map' | 'chat'>('map')
 
   const agent = useChatAgent({ initialShoppingList: plannedBooks, tasteSeed })
+
+  const demoActiveBook = useMemo(
+    () =>
+      resolveDemoActiveBook({
+        dwellDialogueActiveBookKey: agent.context.dwellDialogueActiveBookKey,
+        transitDetourPhase: agent.context.transitDetourPhase,
+      }),
+    [agent.context.dwellDialogueActiveBookKey, agent.context.transitDetourPhase],
+  )
+
+  const demoDwellCountdownActive = Boolean(demoActiveBook)
+  const demoTrackBrowseInterest = shouldTrackDemoBrowseInterest(agent.context.transitDetourPhase)
 
 
 
@@ -139,10 +153,10 @@ export function AppMainShell({
       // Mobility gestures: publish set_mode directly (bypasses agent - LLM has no set_mode tool)
 
       if (gestureId === 'follow_me') {
+        publishVersoGuidance()
         if (isDemoMode() && agent.handleFollowMeDetour()) {
           return
         }
-        publishVersoGuidance()
         return
       }
 
@@ -219,6 +233,14 @@ export function AppMainShell({
             voiceArmRemainingMs={voice.armRemainingMs}
 
             voiceMicOn={voice.isMicOn}
+
+            demoActiveBook={demoActiveBook}
+
+            demoDwellCountdownActive={demoDwellCountdownActive}
+
+            demoTrackBrowseInterest={demoTrackBrowseInterest}
+
+            onDemoBookInterestDetected={agent.reportDemoBookInterest}
 
           />
 

@@ -90,6 +90,8 @@ const initialContextValue = (): AgentContext => ({
   recommendationDiversityRound: 0,
   pendingConfirmation: null,
   lastToolResult: null,
+  dwellDialogueActiveBookKey: null,
+  dwellDialogueStep: null,
 })
 
 const initialMessages: AgentMessage[] = []
@@ -233,6 +235,7 @@ export function useChatAgent(options: {
   useEffect(() => {
     return subscribeDwellEvent((event) => {
       if (event.type !== 'SHELF_ARRIVED') return
+      if (isDemoMode()) return
 
       // browse 스톱(단 한 사람)에 도착하면 타이머 없이 즉시 dwell 감지.
       // extendedRouteActive이면 이미 경로 확장이 완료된 상태이므로 재감지 건너뜀.
@@ -324,6 +327,7 @@ export function useChatAgent(options: {
         onTtsSpeakingChange: setPipelineTtsSpeaking,
         onMobilityHoldChange: applyMobilityHold,
         onResumeMobility: () => {
+          if (isDemoMode()) return
           publishVersoResume()
         },
       }),
@@ -494,7 +498,12 @@ export function useChatAgent(options: {
     setMessages((prev) => [...prev, message])
   }, [])
 
-  useFixtureShelfArrivalBrief({ enqueueAssistantMany })
+  useFixtureShelfArrivalBrief({
+    enqueueAssistantMany,
+    appendAssistant: appendAssistantAndStore,
+    contextRef,
+    setContext,
+  })
 
   /**
    * Shared post-execute pipeline used by both the `confirm` flow and the
@@ -569,6 +578,125 @@ export function useChatAgent(options: {
       setBusy(true)
       setLastFailedUserText(null)
       try {
+        // 1. Dwell Dialogue Step 1 ("어떠세요?" -> feedback)
+        if (
+          isDemoMode() &&
+          contextRef.current.dwellDialogueActiveBookKey &&
+          contextRef.current.dwellDialogueStep === 'intro'
+        ) {
+          const bookKey = contextRef.current.dwellDialogueActiveBookKey
+          const def = DEMO_BOOKS[bookKey]
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'unknown',
+            setMessages,
+          })
+
+          setContext({
+            dwellDialogueStep: 'feedback',
+          })
+
+          await appendAssistantAndStore(
+            `아라님이 ${def.authors} 작가의 따뜻한 문체를 좋아하실 줄 알았어요. 이 책을 장바구니에 담으시겠어요?`
+          )
+          return
+        }
+
+        // 2. Dwell Dialogue Step 2 ("사실건가요?" -> resume check)
+        if (
+          isDemoMode() &&
+          contextRef.current.dwellDialogueActiveBookKey &&
+          contextRef.current.dwellDialogueStep === 'feedback' &&
+          isProceedToken(intentText)
+        ) {
+          const bookKey = contextRef.current.dwellDialogueActiveBookKey
+          const def = DEMO_BOOKS[bookKey]
+          const isBookInCart = contextRef.current.cartItems.some(
+            (item) => item.booksId === def.fallbackBooksId
+          )
+
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'confirm',
+            setMessages,
+          })
+
+          if (isBookInCart) {
+            setContext({
+              dwellDialogueActiveBookKey: null,
+              dwellDialogueStep: null,
+              mobilityPaused: false,
+            })
+            publishVersoResume()
+            await appendAssistantAndStore('좋습니다. 다음 목적지로 안내를 계속할게요.')
+          } else {
+            await appendAssistantAndStore(
+              `아직 "${def.title}" 책이 장바구니에 담기지 않았습니다. 책 표지 인식이나 제스처로 책을 담으신 후 다시 "오케이"라고 말씀해주세요.`
+            )
+          }
+          return
+        }
+
+        // 3. Serendipity Shelf resume check
+        if (
+          isDemoMode() &&
+          contextRef.current.transitDetourPhase === 'serendipity_arrived' &&
+          isProceedToken(intentText)
+        ) {
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'confirm',
+            setMessages,
+          })
+
+          const serendipityId = DEMO_DWELL_BOOK.booksId
+          const isSerendipityInCart = contextRef.current.cartItems.some(
+            (item) => item.booksId === serendipityId
+          )
+
+          if (!isSerendipityInCart) {
+            const hadBrowseInterest =
+              contextRef.current.pendingDwellBook?.booksId === DEMO_DWELL_BOOK.booksId
+            if (!hadBrowseInterest) {
+              await appendAssistantAndStore(
+                `「${DEMO_DWELL_BOOK.title}」 책을 카메라로 충분히 살펴보신 뒤 다시 "오케이"라고 말씀해 주세요.`,
+              )
+              return
+            }
+            const dwellBook: DwellBookCandidate = {
+              booksId: DEMO_DWELL_BOOK.booksId,
+              title: DEMO_DWELL_BOOK.title,
+              authors: DEMO_DWELL_BOOK.authors,
+              detectedAt: Date.now(),
+              source: 'cover',
+            }
+            setContext({
+              transitDetourPhase: 'serendipity_dwell',
+              pendingDwellBook: dwellBook,
+              awaitingDwellFeedback: true,
+              mobilityPaused: true,
+            })
+            await appendAssistantAndStore(
+              `"${DEMO_DWELL_BOOK.title}" 책은 장바구니에 담지 않으셨네요. 어떤 점이 마음에 걸리셨는지 말씀해 주시면 그 책 기준으로 더 잘 맞는 책을 추천해드릴게요.`,
+            )
+          } else {
+            setContext({
+              transitDetourPhase: 'idle',
+              mobilityPaused: false,
+            })
+            const book2PoolIndex = DEMO_BOOKS.book2.poolIndex
+            dispatchSetDirectGoals(fixtureRobotDirectGoals([book2PoolIndex]))
+            dispatchStartNavigation()
+            await appendAssistantAndStore(
+              `"${DEMO_DWELL_BOOK.title}" 책을 장바구니에 담으셨군요! 원래 목적지인 "${DEMO_BOOKS.book2.title}" 서가로 다시 출발하겠습니다.`
+            )
+          }
+          return
+        }
+
         const cartForNav =
           contextRef.current.cartItems.length > 0
             ? contextRef.current.cartItems
@@ -771,6 +899,13 @@ export function useChatAgent(options: {
         }
 
         if (mergedIntent.type === 'resume_mobility') {
+          if (isDemoMode()) {
+            await appendAssistantAndStore(
+              '데모 시나리오에서는 "오케이"라고 말씀하시거나 OK 사인으로 진행해 주세요.',
+            )
+            recordIntentOutcome('resume_mobility', false)
+            return
+          }
           const dwellBook = contextRef.current.pendingDwellBook
           const cart = contextRef.current.cartItems.length > 0 ? contextRef.current.cartItems : contextRef.current.shoppingList
           const isInCart = dwellBook ? cart.some((item) => item.booksId === dwellBook.booksId) : false
@@ -792,6 +927,11 @@ export function useChatAgent(options: {
         }
 
         if (mergedIntent.type === 'select_browse_mode') {
+          if (isDemoMode()) {
+            await appendAssistantAndStore('데모 시나리오에서는 안내에 따라 진행해 주세요.')
+            recordIntentOutcome('select_browse_mode', false)
+            return
+          }
           setContext({ listType: '쇼핑리스트' })
           await appendAssistantAndStore(
             '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 필요하면 "추천해줘"라고 말해 주세요. 마음에 들면 쇼핑리스트에 담을 수 있어요.',
@@ -1044,6 +1184,24 @@ export function useChatAgent(options: {
     setContext({ kakaoPaySession: null, checkoutStatus: 'idle' })
   }, [setContext])
 
+  const reportDemoBookInterest = useCallback(
+    (book: { title: string; author?: string }) => {
+      if (!isDemoMode()) return
+      if (contextRef.current.transitDetourPhase !== 'serendipity_arrived') return
+      const def = findDemoBookByTitle(book.title)
+      if (!def || def.key !== 'serendipity') return
+      const dwellBook: DwellBookCandidate = {
+        booksId: def.fallbackBooksId,
+        title: def.title,
+        authors: def.authors,
+        detectedAt: Date.now(),
+        source: 'cover',
+      }
+      setContext({ pendingDwellBook: dwellBook })
+    },
+    [setContext],
+  )
+
   return {
     messages,
     submitUserText,
@@ -1053,6 +1211,7 @@ export function useChatAgent(options: {
     applyBookGestureDecision,
     applyBookBrowseCapture,
     handleFollowMeDetour,
+    reportDemoBookInterest,
     startKakaoPayCheckout,
     confirmKakaoPayCheckout,
     cancelKakaoPayCheckout,

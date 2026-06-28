@@ -1,8 +1,14 @@
 import { MIN_FIXTURE_PLAN_M, MAX_FIXTURE_PLAN_M } from '../config/constants'
-import type { FixtureRenderInstance } from '../types/scene'
+import type { FixtureRenderInstance, EditTool } from '../types/scene'
+import type { Point2 } from '../data/floorPlan'
+import type { WallSegmentRef } from '../utils/wallSelectBetweenPoints'
 
 function radToDeg(rad: number) {
   return (rad * 180) / Math.PI
+}
+
+function formatPoint(point: Point2) {
+  return `(${point[0].toFixed(3)}, ${point[1].toFixed(3)})`
 }
 
 export function BookshelfEditPanel({
@@ -11,6 +17,10 @@ export function BookshelfEditPanel({
   selected,
   selectedIndex,
   setSelectedIndex,
+  wallSelectPointA,
+  wallSelectPointB,
+  wallSelectSegments,
+  onClearWallSelect,
   onAdd,
   onDelete,
   onUpdateW,
@@ -22,11 +32,15 @@ export function BookshelfEditPanel({
   onCopyChanged,
   onCopyAll,
 }: {
-  editTool: 'areaSelection' | 'bookshelfEdit'
-  setEditTool: (tool: 'areaSelection' | 'bookshelfEdit') => void
+  editTool: EditTool
+  setEditTool: (tool: EditTool) => void
   selected: FixtureRenderInstance | null
   selectedIndex: number | null
   setSelectedIndex: (index: number | null) => void
+  wallSelectPointA: Point2 | null
+  wallSelectPointB: Point2 | null
+  wallSelectSegments: WallSegmentRef[]
+  onClearWallSelect: () => void
   onAdd: () => void
   onDelete: () => void
   onUpdateW: (v: number) => void
@@ -59,8 +73,56 @@ export function BookshelfEditPanel({
         >
           책장 편집
         </button>
+        <button
+          type="button"
+          data-active={editTool === 'wallSelect'}
+          onClick={() => {
+            setEditTool('wallSelect')
+            setSelectedIndex(null)
+          }}
+        >
+          벽 선택
+        </button>
       </div>
-      {selected !== null && selectedIndex !== null ? (
+      {editTool === 'wallSelect' ? (
+        <div className="editPanelBody">
+          <div className="editPanelHint">
+            바닥을 클릭해 두 점을 찍으면 그 사이 벽이 강조됩니다. 세 번째 클릭은 새 구간을 시작합니다.
+          </div>
+          <div className="editPanelRow">
+            <span className="editLabel">점 A</span>
+            <span className="editValue">{wallSelectPointA ? formatPoint(wallSelectPointA) : '—'}</span>
+          </div>
+          <div className="editPanelRow">
+            <span className="editLabel">점 B</span>
+            <span className="editValue">{wallSelectPointB ? formatPoint(wallSelectPointB) : '—'}</span>
+          </div>
+          <div className="editPanelRow">
+            <span className="editLabel">인식된 벽</span>
+            <span className="editValue">
+              {wallSelectPointA && wallSelectPointB
+                ? wallSelectSegments.length > 0
+                  ? `${wallSelectSegments.length}개 세그먼트`
+                  : '없음'
+                : '—'}
+            </span>
+          </div>
+          {wallSelectSegments.length > 0 && (
+            <div className="editPanelWallList">
+              {wallSelectSegments.map((segment) => (
+                <div key={`${segment.loopIndex}-${segment.segmentIndex}`} className="editPanelWallItem">
+                  <span>#{segment.loopIndex}:{segment.segmentIndex}</span>
+                  <span>{segment.length.toFixed(2)}m</span>
+                  <span>겹침 {segment.overlapM.toFixed(2)}m</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="editPanelActions">
+            <button type="button" onClick={onClearWallSelect}>선택 초기화</button>
+          </div>
+        </div>
+      ) : selected !== null && selectedIndex !== null ? (
         <div className="editPanelBody">
           <div className="editPanelRow">
             <span className="editLabel">#{selectedIndex}</span>

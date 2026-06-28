@@ -19,6 +19,7 @@ function publishReadyNavSync(overrides: Partial<Parameters<typeof publishNavigat
     isWalkMode: true,
     navigationSpawnReady: true,
     ttsSpeaking: false,
+    mobilityHold: false,
     ...overrides,
   })
 }
@@ -49,7 +50,7 @@ describe('createAssistantOutputPipeline', () => {
     pipeline.dispose()
   })
 
-  it('starts speech hold before appending a narratable message', async () => {
+  it('appends chat text before starting narrated speech', async () => {
     const appendAssistant = vi.fn(async () => undefined)
     const speakAndWait = vi.fn(async () => undefined)
     const onTtsSpeakingChange = vi.fn()
@@ -62,15 +63,16 @@ describe('createAssistantOutputPipeline', () => {
 
     await pipeline.enqueue({ text: '안내를 시작할게요.', gate: { kind: 'immediate' } })
 
-    expect(onTtsSpeakingChange).toHaveBeenNthCalledWith(1, true)
-    expect(onTtsSpeakingChange.mock.invocationCallOrder[0]).toBeLessThan(
-      appendAssistant.mock.invocationCallOrder[0],
+    expect(appendAssistant.mock.invocationCallOrder[0]).toBeLessThan(
+      onTtsSpeakingChange.mock.invocationCallOrder[0],
     )
+    expect(onTtsSpeakingChange).toHaveBeenNthCalledWith(1, true)
     expect(onTtsSpeakingChange).toHaveBeenLastCalledWith(false)
     pipeline.dispose()
   })
 
   it('waits for on_shelf_arrived gate before delivering', async () => {
+    vi.useFakeTimers()
     const appendAssistant = vi.fn(async () => undefined)
     const pipeline = createAssistantOutputPipeline({
       appendAssistant,
@@ -94,9 +96,11 @@ describe('createAssistantOutputPipeline', () => {
     })
     publishReadyNavSync({ activeLeg: 0 })
 
+    await vi.advanceTimersByTimeAsync(10_000)
     await pending
     expect(appendAssistant).toHaveBeenCalledWith('서가에 도착했어요.', undefined)
     pipeline.dispose()
+    vi.useRealTimers()
   })
 
   it('delivers transit message after walk_started for a leg', async () => {
@@ -113,7 +117,7 @@ describe('createAssistantOutputPipeline', () => {
     })
 
     publishReadyNavSync({
-      mobilityPhase: 'intro',
+      mobilityPhase: 'calculating',
       isAutoWalking: false,
       activeLeg: 0,
     })
@@ -129,5 +133,106 @@ describe('createAssistantOutputPipeline', () => {
     await pending
     expect(appendAssistant).toHaveBeenCalledWith('이동 중 소개', undefined)
     pipeline.dispose()
+  })
+
+  it('sets mobility hold immediately when shelf dwell event fires', async () => {
+    const onMobilityHoldChange = vi.fn()
+    const pipeline = createAssistantOutputPipeline({
+      appendAssistant: vi.fn(async () => undefined),
+      speakAndWait: vi.fn(async () => undefined),
+      isTtsEnabled: () => false,
+      onMobilityHoldChange,
+    })
+
+    void pipeline.enqueue({
+      text: '서가에 도착했어요.',
+      gate: { kind: 'on_shelf_arrived', leg: 0 },
+    })
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 0,
+      poolIndex: 1,
+    })
+
+    expect(onMobilityHoldChange).toHaveBeenCalledWith(true)
+    pipeline.dispose()
+  })
+
+  it('sets mobility hold around destination arrival narration', async () => {
+    vi.useFakeTimers()
+    const appendAssistant = vi.fn(async () => undefined)
+    const onMobilityHoldChange = vi.fn()
+    const pipeline = createAssistantOutputPipeline({
+      appendAssistant,
+      speakAndWait: vi.fn(async () => undefined),
+      isTtsEnabled: () => true,
+      onMobilityHoldChange,
+    })
+
+    const pending = pipeline.enqueue({
+      text: '서가에 도착했어요.',
+      gate: { kind: 'on_shelf_arrived', leg: 0 },
+    })
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 0,
+      poolIndex: 1,
+    })
+    publishReadyNavSync({ activeLeg: 0 })
+
+    expect(onMobilityHoldChange).toHaveBeenNthCalledWith(1, true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await pending
+    expect(onMobilityHoldChange).toHaveBeenLastCalledWith(false)
+    pipeline.dispose()
+    vi.useRealTimers()
+  })
+
+  it('keeps mobility hold through batched shelf brief messages', async () => {
+    vi.useFakeTimers()
+    const onMobilityHoldChange = vi.fn()
+    const pipeline = createAssistantOutputPipeline({
+      appendAssistant: vi.fn(async () => undefined),
+      speakAndWait: vi.fn(async () => undefined),
+      isTtsEnabled: () => false,
+      onMobilityHoldChange,
+    })
+
+    const pending = pipeline.enqueueMany([
+      {
+        text: '첫 안내',
+        gate: { kind: 'on_shelf_arrived', leg: 0 },
+        mobilityHoldThrough: true,
+      },
+      {
+        text: '둘째 안내',
+        gate: { kind: 'immediate' },
+        mobilityHoldThrough: true,
+      },
+      {
+        text: '셋째 안내',
+        gate: { kind: 'immediate' },
+      },
+    ])
+
+    dispatchDwellEvent({
+      type: 'SHELF_ARRIVED',
+      version: AGENT_MAP_EVENT_VERSION,
+      legIndex: 0,
+      poolIndex: 1,
+    })
+    publishReadyNavSync({ activeLeg: 0 })
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await pending
+    expect(onMobilityHoldChange).toHaveBeenNthCalledWith(1, true)
+    expect(onMobilityHoldChange).toHaveBeenCalledTimes(3)
+    expect(onMobilityHoldChange).toHaveBeenLastCalledWith(false)
+    pipeline.dispose()
+    vi.useRealTimers()
   })
 })

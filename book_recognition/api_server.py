@@ -33,6 +33,15 @@ app.add_middleware(
 )
 
 
+def _log(message: str) -> None:
+    print(f"[BOOK-ID-API] {message}", flush=True)
+
+
+@app.get("/health")
+def health() -> dict[str, bool]:
+    return {"ok": True}
+
+
 class IdentifyRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -91,8 +100,14 @@ def _book_to_result(
 def identify_post(body: IdentifyRequest) -> IdentifyResponse:
     has_img = bool(body.imageBase64 and str(body.imageBase64).strip())
     hint = (body.hintText or "").strip()
+    _log(
+        "identify 요청: "
+        f"reason={body.reason}, has_img={has_img}, "
+        f"hint={'yes' if hint else 'no'}, image_chars={len(body.imageBase64 or '')}"
+    )
 
     if not has_img and not hint:
+        _log("실패: imageBase64와 hintText가 모두 비어 있음")
         raise HTTPException(
             status_code=400,
             detail="imageBase64 또는 hintText 중 하나는 필요합니다.",
@@ -102,30 +117,41 @@ def identify_post(body: IdentifyRequest) -> IdentifyResponse:
         try:
             frame = _bgr_from_base64(str(body.imageBase64))
         except (ValueError, OSError) as e:
+            _log(f"실패: 이미지 디코딩 실패 error={e!s}")
             return _book_to_result(
                 False,
                 None,
                 f"이미지를 디코딩할 수 없습니다: {e!s}",
                 "IMAGE_DECODE_ERROR",
             )
+        _log(f"이미지 디코딩 성공: shape={getattr(frame, 'shape', None)}")
 
         book = identify_book(frame)
         if book is None:
+            _log("실패: ORB 매칭 실패 errorCode=BOOK_NOT_RECOGNIZED")
             return IdentifyResponse(
                 ok=False,
                 message="책 표지를 ORB로 매칭하지 못했습니다. 힌트(제목)로 검색해 보세요.",
                 errorCode="BOOK_NOT_RECOGNIZED",
             )
+        _log(
+            "성공: "
+            f"title='{book.get('title')}', isbn13={book.get('isbn13')}, "
+            f"author='{book.get('author')}'"
+        )
         return _book_to_result(True, book, "인식 성공", None)
 
     # hint only — 알라딘 검색 (ORB 생략)
+    _log(f"힌트 검색 시작: hint='{hint}'")
     book = search_aladin(hint)
     t = (str(book.get("title") or "")).strip()
     isbn = book.get("isbn13")
     if not t and not isbn:
+        _log(f"실패: 힌트 검색 결과 없음 hint='{hint}'")
         return IdentifyResponse(
             ok=False,
             message="검색 결과가 없습니다. 다른 키워드를 시도해 주세요.",
             errorCode="HINT_NO_RESULT",
         )
+    _log(f"힌트 검색 성공: title='{book.get('title')}', isbn13={book.get('isbn13')}")
     return _book_to_result(True, book, f'"{hint}"(으)로 검색했어요.', None)

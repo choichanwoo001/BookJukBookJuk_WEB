@@ -2,45 +2,19 @@ import { MeshStandardMaterial } from 'three'
 import { FLOOR_HEIGHT_M } from '../data/floorPlan'
 
 // --- Camera ---
-export const THIRD_PERSON_DISTANCE_M = 4.2
-export const THIRD_PERSON_TARGET_HEIGHT_M = 1.0 * (1.55 / 1.65)
-export const THIRD_PERSON_LOOK_AHEAD_M = 1.2
-export const THIRD_PERSON_MIN_CAMERA_Y_M = 1.72 * (1.55 / 1.65)
-export const THIRD_PERSON_MAX_CAMERA_Y_M = FLOOR_HEIGHT_M - 0.22
-export const THIRD_PERSON_LOCKED_PITCH = -0.5
-/** 이동 중 카메라 요(yaw)를 캐릭터 앞방향에 맞출 때 지수 보간 계수 (초당). */
-export const THIRD_PERSON_FOLLOW_YAW_LAMBDA = 14
-/** 3인칭 WASD 중 A/D 시점 회전 속도 (라디안/초). */
-export const THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC = 1.35
+/** 탑뷰(이동/내비) 기본 카메라 높이 — overview(Y=50)보다 zoom in. */
+export const TOP_DOWN_CAMERA_Y_M = 10
+export const TOP_DOWN_Y_MIN = 7
+export const TOP_DOWN_Y_MAX = 18
+export const TOP_DOWN_DEFAULT_FOV = 52
+export const TOP_DOWN_ZOOM_SENSITIVITY = 0.03
+/** 이동 중 카메라 yaw를 진행 방향에 맞출 때 지수 보간 계수 (초당). */
+export const TOP_DOWN_FOLLOW_YAW_LAMBDA = 14
+/** 로봇 follow 시 탑뷰 yaw 보간 (초당). */
+export const TOP_DOWN_ROBOT_FOLLOW_YAW_LAMBDA = 9
+/** 탑뷰 WASD 중 A/D 시점 회전 속도 (라디안/초). */
+export const TOP_DOWN_KEYBOARD_YAW_RAD_PER_SEC = 1.35
 
-/** 1인칭 카메라 높이 (바닥 기준, m). 키 1.55m 캐릭터의 눈높이. */
-export const FIRST_PERSON_EYE_HEIGHT_M = 1.55 * (1.55 / 1.65)
-/** 1인칭 기본 시선 (라디안, 약간 아래). */
-export const FIRST_PERSON_DEFAULT_PITCH = -0.06
-export const FIRST_PERSON_PITCH_MIN = -1.35
-export const FIRST_PERSON_PITCH_MAX = 0.62
-
-export const MOUSE_LOOK_SENSITIVITY = 0.0032
-export const MOUSE_LOOK_PITCH_MIN = -1.2
-export const MOUSE_LOOK_PITCH_MAX = -0.56
-
-export const ZOOM_FOV_MIN = 42
-export const ZOOM_FOV_MAX = 62
-export const ZOOM_FOV_SENSITIVITY = 0.02
-export const WALK_DEFAULT_FOV = 64
-/** 3인칭 기본 FOV (1인칭·전체 보기 64°와 분리). */
-export const THIRD_PERSON_DEFAULT_FOV = 52
-/** 3인칭 하단 버튼으로 FOV를 바꿀 때 한 번에 바뀌는 각도(도). */
-export const WALK_FOV_BUTTON_STEP = 2
-/** 3인칭 가림 반투명: 최종 불투명도 (낮을수록 더 투명). */
-export const THIRD_PERSON_OCCLUDER_OPACITY = 0.5
-/** 3인칭 가림 레이: 카메라 주변 오프셋(m). 얇은 벽·단일 레이 미스 보완. */
-export const THIRD_PERSON_OCCLUSION_RAY_OFFSET_M = 0.30
-/** 앵커(플레이어 높이) 주변 끝점 cone 오프셋(m). 카메라–앵커 직선이 벽을 비껴가도 가림 탐지.
- * 값이 너무 크면 플레이어 옆 벽까지 레이가 도달해 오탐이 발생하므로 작게 유지. */
-export const THIRD_PERSON_OCCLUSION_ANCHOR_CONE_M = 0.10
-/** 연속 이 프레임만 레이 미스일 때 페이드 해제 (히스테리시스). */
-export const THIRD_PERSON_OCCLUSION_RELEASE_DELAY_FRAMES = 5
 export const OVERVIEW_ZOOM_SENSITIVITY = 0.05
 export const OVERVIEW_Y_MIN = 10
 export const OVERVIEW_Y_MAX = 120
@@ -48,16 +22,20 @@ export const OVERVIEW_Y_MAX = 120
 export const MAP_VIEW_YAW_OFFSET_RAD = 0
 /** 로봇 /verso/status heading → 웹 yaw 보정(라디안). 현장 테스트 후 조정. */
 export const VERSO_ROBOT_HEADING_OFFSET_RAD = 0
+export const ROBOT_POSITION_SMOOTHING = 18
+export const ROBOT_HEADING_SMOOTHING = 16
+export const ROBOT_BODY_YAW_SMOOTHING = 18
+/** 소프트 follow 구간; 이보다 크면 초기 진입·재연결 시 스냅. */
+export const ROBOT_SYNC_SNAP_DISTANCE_M = 1.5
+export const ROBOT_SYNC_HARD_SNAP_DISTANCE_M = 2.5
+export const ROBOT_MOVE_DIRECTION_EPSILON_M = 0.01
+/** mock 로봇 경로 보행 속도 (m/s). WALK_SPEED_MPS와 분리. */
+export const ROBOT_MOCK_ROUTE_SPEED_MPS = 1.6
+/** 실로봇 status extrapolation·화면 follow 속도 상한 (m/s). */
+export const ROBOT_DISPLAY_MAX_SPEED_MPS = 1.8
+/** mock/rosbridge UI용 lastStatus 갱신 최소 간격 (ms). 실로봇 /verso/status 1Hz와 동일. */
+export const ROBOT_MOCK_UI_STATUS_INTERVAL_MS = 1000
 
-// --- Player ---
-/** 목표 플레이어 키 (m). */
-export const PLAYER_HEIGHT_M = 1.55
-/** 휴머노이드 모델 제작 기준 키 (m). */
-export const PLAYER_MODEL_HEIGHT_M = 1.65
-/** 모델(1.65m) → 목표 키(1.55m) 스케일 비율. */
-export const PLAYER_SIZE_RATIO = PLAYER_HEIGHT_M / PLAYER_MODEL_HEIGHT_M
-export const PLAYER_SCALE = PLAYER_SIZE_RATIO
-export const THIRD_PERSON_PLAYER_SCALE_MULT = 1.0
 export const DEFAULT_BOOKSHELF_SIZE = { w: 1.8, d: 0.85, h: FLOOR_HEIGHT_M * 0.78 }
 
 /** Min/max for editable fixture width & depth (m) in edit mode. */
@@ -86,6 +64,12 @@ export const NAV_GOAL_MARGIN_M = 0.55
 export const NAV_SEGMENT_SAMPLE_STEP_M = 0.1
 /** 표시용 곡선 리샘플 간격 (m). */
 export const NAV_PATH_DISPLAY_SAMPLE_STEP_M = 0.12
+/** 자동 보행 중 yaw가 목표 heading으로 수렴하는 지수 보간 계수(초당). 낮을수록 부드럽고 느림. */
+export const NAV_HEADING_SMOOTH_LAMBDA = 10
+/** 자동 보행 heading을 이 거리(m)만큼 앞 지점 기준으로 산출 — 코너 진입 전 미리 방향 전환. */
+export const NAV_HEADING_LOOK_AHEAD_M = 0.8
+/** 자동 보행 경로 모드 위치 lerp 계수(초당). 클수록 목표 지점에 빠르게 따라붙음. */
+export const NAV_POSITION_SMOOTH_LAMBDA = 20
 /** Catmull-Rom control point 최소 간격 (m). */
 export const NAV_PATH_SMOOTH_MIN_POINT_SPACING_M = 0.35
 /** 바닥 경로 라인 두께 (픽셀, drei Line). */
@@ -100,9 +84,8 @@ export const NAV_LINE_COLOR_BRIGHT = '#fff06a'
 export const NAV_LINE_COLOR_HIGHLIGHT_FAR = '#5ee7ff'
 export const NAV_ROUTE_Y = 0.08
 
-// --- Scenario route playback (미리보기 자동 이동) ---
-export const SCENARIO_PLAYBACK_SPEED_MPS = 3.5
-export const SCENARIO_STOP_DWELL_S = 1.2
+/** 목적지(서가·계산대) 도착 후 TTS 시작 전 대기 시간 (ms). */
+export const DESTINATION_ARRIVAL_PAUSE_MS = 10_000
 
 // --- Overview Pan ---
 export const OVERVIEW_PAN_SPEED = 0.002
@@ -117,30 +100,10 @@ export const SURFACE_WALL_OVERLAP_M = 0.04
 export const WALL_SEGMENT_THICKNESS_M = 0.06
 export const FIXED_SELECTION_RADIUS_M = 0.35
 
-// --- Gait Animation ---
-export const GAIT_BASE_SPEED = 4
-export const GAIT_SPEED_MULTIPLIER = 1.8
-export const GAIT_MAX_SPEED_ADD = 8
-export const GAIT_SWING_AMPLITUDE = 0.52
-export const GAIT_BOB_AMPLITUDE = 0.035
-export const GAIT_MOVE_THRESHOLD = 0.03
-
 // --- Materials ---
 export const wallMaterial = new MeshStandardMaterial({ color: '#F5F0E8', roughness: 0.92, metalness: 0.0, side: 2 })
-/** 입구 문틀 (벽보다 어두운 목재톤). */
-export const entranceDoorFrameMaterial = new MeshStandardMaterial({
-  color: '#4A4238',
-  roughness: 0.82,
-  metalness: 0.04,
-  side: 2,
-})
-/** 입구 문패널. */
-export const entranceDoorLeafMaterial = new MeshStandardMaterial({
-  color: '#5C4030',
-  roughness: 0.76,
-  metalness: 0.05,
-  side: 2,
-})
+
+
 export const bookshelfMaterial = new MeshStandardMaterial({ color: '#8E5C42', roughness: 0.78, metalness: 0.02, side: 2 })
 
 /** 맵 차이와 같이 토글되는 후보 책장 오버레이 (본편 책장과 구분). */
@@ -247,20 +210,21 @@ export const displayLowMaterial = new MeshStandardMaterial({ color: '#A1887F', r
 export const pillarMaterial = new MeshStandardMaterial({ color: '#D9D0C3', roughness: 0.86, metalness: 0.0, side: 2 })
 export const floorMaterial = new MeshStandardMaterial({ color: '#B5885A', roughness: 0.85, metalness: 0.02, side: 2 })
 export const ceilingMaterial = new MeshStandardMaterial({ color: '#EDE8DE', roughness: 0.88, metalness: 0.0, side: 2 })
-export const playerMaterial = new MeshStandardMaterial({ color: '#2B2B2B', roughness: 0.85, metalness: 0.0 })
-/** 휴머노이드 피부 (머리·목·손). */
-export const playerSkinMaterial = new MeshStandardMaterial({ color: '#E8B894', roughness: 0.72, metalness: 0.0 })
-/** 휴머노이드 머리카락. */
-export const playerHairMaterial = new MeshStandardMaterial({ color: '#3B2A1E', roughness: 0.85, metalness: 0.0 })
-/** 휴머노이드 상의 (서점 분위기에 맞는 차분한 청록). */
-export const playerShirtMaterial = new MeshStandardMaterial({ color: '#3E6B6B', roughness: 0.82, metalness: 0.0 })
-/** 휴머노이드 하의. */
-export const playerPantsMaterial = new MeshStandardMaterial({ color: '#3A3D45', roughness: 0.85, metalness: 0.0 })
-/** 휴머노이드 신발. */
-export const playerShoesMaterial = new MeshStandardMaterial({ color: '#1E1E1E', roughness: 0.6, metalness: 0.05 })
-/** 스틱맨 머리 앞쪽 눈·입 등 표시용 (앞방향 구분, 피부 위에서 보이도록 어두운 색). */
-export const playerFaceFeatureMaterial = new MeshStandardMaterial({ color: '#2A2024', roughness: 0.6, metalness: 0.0 })
 export const markerMaterial = new MeshStandardMaterial({ color: '#c9a56a', emissive: '#5c4020', emissiveIntensity: 0.35 })
+export const topDownPlayerMaterial = new MeshStandardMaterial({ color: '#fff06a', emissive: '#fff06a', emissiveIntensity: 0.45 })
 export const areaMaterial = new MeshStandardMaterial({ color: '#c9a56a', transparent: true, opacity: 0.28 })
+export const wallSelectMarkerMaterial = new MeshStandardMaterial({ color: '#5ec8ff', emissive: '#1a6a99', emissiveIntensity: 0.45 })
+export const wallSelectPreviewLineMaterial = new MeshStandardMaterial({ color: '#5ec8ff' })
+export const wallSelectHighlightMaterial = new MeshStandardMaterial({
+  color: '#ff6b4a',
+  emissive: '#992a12',
+  emissiveIntensity: 0.35,
+  transparent: true,
+  opacity: 0.72,
+  depthWrite: false,
+})
 export const selectedOverlayMaterial = new MeshStandardMaterial({ color: '#e6be5a', transparent: true, opacity: 0.35, depthWrite: false, side: 2 })
 export const selectedWireMaterial = new MeshStandardMaterial({ color: '#e6be5a', wireframe: true, transparent: true, opacity: 0.7, side: 2 })
+
+/** 카카오페이 데모 결제 — 권당 고정가 (원). env `VITE_KAKAO_PAY_DEMO_BOOK_PRICE_KRW`로 덮어쓸 수 있음. */
+export const KAKAO_PAY_DEMO_BOOK_PRICE_KRW = 15_000

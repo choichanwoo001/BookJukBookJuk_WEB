@@ -1,46 +1,38 @@
-import { useEffect, useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AppMainShell } from './components/AppMainShell'
+import { MapDevShell } from './components/MapDevShell'
+import { isMapDevMode } from './config/mapDevMode'
 import BalanceGameGate from './components/BalanceGameGate'
+import TasteAnalysisGate from './components/TasteAnalysisGate'
 import QrLoginGate from './components/QrLoginGate'
 import SimilarReadersGate from './components/SimilarReadersGate'
 import VisitChoiceGate from './components/VisitChoiceGate'
 import LlmRequiredGate from './components/LlmRequiredGate'
 import SessionStartGate from './components/SessionStartGate'
+import OnboardingChrome from './components/OnboardingChrome'
 import { clearCurrentWebSession } from './lib/supabase/qrLogin'
 import { demoRequiresLlm, isDemoMode, isLlmConfigured } from './config/demoMode'
+import { useFullscreen } from './hooks/useFullscreen'
 import type { ShoppingListEntry } from './agent/types'
 import type { OnboardingStep, TasteSeed } from './types/onboarding'
 import './styles/layout.css'
 
-function App() {
+function AppOnboardingShell() {
   const [usersId, setUsersId] = useState<string | null>(null)
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('visit_choice')
   const [tasteSeed, setTasteSeed] = useState<TasteSeed | null>(null)
   const [plannedBooks, setPlannedBooks] = useState<ShoppingListEntry[]>([])
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement))
+  const { isFullscreen, toggleFullscreen, fullscreenSupported } = useFullscreen()
 
-  useEffect(() => {
-    const syncFullscreenState = () => {
-      setIsFullscreen(Boolean(document.fullscreenElement))
-    }
-    document.addEventListener('fullscreenchange', syncFullscreenState)
-    return () => {
-      document.removeEventListener('fullscreenchange', syncFullscreenState)
-    }
-  }, [])
-
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenEnabled) return
-      if (document.fullscreenElement) {
-        await document.exitFullscreen()
-        return
-      }
-      await document.documentElement.requestFullscreen()
-    } catch (error) {
-      console.warn('[fullscreen] toggle failed', error)
-    }
-  }
+  const wrapOnboarding = (content: ReactNode) => (
+    <OnboardingChrome
+      isFullscreen={isFullscreen}
+      onToggleFullscreen={() => void toggleFullscreen()}
+      fullscreenSupported={fullscreenSupported}
+    >
+      {content}
+    </OnboardingChrome>
+  )
 
   const resetOnboarding = () => {
     clearCurrentWebSession()
@@ -52,6 +44,10 @@ function App() {
 
   const enterApp = () => {
     setOnboardingStep('app')
+  }
+
+  const enterSessionStart = () => {
+    setOnboardingStep('session_start')
   }
 
   const addPlannedBooks = (books: ShoppingListEntry[]) => {
@@ -73,33 +69,41 @@ function App() {
   }
 
   if (onboardingStep === 'visit_choice') {
-    return (
+    return wrapOnboarding(
       <VisitChoiceGate
         onSelect={(nextVisitType) => {
           setOnboardingStep(nextVisitType === 'first' ? 'balance_game' : 'qr_login')
         }}
-      />
+      />,
     )
   }
 
+  const goToReaderRecommendations = () => {
+    if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
+      setOnboardingStep('llm_required')
+    } else {
+      setOnboardingStep('similar_readers')
+    }
+  }
+
   if (onboardingStep === 'balance_game') {
-    return (
+    return wrapOnboarding(
       <BalanceGameGate
         onComplete={(nextTasteSeed) => {
           setTasteSeed(nextTasteSeed)
           setUsersId('first-visit-guest')
-          if (isDemoMode() && demoRequiresLlm() && !isLlmConfigured()) {
-            setOnboardingStep('llm_required')
-          } else {
-            setOnboardingStep('similar_readers')
-          }
+          setOnboardingStep('taste_analysis')
         }}
-      />
+      />,
     )
   }
 
+  if (onboardingStep === 'taste_analysis' && tasteSeed) {
+    return wrapOnboarding(<TasteAnalysisGate onComplete={goToReaderRecommendations} />)
+  }
+
   if (onboardingStep === 'qr_login') {
-    return (
+    return wrapOnboarding(
       <QrLoginGate
         onLoggedIn={(nextUsersId) => {
           setUsersId(nextUsersId)
@@ -109,44 +113,38 @@ function App() {
             setOnboardingStep('similar_readers')
           }
         }}
-      />
+      />,
     )
   }
 
   if (onboardingStep === 'llm_required') {
-    return (
+    return wrapOnboarding(
       <LlmRequiredGate
         onRetry={() => {
           setOnboardingStep(isLlmConfigured() ? 'similar_readers' : 'llm_required')
         }}
-      />
+      />,
     )
   }
 
   if (onboardingStep === 'session_start') {
-    return (
+    return wrapOnboarding(
       <SessionStartGate
         tasteSeed={tasteSeed}
-        onStart={() => setOnboardingStep('app')}
-      />
+        onStart={enterApp}
+      />,
     )
   }
 
   if (onboardingStep === 'similar_readers') {
-    return (
+    return wrapOnboarding(
       <SimilarReadersGate
         tasteSeed={tasteSeed}
         plannedBooks={plannedBooks}
         onAddBooks={addPlannedBooks}
         onRemoveBooks={removePlannedBooks}
-        onStart={() => {
-          if (isDemoMode()) {
-            setOnboardingStep('session_start')
-          } else {
-            enterApp()
-          }
-        }}
-      />
+        onStart={enterSessionStart}
+      />,
     )
   }
 
@@ -160,6 +158,14 @@ function App() {
       onResetOnboarding={resetOnboarding}
     />
   )
+}
+
+function App() {
+  if (isMapDevMode()) {
+    return <MapDevShell />
+  }
+
+  return <AppOnboardingShell />
 }
 
 export default App

@@ -11,6 +11,7 @@ declare global {
     onend: ((this: SpeechRecognition, ev: Event) => void) | null
     onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => void) | null
     onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => void) | null
+    onstart: ((this: SpeechRecognition, ev: Event) => void) | null
     start(): void
     stop(): void
   }

@@ -1,5 +1,5 @@
 import { bookColorHex, hashSeed, mulberry32 } from './bookGeometryUtils'
-import { nearestWallInfo } from './wallAlignment'
+import { nearestWallInfo, snapBookshelfCenterFlushToWall } from './wallAlignment'
 
 export const BOOKSHELF_PANEL_T = 0.024
 export const BOOKSHELF_PARTITION_T = 0.018
@@ -45,6 +45,15 @@ export function isWallAttachedShelf(cx: number, cz: number, d: number): boolean 
   const hit = nearestWallInfo(cx, cz)
   if (!hit) return false
   return hit.distM < d * 0.52 + 0.28
+}
+
+/** +1 when local +Z already opens toward walkable floor; -1 when a Z mirror is needed. */
+export function shelfOpenSignTowardCorridor(cx: number, cz: number, yaw: number): 1 | -1 {
+  const { yaw: corridorYaw } = snapBookshelfCenterFlushToWall(cx, cz, yaw, 0.5)
+  const dot =
+    Math.sin(yaw) * Math.sin(corridorYaw) +
+    Math.cos(yaw) * Math.cos(corridorYaw)
+  return dot < 0 ? -1 : 1
 }
 
 export function computeIslandLayout(

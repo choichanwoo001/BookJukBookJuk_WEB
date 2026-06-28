@@ -40,18 +40,19 @@ def _all_fingers(lm: List[Any]) -> dict[str, bool]:
     }
 
 
-def _is_open_palm(lm: List[Any]) -> bool:
-    return all(_all_fingers(lm).values())
+def _is_open_palm(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
+    f = fingers if fingers is not None else _all_fingers(lm)
+    return all(f.values())
 
 
-def _is_ok_sign(lm: List[Any]) -> bool:
-    f = _all_fingers(lm)
+def _is_ok_sign(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
+    f = fingers if fingers is not None else _all_fingers(lm)
     touch = _dist(lm[4], lm[8]) < _dist(lm[5], lm[17]) * OK_TOUCH_RATIO
     return touch and f["middle"] and f["ring"] and f["pinky"]
 
 
-def _is_thumb_pose_base(lm: List[Any]) -> bool:
-    f = _all_fingers(lm)
+def _is_thumb_pose_base(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
+    f = fingers if fingers is not None else _all_fingers(lm)
     return (
         f["thumb"]
         and not f["index"]
@@ -61,21 +62,21 @@ def _is_thumb_pose_base(lm: List[Any]) -> bool:
     )
 
 
-def _is_thumbs_up(lm: List[Any]) -> bool:
-    if not _is_thumb_pose_base(lm):
+def _is_thumbs_up(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
+    if not _is_thumb_pose_base(lm, fingers):
         return False
     return lm[4].y < lm[3].y and lm[4].y < lm[0].y
 
 
-def _is_thumbs_down(lm: List[Any]) -> bool:
-    if not _is_thumb_pose_base(lm):
+def _is_thumbs_down(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
+    if not _is_thumb_pose_base(lm, fingers):
         return False
     return lm[4].y > lm[3].y and lm[4].y > lm[0].y
 
 
-def _is_lead_again(lm: List[Any]) -> bool:
+def _is_lead_again(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
     """검지+엄지 ㄴ자 — 다시 리드해."""
-    f = _all_fingers(lm)
+    f = fingers if fingers is not None else _all_fingers(lm)
     if not (f["index"] and f["thumb"]):
         return False
     if f["middle"] or f["ring"] or f["pinky"]:
@@ -84,23 +85,24 @@ def _is_lead_again(lm: List[Any]) -> bool:
     return not touch
 
 
-def _is_fist(lm: List[Any]) -> bool:
+def _is_fist(lm: List[Any], fingers: Optional[dict[str, bool]] = None) -> bool:
     """주먹 — 나 따라와."""
-    f = _all_fingers(lm)
+    f = fingers if fingers is not None else _all_fingers(lm)
     return not any(f.values())
 
 
 def classify_one_hand_gesture(lm: List[Any]) -> Optional[str]:
-    if _is_open_palm(lm):
+    fingers = _all_fingers(lm)
+    if _is_open_palm(lm, fingers):
         return "stop"
-    if _is_thumbs_up(lm):
+    if _is_thumbs_up(lm, fingers):
         return "thumbs_up"
-    if _is_thumbs_down(lm):
+    if _is_thumbs_down(lm, fingers):
         return "thumbs_down"
-    if _is_ok_sign(lm):
+    if _is_ok_sign(lm, fingers):
         return "ok_sign"
-    if _is_lead_again(lm):
+    if _is_lead_again(lm, fingers):
         return "lead_again"
-    if _is_fist(lm):
+    if _is_fist(lm, fingers):
         return "follow_me"
     return None

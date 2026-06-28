@@ -8,6 +8,10 @@ export function mapIntentToTool(intent: AgentIntent): ToolCall | null {
       return { name: 'mobilityControlTool', args: { action: 'pause' } }
     case 'resume_mobility':
       return { name: 'mobilityControlTool', args: { action: 'resume' } }
+    case 'follow_robot':
+      return { name: 'mobilityControlTool', args: { action: 'guidance' } }
+    case 'lead_robot':
+      return { name: 'mobilityControlTool', args: { action: 'escort' } }
     case 'checkout':
       return { name: 'checkoutTool', args: {} }
     case 'add_book':

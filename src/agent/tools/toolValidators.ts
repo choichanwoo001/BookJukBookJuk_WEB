@@ -31,7 +31,7 @@ const shoppingListArgs = z
   })
 
 const mobilityArgs = z.object({
-  action: z.enum(['pause', 'resume']),
+  action: z.enum(['pause', 'resume', 'guidance', 'escort']),
 })
 
 const routeArgs = z.object({

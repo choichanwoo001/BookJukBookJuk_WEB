@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { RefObject } from 'react'
 import { Group, Vector2 } from 'three'
 import { useFrame } from '@react-three/fiber'
 import {
-  floorRects as baseFloorRects,
+  floorRenderRects as baseFloorRects,
+  FLOOR_INCLUSION_PADDING_M,
   wallRects,
   allBookshelfCollisionRects,
   pillarRects,
@@ -11,12 +12,12 @@ import {
   SPAWN_POINT_WORLD,
 } from '../data/floorPlan'
 import {
-  THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC,
+  TOP_DOWN_KEYBOARD_YAW_RAD_PER_SEC,
   WALK_SPEED_MPS,
   SPAWN_SEARCH_MAX_RADIUS,
   SPAWN_SEARCH_STEP,
 } from '../config/constants'
-import { pointInAnyRect } from '../utils/rectUtils'
+import { createRectPointIndex, pointInAnyRect } from '../utils/rectUtils'
 import { overviewYawInput } from '../utils/overviewDisplayFlip'
 
 type KeyState = {
@@ -26,6 +27,8 @@ type KeyState = {
   keyD: boolean
 }
 
+const baseFloorContains = createRectPointIndex(baseFloorRects)
+
 function normalizeVector(x: number, y: number) {
   const vector = new Vector2(x, y)
   if (vector.lengthSq() > 1) vector.normalize()
@@ -33,7 +36,7 @@ function normalizeVector(x: number, y: number) {
 }
 
 function canOccupy(point: [number, number]) {
-  if (!pointInAnyRect(baseFloorRects, point[0], point[1])) return false
+  if (!baseFloorContains(point[0], point[1], FLOOR_INCLUSION_PADDING_M)) return false
   if (pointInAnyRect(wallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   if (pointInAnyRect(allBookshelfCollisionRects, point[0], point[1], PLAYER_RADIUS_M)) return false
   if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
@@ -82,6 +85,11 @@ export function useWorldMovement(
   })
   const internalPlayerPositionRef = useRef<[number, number]>(INITIAL_PLAYER_POS)
   const activePlayerPositionRef = playerPositionRef ?? internalPlayerPositionRef
+  const effectiveFloorRects = overrides?.floorRects ?? baseFloorRects
+  const effectiveFloorContains = useMemo(
+    () => createRectPointIndex(effectiveFloorRects),
+    [effectiveFloorRects],
+  )
 
   useEffect(() => {
     const resetKeyState = () => {
@@ -125,11 +133,10 @@ export function useWorldMovement(
   useFrame((_, delta) => {
     if (!worldRef.current || !enabled) return
 
-    const effectiveFloorRects = overrides?.floorRects ?? baseFloorRects
     const effectiveWallRects = overrides?.wallRects ?? wallRects
     const effectiveBookshelfRects = overrides?.bookshelfRects ?? allBookshelfCollisionRects
     const canOccupyWithOverrides = (point: [number, number]) => {
-      if (!pointInAnyRect(effectiveFloorRects, point[0], point[1])) return false
+      if (!effectiveFloorContains(point[0], point[1], FLOOR_INCLUSION_PADDING_M)) return false
       if (pointInAnyRect(effectiveWallRects, point[0], point[1], PLAYER_RADIUS_M)) return false
       if (pointInAnyRect(effectiveBookshelfRects, point[0], point[1], PLAYER_RADIUS_M)) return false
       if (pointInAnyRect(pillarRects, point[0], point[1], PLAYER_RADIUS_M)) return false
@@ -139,7 +146,7 @@ export function useWorldMovement(
     const key = keyStateRef.current
     if (yawRef) {
       const turn = (key.keyD ? 1 : 0) + (key.keyA ? -1 : 0)
-      yawRef.current -= overviewYawInput(turn) * THIRD_PERSON_KEYBOARD_YAW_RAD_PER_SEC * delta
+      yawRef.current -= overviewYawInput(turn) * TOP_DOWN_KEYBOARD_YAW_RAD_PER_SEC * delta
     }
     const moveZ = (key.keyS ? 1 : 0) + (key.keyW ? -1 : 0)
     const localDirection = normalizeVector(0, moveZ)

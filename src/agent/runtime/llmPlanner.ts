@@ -1,5 +1,5 @@
 import type { AgentContext, AgentIntentSource, AgentMessage, ToolCall } from '../types'
-import { readLlmEnv } from './llmEnv'
+import { callOpenAiResponsesJson } from './llmClient'
 
 export type LlmPlan = {
   intentType: string
@@ -32,7 +32,6 @@ const ALLOWED_TOOL_NAMES = new Set([
   'routePlannerTool',
   'mobilityControlTool',
   'recommendationTool',
-  'goalCheckTool',
   'fallbackTool',
 ])
 
@@ -48,6 +47,13 @@ const SYSTEM_PROMPT =
   '기분·컨디션·우울 등 "지금 기분에 맞는 책" 요청도 추천 요청이면 intentType은 request_recommendation, recommendationTool은 취향(taste) 기반이 맞다. assistantDraft에 취향 프로필·행동 로그를 기반으로 골랐다는 뉘앙스를 짧게 넣는다(별도 DB "기분 모드"는 없다).\n' +
   '도구 실행 없이 독서·서점·이용법 관련 대화 질문이면 intentType은 unknown, toolCall은 null, assistantDraft에 1~3문장 답변을 작성한다.\n' +
   '책·서점과 전혀 무관한 잡담(날씨·주식·요리 등)이면 intentType은 unknown, toolCall은 null, assistantDraft는 비운다.'
+
+const PLANNER_SYSTEM_PROMPT =
+  `${SYSTEM_PROMPT}\n` +
+  '허용 toolCall.name: bookSearchTool, shoppingListTool, routePlannerTool, mobilityControlTool, recommendationTool, fallbackTool.\n' +
+  '별칭 금지(예: recommendBooks 금지).\n' +
+  'recommendationTool args.mode: taste(기본·취향), location(가까운/근처/동선/위치), rating(평점·인기·베스트). 사용자 표현에 맞게 선택.\n' +
+  'JSON schema: {"intentType":"string","toolCall":{"name":"string","args":{}}|null,"assistantDraft":"string","confidence":0..1,"needsConfirmation":boolean}'
 
 function toHistoryText(history: AgentMessage[]): string {
   return history
@@ -97,91 +103,34 @@ function parsePlanPayload(raw: unknown): LlmPlan | null {
   return { intentType, toolCall, assistantDraft, confidence, needsConfirmation }
 }
 
-function extractResponseText(json: unknown): string {
-  if (!json || typeof json !== 'object') return ''
-  const output = (json as { output?: unknown }).output
-  if (!Array.isArray(output)) return ''
-  const first = output[0]
-  if (!first || typeof first !== 'object') return ''
-  const content = (first as { content?: unknown }).content
-  if (!Array.isArray(content)) return ''
-  const textItem = content.find((item) => item && typeof item === 'object' && (item as { type?: unknown }).type === 'output_text')
-  if (!textItem || typeof textItem !== 'object') return ''
-  return String((textItem as { text?: unknown }).text ?? '')
-}
-
 export async function planWithLlm(
   input: LlmPlannerInput,
   fetcher: Fetcher = fetch,
 ): Promise<LlmPlan | null> {
-  const env = readLlmEnv()
-  if (!env) return null
-
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), env.timeoutMs)
-  try {
-    const response = await fetcher('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.apiKey}`,
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: env.model,
-        input: [
-          {
-            role: 'system',
-            content: [
-              {
-                type: 'input_text',
-                text:
-                  `${SYSTEM_PROMPT}\n` +
-                  '허용 toolCall.name: bookSearchTool, shoppingListTool, routePlannerTool, mobilityControlTool, recommendationTool, goalCheckTool, fallbackTool.\n' +
-                  '별칭 금지(예: recommendBooks 금지).\n' +
-                  'recommendationTool args.mode: taste(기본·취향), location(가까운/근처/동선/위치), rating(평점·인기·베스트). 사용자 표현에 맞게 선택.\n' +
-                  'JSON schema: {"intentType":"string","toolCall":{"name":"string","args":{}}|null,"assistantDraft":"string","confidence":0..1,"needsConfirmation":boolean}',
-              },
-            ],
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'input_text',
-                text: JSON.stringify({
-                  userText: input.text,
-                  source: input.source,
-                  context: {
-                    state: input.context.state,
-                    listType: input.context.listType,
-                    mobilityPaused: input.context.mobilityPaused,
-                    pendingConfirmation: input.context.pendingConfirmation
-                      ? {
-                          toolName: input.context.pendingConfirmation.toolName,
-                          summary: input.context.pendingConfirmation.summary,
-                        }
-                      : null,
-                  },
-                  history: toHistoryText(input.history),
-                }),
-              },
-            ],
-          },
-        ],
-        temperature: 0.2,
+  const res = await callOpenAiResponsesJson<PlannerEnvelope>(
+    {
+      system: PLANNER_SYSTEM_PROMPT,
+      user: JSON.stringify({
+        userText: input.text,
+        source: input.source,
+        context: {
+          state: input.context.state,
+          listType: input.context.listType,
+          mobilityPaused: input.context.mobilityPaused,
+          pendingConfirmation: input.context.pendingConfirmation
+            ? {
+                toolName: input.context.pendingConfirmation.toolName,
+                summary: input.context.pendingConfirmation.summary,
+              }
+            : null,
+        },
+        history: toHistoryText(input.history),
       }),
-    })
-    if (!response.ok) return null
-    const payload = (await response.json()) as unknown
-    const text = extractResponseText(payload).trim()
-    if (!text) return null
-    const parsed = JSON.parse(text) as unknown
-    return parsePlanPayload(parsed)
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timeout)
-  }
+      temperature: 0.2,
+      timeoutReserveMs: 0,
+    },
+    fetcher,
+  )
+  if (!res.ok) return null
+  return parsePlanPayload(res.data)
 }
-

@@ -13,6 +13,7 @@ export type GestureId =
 const EXTEND_RATIO = 1.08
 const THUMB_EXTEND_RATIO = 1.05
 const OK_TOUCH_RATIO = 0.55
+type FingerState = Record<'thumb' | 'index' | 'middle' | 'ring' | 'pinky', boolean>
 
 function dist(a: HandLandmark, b: HandLandmark): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
@@ -32,7 +33,7 @@ function thumbExtended(lm: HandLandmark[]): boolean {
   return dist(w, tip) > dist(w, ip) * THUMB_EXTEND_RATIO
 }
 
-function allFingers(lm: HandLandmark[]): Record<'thumb' | 'index' | 'middle' | 'ring' | 'pinky', boolean> {
+function allFingers(lm: HandLandmark[]): FingerState {
   return {
     thumb: thumbExtended(lm),
     index: fingerExtended(lm, 8, 6),
@@ -42,56 +43,53 @@ function allFingers(lm: HandLandmark[]): Record<'thumb' | 'index' | 'middle' | '
   }
 }
 
-function isOpenPalm(lm: HandLandmark[]): boolean {
-  return Object.values(allFingers(lm)).every(Boolean)
+function isOpenPalm(f: FingerState): boolean {
+  return Object.values(f).every(Boolean)
 }
 
-function isOkSign(lm: HandLandmark[]): boolean {
-  const f = allFingers(lm)
+function isOkSign(lm: HandLandmark[], f: FingerState): boolean {
   const touch = dist(lm[4], lm[8]) < dist(lm[5], lm[17]) * OK_TOUCH_RATIO
   return touch && f.middle && f.ring && f.pinky
 }
 
-function isThumbPoseBase(lm: HandLandmark[]): boolean {
-  const f = allFingers(lm)
+function isThumbPoseBase(f: FingerState): boolean {
   return f.thumb && !f.index && !f.middle && !f.ring && !f.pinky
 }
 
-function isThumbsUp(lm: HandLandmark[]): boolean {
-  if (!isThumbPoseBase(lm)) return false
+function isThumbsUp(lm: HandLandmark[], f: FingerState): boolean {
+  if (!isThumbPoseBase(f)) return false
   return lm[4].y < lm[3].y && lm[4].y < lm[0].y
 }
 
-function isThumbsDown(lm: HandLandmark[]): boolean {
-  if (!isThumbPoseBase(lm)) return false
+function isThumbsDown(lm: HandLandmark[], f: FingerState): boolean {
+  if (!isThumbPoseBase(f)) return false
   return lm[4].y > lm[3].y && lm[4].y > lm[0].y
 }
 
-function isLeadAgain(lm: HandLandmark[]): boolean {
-  const f = allFingers(lm)
+function isLeadAgain(lm: HandLandmark[], f: FingerState): boolean {
   if (!(f.index && f.thumb)) return false
   if (f.middle || f.ring || f.pinky) return false
   const touch = dist(lm[4], lm[8]) < dist(lm[5], lm[17]) * OK_TOUCH_RATIO
   return !touch
 }
 
-function isFist(lm: HandLandmark[]): boolean {
-  const f = allFingers(lm)
+function isFist(f: FingerState): boolean {
   return !Object.values(f).some(Boolean)
 }
 
 export function classifyOneHandGesture(lm: HandLandmark[]): GestureId | null {
-  if (isOpenPalm(lm)) return 'stop'
-  if (isThumbsUp(lm)) return 'thumbs_up'
-  if (isThumbsDown(lm)) return 'thumbs_down'
-  if (isOkSign(lm)) return 'ok_sign'
-  if (isLeadAgain(lm)) return 'lead_again'
-  if (isFist(lm)) return 'follow_me'
+  const fingers = allFingers(lm)
+  if (isOpenPalm(fingers)) return 'stop'
+  if (isThumbsUp(lm, fingers)) return 'thumbs_up'
+  if (isThumbsDown(lm, fingers)) return 'thumbs_down'
+  if (isOkSign(lm, fingers)) return 'ok_sign'
+  if (isLeadAgain(lm, fingers)) return 'lead_again'
+  if (isFist(fingers)) return 'follow_me'
   return null
 }
 
-export const GESTURE_CONFIRM_FRAMES = 15
-export const GESTURE_COOLDOWN_FRAMES = 45
+export const GESTURE_CONFIRM_FRAMES = 8
+export const GESTURE_COOLDOWN_FRAMES = 24
 
 export const GESTURE_LABELS_KO: Record<GestureId, string> = {
   stop: '정지 (손 펼침)',

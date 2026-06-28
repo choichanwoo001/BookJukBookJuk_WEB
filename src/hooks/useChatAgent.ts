@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { publishVersoResume } from '../lib/verso/versoMobilityCommands'
+import { logMissionNavStart } from '../lib/verso/rosbridgeConnectionLog'
 import {
   parseUserIntent,
   toolCallForIntent,
 } from '../agent/runtime/chatAgentRuntime'
 import {
-  chooseHigherPriorityIntent,
   isListEditIntentType,
   mergePlannerIntentWithRules,
   requiresConfirmation,
@@ -18,11 +19,14 @@ import {
 import {
   AGENT_MAP_EVENT_VERSION,
   dispatchDwellEvent,
-  dispatchPreviewRoute,
+  dispatchMapCommand,
+  dispatchSetDirectGoals,
+  dispatchPreviewNavPlan,
   dispatchStartNavigation,
   subscribeDwellEvent,
   subscribeMapCommand,
   subscribeMapSnapshot,
+  dispatchMobilityHold,
   type AgentMapSnapshot,
 } from '../agent/runtime/agentEventBus'
 import {
@@ -35,7 +39,6 @@ import { planWithLlm } from '../agent/runtime/llmPlanner'
 import { normalizeListHint } from '../agent/listHintNormalize'
 import type {
   AgentContext,
-  AgentIntent,
   AgentIntentType,
   AgentIntentSource,
   AgentMessage,
@@ -54,10 +57,18 @@ import { buildNavStartPrompt, CHAT_AGENT_MESSAGES } from './chatAgent/messages'
 import { resolveUnknownChatReply } from './chatAgent/resolveUnknownChatReply'
 import { isDemoMode } from '../config/demoMode'
 import type { TasteSeed } from '../types/onboarding'
-import { useDemoOrchestrator } from './useDemoOrchestrator'
-import { DEMO_SCENARIO_ROUTE_KEYS, demoPoolIndicesForKeys } from '../data/demoScenario'
+import { useFixtureShelfArrivalBrief } from './useFixtureShelfArrivalBrief'
+import {
+  extendedFixtureRobotDirectGoals,
+  fixtureRobotDirectGoals,
+  SERENDIPITY_BROWSE_POOL_INDEX,
+} from '../data/fixtureRobotRoute'
+import { DEMO_BOOKS, DEMO_DWELL_BOOK, DEMO_RECOMMENDED_BOOK, findDemoBookByTitle } from '../data/demoScenario'
 import { useToolRunner } from './chatAgent/useToolRunner'
 import { useChatAgentSession } from './chatAgent/useChatAgentSession'
+import { completeCheckoutPurchase } from '../agent/tools/checkoutCompletion'
+import { checkoutTool } from '../agent/tools/checkoutTool'
+import { useTransitSerendipityDetour } from './useTransitSerendipityDetour'
 
 const initialContextValue = (): AgentContext => ({
   state: 'INIT',
@@ -68,12 +79,19 @@ const initialContextValue = (): AgentContext => ({
   cartItems: [],
   pendingDwellBook: null,
   awaitingDwellFeedback: false,
+  skippedDwellBook: null,
+  extendedRouteActive: false,
+  transitDetourPhase: 'idle',
+  resumeLegAfterDetour: null,
   checkoutStatus: 'idle',
   receipt: null,
+  kakaoPaySession: null,
   recentlyRecommendedBookIds: [],
   recommendationDiversityRound: 0,
   pendingConfirmation: null,
   lastToolResult: null,
+  dwellDialogueActiveBookKey: null,
+  dwellDialogueStep: null,
 })
 
 const initialMessages: AgentMessage[] = []
@@ -135,11 +153,12 @@ function createAssistant(text: string, attachments?: string[]): AgentMessage {
 }
 
 const VALID_INTENT_TYPES: AgentIntentType[] = [
-  'select_list_mode',
   'select_browse_mode',
   'search_books',
   'pause_mobility',
   'resume_mobility',
+  'follow_robot',
+  'lead_robot',
   'checkout',
   'add_book',
   'remove_book',
@@ -166,17 +185,23 @@ export function useChatAgent(options: {
   const [latestMapSnapshot, setLatestMapSnapshot] = useState<AgentMapSnapshot | null>(null)
   const [busy, setBusy] = useState(false)
   const [lastFailedUserText, setLastFailedUserText] = useState<string | null>(null)
-  const intentBufferRef = useRef<AgentIntent | null>(null)
   const dwellTimerRef = useRef<number | null>(null)
   const dwellKeyRef = useRef<string | null>(null)
   const tts = useTts()
   const [pipelineTtsSpeaking, setPipelineTtsSpeaking] = useState(false)
+  const [mobilityHold, setMobilityHold] = useState(false)
+  const applyMobilityHold = useCallback((held: boolean) => {
+    dispatchMobilityHold(held)
+    setMobilityHold(held)
+  }, [])
   const pipelineRef = useRef<AssistantOutputPipeline | null>(null)
   const ttsSpeaking = tts.speaking || pipelineTtsSpeaking
   const hasInitialShoppingList = (options.initialShoppingList?.length ?? 0) > 0
   const shouldAutoLoadShelf = !hasInitialShoppingList
-  const { gateRef: existingListGateRef, updateGate: updateExistingListGate, runEditFollowUp } = useExistingListGate()
-  const navPromptShownRef = useRef(false)
+  const { gateRef: existingListGateRef, updateGate: updateExistingListGate } = useExistingListGate()
+  const checkoutArrivalHandledRef = useRef(false)
+  const kakaoConfirmInFlightRef = useRef(false)
+  const navStartPromptShownRef = useRef(false)
   useLayoutEffect(() => {
     contextRef.current = context
   }, [context])
@@ -210,6 +235,27 @@ export function useChatAgent(options: {
   useEffect(() => {
     return subscribeDwellEvent((event) => {
       if (event.type !== 'SHELF_ARRIVED') return
+      if (isDemoMode()) return
+
+      // browse 스톱(단 한 사람)에 도착하면 타이머 없이 즉시 dwell 감지.
+      // extendedRouteActive이면 이미 경로 확장이 완료된 상태이므로 재감지 건너뜀.
+      if (
+        event.poolIndex === SERENDIPITY_BROWSE_POOL_INDEX &&
+        !contextRef.current.extendedRouteActive
+      ) {
+        if (dwellTimerRef.current !== null) window.clearTimeout(dwellTimerRef.current)
+        const book: DwellBookCandidate = {
+          booksId: DEMO_DWELL_BOOK.booksId,
+          title: DEMO_DWELL_BOOK.title,
+          authors: DEMO_DWELL_BOOK.authors,
+          detectedAt: Date.now(),
+          source: 'route',
+        }
+        dispatchDwellEvent({ type: 'DWELL_BOOK_DETECTED', version: AGENT_MAP_EVENT_VERSION, book })
+        return
+      }
+
+      // 일반 스톱: 이전 추천 결과의 후보를 30초 후 dwell 감지 (기존 로직).
       const candidates = extractRecommendationCandidates(contextRef.current.lastToolResult)
       if (candidates.length === 0) return
 
@@ -237,10 +283,8 @@ export function useChatAgent(options: {
     conversationIdRef,
     listLoadMessage,
     listLoadStatus,
-    loadExistingListOnDemand,
     sessionReady,
   } = useChatAgentSession({
-    contextRef,
     initialShoppingList: options.initialShoppingList,
     listType: context.listType,
     setContext,
@@ -281,8 +325,13 @@ export function useChatAgent(options: {
         speakAndWait: tts.speakAndWait,
         isTtsEnabled: tts.isEnabled,
         onTtsSpeakingChange: setPipelineTtsSpeaking,
+        onMobilityHoldChange: applyMobilityHold,
+        onResumeMobility: () => {
+          if (isDemoMode()) return
+          publishVersoResume()
+        },
       }),
-    [tts.isEnabled, tts.speakAndWait],
+    [tts.isEnabled, tts.speakAndWait, applyMobilityHold],
   )
 
   useLayoutEffect(() => {
@@ -310,37 +359,133 @@ export function useChatAgent(options: {
     [enqueueAssistant],
   )
 
+  const resolveNavStartBookCount = useCallback(() => {
+    const cartCount = contextRef.current.cartItems.length
+    if (cartCount > 0) return cartCount
+    const listCount = contextRef.current.shoppingList.length
+    if (listCount > 0) return listCount
+    return options.initialShoppingList?.length ?? 0
+  }, [options.initialShoppingList])
+
+  /** 현재 쇼핑리스트(또는 카트)에서 데모 도서 poolIndex 배열을 반환. 데모 경로 결정에 사용. */
+  const resolveCurrentPoolIndices = useCallback((): number[] | null => {
+    const list =
+      contextRef.current.cartItems.length > 0
+        ? contextRef.current.cartItems
+        : contextRef.current.shoppingList.length > 0
+          ? contextRef.current.shoppingList
+          : (options.initialShoppingList ?? [])
+    if (list.length === 0) return null
+    const indices = list
+      .map((entry) => findDemoBookByTitle(entry.title)?.poolIndex)
+      .filter((idx): idx is number => idx !== undefined)
+    return indices.length > 0 ? indices : null
+  }, [options.initialShoppingList])
+
+  const ensureNavStartPromptShown = useCallback(async () => {
+    const bookCount = resolveNavStartBookCount()
+    if (bookCount === 0) return
+    if (navStartPromptShownRef.current) return
+    const navPrompt = buildNavStartPrompt(bookCount)
+    if (messagesRef.current.some((message) => message.role === 'assistant' && message.text === navPrompt)) {
+      navStartPromptShownRef.current = true
+      return
+    }
+    if (existingListGateRef.current.status === 'inactive') {
+      updateExistingListGate({ status: 'awaiting_nav' })
+    }
+    // 동시 호출 시 중복 표시 방지: appendAssistant(동기) 직후, await 전에 플래그 설정
+    // 맵/로봇 PREVIEW_NAV_PLAN과 별개로 채팅 UI에 즉시 표시 (TTS 파이프라인 큐 유실 방지)
+    navStartPromptShownRef.current = true
+    appendAssistant(navPrompt)
+    await appendAssistantConversationMessage(navPrompt)
+    if (tts.isEnabled()) {
+      void tts.speakAndWait(navPrompt)
+    }
+  }, [
+    appendAssistant,
+    appendAssistantConversationMessage,
+    existingListGateRef,
+    resolveNavStartBookCount,
+    tts,
+    updateExistingListGate,
+  ])
+
+  const { handleFollowMeDetour, trackMapSnapshot } = useTransitSerendipityDetour({
+    contextRef,
+    setContext,
+    appendAssistant: appendAssistantAndStore,
+  })
+
+  useEffect(() => {
+    trackMapSnapshot(latestMapSnapshot)
+  }, [latestMapSnapshot, trackMapSnapshot])
+
   useEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type !== 'START_NAVIGATION') return
+      checkoutArrivalHandledRef.current = false
+      applyMobilityHold(false)
       tts.cancel()
       pipelineRef.current?.resetNavRun()
     })
   }, [tts])
 
   useEffect(() => {
-    if (!activeUsersId || !sessionReady || !hasInitialShoppingList) return
-    if (navPromptShownRef.current) return
-    if (existingListGateRef.current.status !== 'inactive') return
-
-    navPromptShownRef.current = true
-    updateExistingListGate({ status: 'awaiting_nav' })
-
-    const count = options.initialShoppingList?.length ?? 0
-    if (isDemoMode()) {
-      dispatchPreviewRoute(demoPoolIndicesForKeys(DEMO_SCENARIO_ROUTE_KEYS))
+    if (!activeUsersId) return
+    if (resolveNavStartBookCount() === 0) return
+    if (existingListGateRef.current.status === 'nav_started') return
+    if (hasInitialShoppingList || isDemoMode()) {
+      dispatchPreviewNavPlan(fixtureRobotDirectGoals(resolveCurrentPoolIndices()))
+    } else if (!sessionReady) {
+      return
     }
-
-    void appendAssistantAndStore(buildNavStartPrompt(count))
+    void ensureNavStartPromptShown()
   }, [
     activeUsersId,
-    appendAssistantAndStore,
+    context.cartItems.length,
+    context.shoppingList.length,
+    ensureNavStartPromptShown,
     existingListGateRef,
     hasInitialShoppingList,
-    options.initialShoppingList,
+    options.initialShoppingList?.length,
+    resolveCurrentPoolIndices,
+    resolveNavStartBookCount,
     sessionReady,
-    updateExistingListGate,
   ])
+
+  useEffect(() => {
+    return subscribeMapCommand((command) => {
+      if (command.type !== 'PREVIEW_NAV_PLAN') return
+      void ensureNavStartPromptShown()
+    })
+  }, [ensureNavStartPromptShown])
+
+  useEffect(() => {
+    return subscribeDwellEvent((event) => {
+      if (event.type !== 'CHECKOUT_ARRIVED') return
+      if (checkoutArrivalHandledRef.current) return
+      const cartItems =
+        contextRef.current.cartItems.length > 0
+          ? contextRef.current.cartItems
+          : contextRef.current.shoppingList
+      if (cartItems.length === 0) return
+
+      checkoutArrivalHandledRef.current = true
+      void (async () => {
+        const result = await completeCheckoutPurchase(toolExecutionContext)
+        if (result.ok) {
+          await enqueueAssistant({
+            text: result.message,
+            gate: { kind: 'on_checkout_arrived' },
+          })
+        } else {
+          await appendAssistantAndStore(result.message)
+          checkoutArrivalHandledRef.current = false
+        }
+      })()
+    })
+  }, [appendAssistantAndStore, enqueueAssistant, toolExecutionContext])
 
   const appendRecognitionMessage = useCallback((kind: RecognitionKind, text: string) => {
     const message: AgentMessage = {
@@ -353,18 +498,10 @@ export function useChatAgent(options: {
     setMessages((prev) => [...prev, message])
   }, [])
 
-  const {
-    startShelfVisitFromList,
-    handleBrowseCapture: handleDemoBrowseCapture,
-    handleDwellFeedback: handleDemoDwellFeedback,
-    handleAlternativeAccepted: handleDemoAlternativeAccepted,
-    confirmDemoNavToBook,
-    handleCartAddSuccess: handleDemoCartAddSuccess,
-    demoStateRef,
-  } = useDemoOrchestrator({
-    toolExecutionContext,
-    enqueueAssistant,
+  useFixtureShelfArrivalBrief({
     enqueueAssistantMany,
+    appendAssistant: appendAssistantAndStore,
+    contextRef,
     setContext,
   })
 
@@ -378,14 +515,33 @@ export function useChatAgent(options: {
     contextRef,
     setContext,
     appendAssistantAndStore,
-    runEditFollowUp,
-    onCartAddSuccess: async () => {
-      if (!isDemoMode()) return
-      const cart = contextRef.current.cartItems
-      const last = cart[cart.length - 1]
-      if (last?.title) await handleDemoCartAddSuccess(last.title)
-    },
   })
+
+  const applyExtendedRouteAfterReco = useCallback(async () => {
+    const skippedBook = contextRef.current.skippedDwellBook
+    if (!skippedBook) return
+
+    const candidates = extractRecommendationCandidates(contextRef.current.lastToolResult)
+    const recoBook = candidates[0] ?? DEMO_RECOMMENDED_BOOK
+
+    await runToolWithFallback(
+      { name: 'shoppingListTool', args: { action: 'add', hint: `책 추가 ${recoBook.title}` } },
+      'add_book',
+    )
+
+    setContext({
+      skippedDwellBook: null,
+      extendedRouteActive: true,
+      mobilityPaused: false,
+      transitDetourPhase: 'idle',
+      resumeLegAfterDetour: null,
+    })
+    dispatchSetDirectGoals(extendedFixtureRobotDirectGoals())
+    dispatchMapCommand({ type: 'RESUME_MOBILITY', version: AGENT_MAP_EVENT_VERSION })
+    await appendAssistantAndStore(
+      `"${recoBook.title}"을 경로에 추가하고 "${DEMO_BOOKS.book2.title}" 안내를 이어갈게요!`,
+    )
+  }, [appendAssistantAndStore, runToolWithFallback, setContext])
 
   const handleCancelIntent = useCallback(async () => {
     const pending = contextRef.current.pendingConfirmation
@@ -413,8 +569,6 @@ export function useChatAgent(options: {
     )
   }, [appendAssistantAndStore, runToolWithFallback])
 
-  const actionCard = null
-
   const submitUserText = useCallback(
     async (text: string, source: AgentIntentSource = 'chat') => {
       const normalized = text.replace(/\r\n/g, '\n')
@@ -424,9 +578,71 @@ export function useChatAgent(options: {
       setBusy(true)
       setLastFailedUserText(null)
       try {
+        // 1. Dwell Dialogue Step 1 ("어떠세요?" -> feedback)
         if (
-          existingListGateRef.current.status === 'awaiting' &&
-          !contextRef.current.pendingConfirmation &&
+          isDemoMode() &&
+          contextRef.current.dwellDialogueActiveBookKey &&
+          contextRef.current.dwellDialogueStep === 'intro'
+        ) {
+          const bookKey = contextRef.current.dwellDialogueActiveBookKey
+          const def = DEMO_BOOKS[bookKey]
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'unknown',
+            setMessages,
+          })
+
+          setContext({
+            dwellDialogueStep: 'feedback',
+          })
+
+          await appendAssistantAndStore(
+            `아라님이 ${def.authors} 작가의 따뜻한 문체를 좋아하실 줄 알았어요. 이 책을 장바구니에 담으시겠어요?`
+          )
+          return
+        }
+
+        // 2. Dwell Dialogue Step 2 ("사실건가요?" -> resume check)
+        if (
+          isDemoMode() &&
+          contextRef.current.dwellDialogueActiveBookKey &&
+          contextRef.current.dwellDialogueStep === 'feedback' &&
+          isProceedToken(intentText)
+        ) {
+          const bookKey = contextRef.current.dwellDialogueActiveBookKey
+          const def = DEMO_BOOKS[bookKey]
+          const isBookInCart = contextRef.current.cartItems.some(
+            (item) => item.booksId === def.fallbackBooksId
+          )
+
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'confirm',
+            setMessages,
+          })
+
+          if (isBookInCart) {
+            setContext({
+              dwellDialogueActiveBookKey: null,
+              dwellDialogueStep: null,
+              mobilityPaused: false,
+            })
+            publishVersoResume()
+            await appendAssistantAndStore('좋습니다. 다음 목적지로 안내를 계속할게요.')
+          } else {
+            await appendAssistantAndStore(
+              `아직 "${def.title}" 책이 장바구니에 담기지 않았습니다. 책 표지 인식이나 제스처로 책을 담으신 후 다시 "오케이"라고 말씀해주세요.`
+            )
+          }
+          return
+        }
+
+        // 3. Serendipity Shelf resume check
+        if (
+          isDemoMode() &&
+          contextRef.current.transitDetourPhase === 'serendipity_arrived' &&
           isProceedToken(intentText)
         ) {
           await appendUserMessageAndStore({
@@ -435,10 +651,49 @@ export function useChatAgent(options: {
             intent: 'confirm',
             setMessages,
           })
-          updateExistingListGate({ status: 'awaiting_nav' })
-          await appendAssistantAndStore(
-            '리스트를 확정했어요. 안내를 시작할까요? "진행" 또는 "오케이"라고 답해 주세요.',
+
+          const serendipityId = DEMO_DWELL_BOOK.booksId
+          const isSerendipityInCart = contextRef.current.cartItems.some(
+            (item) => item.booksId === serendipityId
           )
+
+          if (!isSerendipityInCart) {
+            const hadBrowseInterest =
+              contextRef.current.pendingDwellBook?.booksId === DEMO_DWELL_BOOK.booksId
+            if (!hadBrowseInterest) {
+              await appendAssistantAndStore(
+                `「${DEMO_DWELL_BOOK.title}」 책을 카메라로 충분히 살펴보신 뒤 다시 "오케이"라고 말씀해 주세요.`,
+              )
+              return
+            }
+            const dwellBook: DwellBookCandidate = {
+              booksId: DEMO_DWELL_BOOK.booksId,
+              title: DEMO_DWELL_BOOK.title,
+              authors: DEMO_DWELL_BOOK.authors,
+              detectedAt: Date.now(),
+              source: 'cover',
+            }
+            setContext({
+              transitDetourPhase: 'serendipity_dwell',
+              pendingDwellBook: dwellBook,
+              awaitingDwellFeedback: true,
+              mobilityPaused: true,
+            })
+            await appendAssistantAndStore(
+              `"${DEMO_DWELL_BOOK.title}" 책은 장바구니에 담지 않으셨네요. 어떤 점이 마음에 걸리셨는지 말씀해 주시면 그 책 기준으로 더 잘 맞는 책을 추천해드릴게요.`,
+            )
+          } else {
+            setContext({
+              transitDetourPhase: 'idle',
+              mobilityPaused: false,
+            })
+            const book2PoolIndex = DEMO_BOOKS.book2.poolIndex
+            dispatchSetDirectGoals(fixtureRobotDirectGoals([book2PoolIndex]))
+            dispatchStartNavigation()
+            await appendAssistantAndStore(
+              `"${DEMO_DWELL_BOOK.title}" 책을 장바구니에 담으셨군요! 원래 목적지인 "${DEMO_BOOKS.book2.title}" 서가로 다시 출발하겠습니다.`
+            )
+          }
           return
         }
 
@@ -451,9 +706,7 @@ export function useChatAgent(options: {
           isProceedToken(intentText) &&
           existingListGateRef.current.status !== 'nav_started' &&
           cartForNav.length > 0 &&
-          (existingListGateRef.current.status === 'awaiting_nav' ||
-            existingListGateRef.current.status === 'inactive' ||
-            existingListGateRef.current.status === 'confirmed')
+          existingListGateRef.current.status === 'awaiting_nav'
 
         if (canStartNavigationFromProceed) {
           await appendUserMessageAndStore({
@@ -463,13 +716,12 @@ export function useChatAgent(options: {
             setMessages,
           })
           updateExistingListGate({ status: 'nav_started' })
+          logMissionNavStart('ok_proceed', cartForNav.length)
+          dispatchSetDirectGoals(fixtureRobotDirectGoals(resolveCurrentPoolIndices()))
           dispatchStartNavigation()
-          if (isDemoMode()) {
-            startShelfVisitFromList(cartForNav)
-          }
           void enqueueAssistant({
             text: '안내를 시작할게요.',
-            gate: { kind: 'after_nav_ready' },
+            gate: { kind: 'immediate' },
           })
           return
         }
@@ -512,11 +764,42 @@ export function useChatAgent(options: {
             intent: 'request_recommendation',
             setMessages,
           })
-          if (isDemoMode()) {
-            const handled = await handleDemoDwellFeedback(intentText, dwellBook)
-            if (handled) return
+
+          if (
+            isDemoMode() &&
+            contextRef.current.transitDetourPhase === 'serendipity_dwell'
+          ) {
+            const recoBook = DEMO_RECOMMENDED_BOOK
+            const recoResult: ToolResult = {
+              ok: true,
+              toolName: 'recommendationTool',
+              message: `"${recoBook.title}"을 추천드려요.`,
+              data: {
+                recommendations: [`보완 추천 1. ${recoBook.title} - ${recoBook.authors}`],
+                source: 'demo_transit_detour',
+                candidates: [{
+                  booksId: recoBook.booksId,
+                  title: recoBook.title,
+                  authors: recoBook.authors,
+                }],
+              },
+            }
+            setContext({
+              awaitingDwellFeedback: false,
+              skippedDwellBook: dwellBook,
+              pendingDwellBook: null,
+              transitDetourPhase: 'await_reco_accept',
+              lastToolResult: recoResult,
+            })
+            await appendAssistantAndStore(
+              `"${intentText}"을 반영해 "${recoBook.title}"을 추천드려요. 괜찮으시면 "오케이"라고 말씀해 주세요.`,
+              [`보완 추천 1. ${recoBook.title} - ${recoBook.authors}`],
+            )
+            return
           }
-          setContext({ awaitingDwellFeedback: false })
+
+          // skippedDwellBook에 보존: 추천 결과 후 "경로에 추가" 요청 시 함께 추가하기 위함.
+          setContext({ awaitingDwellFeedback: false, skippedDwellBook: dwellBook })
           await runToolWithFallback(
             {
               name: 'recommendationTool',
@@ -532,34 +815,38 @@ export function useChatAgent(options: {
           return
         }
 
-        if (isDemoMode()) {
-          if (
-            demoStateRef.current.step === 'awaiting_nav_confirm' &&
-            demoStateRef.current.awaitingNavConfirm != null &&
-            isProceedToken(intentText)
-          ) {
-            await appendUserMessageAndStore({
-              text: normalized,
-              conversationId: conversationIdRef.current,
-              intent: 'confirm',
-              setMessages,
-            })
-            await confirmDemoNavToBook(demoStateRef.current.awaitingNavConfirm ?? [])
-            return
-          }
-          if (
-            demoStateRef.current.step === 'alternative_recommend' &&
-            /(함께|두 권|안내|가자|보러)/.test(intentText)
-          ) {
-            await appendUserMessageAndStore({
-              text: normalized,
-              conversationId: conversationIdRef.current,
-              intent: 'resume_mobility',
-              setMessages,
-            })
-            await handleDemoAlternativeAccepted()
-            return
-          }
+        // transit detour: dwell 피드백 후 "오케이"로 확장 경로 수락
+        if (
+          contextRef.current.transitDetourPhase === 'await_reco_accept' &&
+          isProceedToken(intentText) &&
+          contextRef.current.skippedDwellBook &&
+          contextRef.current.lastToolResult?.toolName === 'recommendationTool'
+        ) {
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'confirm',
+            setMessages,
+          })
+          await applyExtendedRouteAfterReco()
+          return
+        }
+
+        // 경로 확장: dwell 피드백 후 추천 수락 시 어른이 된다는 것 추가 + 오직 두 사람 안내 재개.
+        if (
+          contextRef.current.skippedDwellBook &&
+          !contextRef.current.extendedRouteActive &&
+          contextRef.current.lastToolResult?.toolName === 'recommendationTool' &&
+          /(경로|같이|함께|두\s*(권|책))/.test(intentText)
+        ) {
+          await appendUserMessageAndStore({
+            text: normalized,
+            conversationId: conversationIdRef.current,
+            intent: 'add_book',
+            setMessages,
+          })
+          await applyExtendedRouteAfterReco()
+          return
         }
 
         const llmPlan = await planWithLlm({
@@ -588,10 +875,7 @@ export function useChatAgent(options: {
         }
         if (hasUsableLlmIntent) incrementMetric('llmPlannerUsed')
         else incrementMetric('llmPlannerFallback')
-        const mergedIntent = intentBufferRef.current
-          ? chooseHigherPriorityIntent(intentBufferRef.current, nextIntent)
-          : nextIntent
-        intentBufferRef.current = null
+        const mergedIntent = nextIntent
 
         await appendUserMessageAndStore({
           text: normalized,
@@ -615,19 +899,39 @@ export function useChatAgent(options: {
         }
 
         if (mergedIntent.type === 'resume_mobility') {
+          if (isDemoMode()) {
+            await appendAssistantAndStore(
+              '데모 시나리오에서는 "오케이"라고 말씀하시거나 OK 사인으로 진행해 주세요.',
+            )
+            recordIntentOutcome('resume_mobility', false)
+            return
+          }
           const dwellBook = contextRef.current.pendingDwellBook
           const cart = contextRef.current.cartItems.length > 0 ? contextRef.current.cartItems : contextRef.current.shoppingList
           const isInCart = dwellBook ? cart.some((item) => item.booksId === dwellBook.booksId) : false
           if (dwellBook && !isInCart) {
             setContext({ awaitingDwellFeedback: true, mobilityPaused: true })
             await appendAssistantAndStore(
-              `"${dwellBook.title}"을 30초 정도 보셨는데 장바구니에는 담지 않으셨네요. 어떤 점이 마음에 안 들었는지 말해주시면 그 책 기준으로 더 맞는 대안을 추천해드릴게요.`,
+              `"${dwellBook.title}"에 관심을 보이셨는데 장바구니에 담지 않으셨네요. 어떤 점이 마음에 걸리셨는지 말씀해 주시면 그 책 기준으로 더 잘 맞는 책을 추천해드릴게요.`,
             )
             return
           }
         }
 
+        if (mergedIntent.type === 'follow_robot') {
+          if (isDemoMode() && handleFollowMeDetour()) {
+            await appendAssistantAndStore('우연한 발견 구간으로 안내할게요.')
+            recordIntentOutcome('follow_robot', true)
+            return
+          }
+        }
+
         if (mergedIntent.type === 'select_browse_mode') {
+          if (isDemoMode()) {
+            await appendAssistantAndStore('데모 시나리오에서는 안내에 따라 진행해 주세요.')
+            recordIntentOutcome('select_browse_mode', false)
+            return
+          }
           setContext({ listType: '쇼핑리스트' })
           await appendAssistantAndStore(
             '계획 없이 바로 출발합니다. 화면에 보이는 추천이나 제가 말해드리는 추천에 집중해 주세요. 필요하면 "추천해줘"라고 말해 주세요. 마음에 들면 쇼핑리스트에 담을 수 있어요.',
@@ -735,11 +1039,8 @@ export function useChatAgent(options: {
       setContext,
       existingListGateRef,
       updateExistingListGate,
-      demoStateRef,
-      handleDemoAlternativeAccepted,
-      handleDemoDwellFeedback,
-      confirmDemoNavToBook,
-      startShelfVisitFromList,
+      applyExtendedRouteAfterReco,
+      handleFollowMeDetour,
     ],
   )
 
@@ -764,6 +1065,37 @@ export function useChatAgent(options: {
     [submitUserText],
   )
 
+  const applyBookGestureDecision = useCallback(
+    async (reason: 'add' | 'remove', book: { title: string; author?: string }) => {
+      setBusy(true)
+      setLastFailedUserText(null)
+      try {
+        const label = reason === 'add' ? '제스처 · 담기' : '제스처 · 빼기'
+        await appendUserMessageAndStore({
+          text: `[${label}] ${book.title}`,
+          conversationId: conversationIdRef.current,
+          intent: reason === 'add' ? 'add_book' : 'remove_book',
+          setMessages,
+        })
+        const intentType = reason === 'add' ? 'add_book' : 'remove_book'
+        const verb = reason === 'add' ? '추가' : '삭제'
+        const result = await runToolWithFallback(
+          {
+            name: 'shoppingListTool',
+            args: { action: reason, hint: `책 ${verb} ${book.title}`, source: 'gesture' },
+          },
+          intentType,
+        )
+        if (!result.ok) {
+          setLastFailedUserText(`[${label}] ${book.title}`)
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [conversationIdRef, runToolWithFallback, setMessages],
+  )
+
   const applyBookRecognitionCapture = useCallback(
     async (
       reason: 'add' | 'remove' | 'browse',
@@ -780,7 +1112,6 @@ export function useChatAgent(options: {
             intent: 'unknown',
             setMessages,
           })
-          await handleDemoBrowseCapture(imageBase64)
         } finally {
           setBusy(false)
         }
@@ -815,7 +1146,7 @@ export function useChatAgent(options: {
         setBusy(false)
       }
     },
-    [conversationIdRef, handleDemoBrowseCapture, runToolWithFallback, setMessages],
+    [conversationIdRef, runToolWithFallback, setMessages],
   )
 
   const applyBookBrowseCapture = useCallback(
@@ -825,13 +1156,65 @@ export function useChatAgent(options: {
     [applyBookRecognitionCapture],
   )
 
+  const startKakaoPayCheckout = useCallback(async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await checkoutTool.run({}, toolExecutionContext)
+      await appendAssistantAndStore(result.message)
+    } finally {
+      setBusy(false)
+    }
+  }, [appendAssistantAndStore, busy, toolExecutionContext])
+
+  const confirmKakaoPayCheckout = useCallback(async () => {
+    if (!contextRef.current.kakaoPaySession) return
+    if (contextRef.current.checkoutStatus === 'completed') return
+    if (kakaoConfirmInFlightRef.current) return
+    kakaoConfirmInFlightRef.current = true
+    try {
+      const result = await completeCheckoutPurchase(toolExecutionContext, { preferLocalFirst: true })
+      await appendAssistantAndStore(result.message)
+    } finally {
+      kakaoConfirmInFlightRef.current = false
+    }
+  }, [appendAssistantAndStore, toolExecutionContext])
+
+  const cancelKakaoPayCheckout = useCallback(() => {
+    setContext({ kakaoPaySession: null, checkoutStatus: 'idle' })
+  }, [setContext])
+
+  const reportDemoBookInterest = useCallback(
+    (book: { title: string; author?: string }) => {
+      if (!isDemoMode()) return
+      if (contextRef.current.transitDetourPhase !== 'serendipity_arrived') return
+      const def = findDemoBookByTitle(book.title)
+      if (!def || def.key !== 'serendipity') return
+      const dwellBook: DwellBookCandidate = {
+        booksId: def.fallbackBooksId,
+        title: def.title,
+        authors: def.authors,
+        detectedAt: Date.now(),
+        source: 'cover',
+      }
+      setContext({ pendingDwellBook: dwellBook })
+    },
+    [setContext],
+  )
+
   return {
     messages,
     submitUserText,
     submitAgentInput,
     appendRecognitionMessage,
     applyBookRecognitionCapture,
+    applyBookGestureDecision,
     applyBookBrowseCapture,
+    handleFollowMeDetour,
+    reportDemoBookInterest,
+    startKakaoPayCheckout,
+    confirmKakaoPayCheckout,
+    cancelKakaoPayCheckout,
     context,
     latestMapSnapshot,
     telemetry: getTelemetrySnapshot(),
@@ -842,9 +1225,8 @@ export function useChatAgent(options: {
     retryLastFailed,
     listLoadStatus,
     listLoadMessage,
-    loadExistingListOnDemand,
-    actionCard,
     tts,
     ttsSpeaking,
+    mobilityHold,
   }
 }

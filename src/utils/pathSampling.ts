@@ -1,6 +1,4 @@
 import type { Point2 } from '../data/floorPlan'
-import type { DemoScenarioRoute } from './demoScenarioRoute'
-import { concatPaths } from './gridPathfinding'
 
 export type PathSample = {
   point: Point2
@@ -16,14 +14,6 @@ export function pathLengthM(path: Point2[]): number {
     sum += Math.hypot(bx - ax, bz - az)
   }
   return sum
-}
-
-export function buildRouteMasterPath(route: DemoScenarioRoute): Point2[] {
-  let acc: Point2[] = []
-  for (const seg of route.segments) {
-    acc = concatPaths(acc, seg.path)
-  }
-  return acc
 }
 
 /**
@@ -52,7 +42,7 @@ export function samplePathAtDistance(path: Point2[], distanceM: number): PathSam
       const z = az + (bz - az) * t
       return {
         point: [x, z],
-        headingRad: Math.atan2(bz - az, bx - ax),
+        headingRad: Math.atan2(bx - ax, bz - az),
         segmentIndex: i - 1,
       }
     }
@@ -63,7 +53,7 @@ export function samplePathAtDistance(path: Point2[], distanceM: number): PathSam
   const prev = path[path.length - 2]
   return {
     point: [last[0], last[1]],
-    headingRad: Math.atan2(last[1] - prev[1], last[0] - prev[0]),
+    headingRad: Math.atan2(last[0] - prev[0], last[1] - prev[1]),
     segmentIndex: path.length - 2,
   }
 }
@@ -100,4 +90,11 @@ export function projectPointOntoPathDistance(path: Point2[], point: Point2): num
   }
 
   return bestDistance
+}
+
+/** Heading (rad) along the path tangent at the closest point to `point`. */
+export function pathHeadingAtPoint(path: Point2[], point: Point2): number | null {
+  if (path.length < 2) return null
+  const distance = projectPointOntoPathDistance(path, point)
+  return samplePathAtDistance(path, distance)?.headingRad ?? null
 }

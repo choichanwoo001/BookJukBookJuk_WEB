@@ -25,7 +25,7 @@ describe('planEntryFromReaderBook', () => {
     const entry = planEntryFromReaderBook(profile, {
       id: 'demo-book1',
       title: '어른이 된다는 것',
-      author: '우치다 타츠루',
+      author: '김창진',
       reason: 'r',
     })
     expect(entry.booksId).toBe('demo-book-adult')

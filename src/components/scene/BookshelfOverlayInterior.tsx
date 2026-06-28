@@ -1,5 +1,11 @@
 import React, { useLayoutEffect, useMemo, useRef } from 'react'
-import { Color, InstancedMesh, Object3D } from 'three'
+import {
+  Color,
+  Group,
+  InstancedMesh,
+  Mesh as ThreeMesh,
+  Object3D,
+} from 'three'
 import type { MeshStandardMaterial as MeshStandardMaterialType } from 'three'
 import type { FixtureRenderInstance } from '../../types/scene'
 import {
@@ -11,6 +17,7 @@ import {
   computeIslandLayout,
   computeWallLayout,
   isWallAttachedShelf,
+  shelfOpenSignTowardCorridor,
   type IslandLayout,
   type WallLayout,
 } from '../../utils/bookshelfOverlayLayout'
@@ -175,6 +182,11 @@ const DetailedShelf = React.memo(function DetailedShelf({
     return computeWallLayout(cx, cz, w, h, d, wInner, hInner)
   }, [cx, cz, w, h, d, wInner, hInner, mode])
 
+  const openSign = useMemo(
+    () => (mode === 'wall' ? shelfOpenSignTowardCorridor(cx, cz, yaw) : 1),
+    [mode, cx, cz, yaw],
+  )
+
   useLayoutEffect(() => {
     const mesh = booksRef.current
     if (!mesh) return
@@ -202,16 +214,18 @@ const DetailedShelf = React.memo(function DetailedShelf({
           booksRef={booksRef}
         />
       ) : (
-        <WallShelfMesh
-          layout={layout}
-          h={h}
-          w={w}
-          d={d}
-          wInner={wInner}
-          shellMaterial={shellMaterial}
-          woodMaterial={woodMaterial}
-          booksRef={booksRef}
-        />
+        <group scale={[1, 1, openSign]}>
+          <WallShelfMesh
+            layout={layout}
+            h={h}
+            w={w}
+            d={d}
+            wInner={wInner}
+            shellMaterial={shellMaterial}
+            woodMaterial={woodMaterial}
+            booksRef={booksRef}
+          />
+        </group>
       )}
     </group>
   )
@@ -221,13 +235,33 @@ export function BookshelfOverlayInterior({
   instances,
   shellMaterial,
   woodMaterial,
+  disableRaycast,
 }: {
   instances: FixtureRenderInstance[]
   shellMaterial: MeshStandardMaterialType
   woodMaterial: MeshStandardMaterialType
+  disableRaycast?: boolean
 }) {
+  const groupRef = useRef<Group>(null)
+
+  useLayoutEffect(() => {
+    const g = groupRef.current
+    if (!g) return
+    g.traverse((obj) => {
+      if (obj instanceof InstancedMesh) {
+        obj.raycast = disableRaycast
+          ? () => {}
+          : InstancedMesh.prototype.raycast.bind(obj)
+      } else if (obj instanceof ThreeMesh) {
+        obj.raycast = disableRaycast
+          ? () => {}
+          : ThreeMesh.prototype.raycast.bind(obj)
+      }
+    })
+  }, [disableRaycast, instances.length])
+
   return (
-    <group>
+    <group ref={groupRef}>
       {instances.map((inst, index) => {
         if (inst.w < MIN_BOOKSHELF_DETAIL_W || inst.d < MIN_BOOKSHELF_DETAIL_D) {
           return (

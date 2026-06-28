@@ -6,27 +6,16 @@ describe('resolveNavigationMobilityPhase', () => {
     expect(
       resolveNavigationMobilityPhase({
         demoNavigationActive: false,
-        guidanceIntroActive: true,
         demoAutoWalkActive: true,
         highlightPathLength: 10,
       }),
     ).toBe('idle')
   })
 
-  it('progresses intro → calculating → walking during demo navigation', () => {
+  it('progresses calculating → walking during demo navigation', () => {
     expect(
       resolveNavigationMobilityPhase({
         demoNavigationActive: true,
-        guidanceIntroActive: true,
-        demoAutoWalkActive: false,
-        highlightPathLength: 0,
-      }),
-    ).toBe('intro')
-
-    expect(
-      resolveNavigationMobilityPhase({
-        demoNavigationActive: true,
-        guidanceIntroActive: false,
         demoAutoWalkActive: false,
         highlightPathLength: 0,
       }),
@@ -35,7 +24,14 @@ describe('resolveNavigationMobilityPhase', () => {
     expect(
       resolveNavigationMobilityPhase({
         demoNavigationActive: true,
-        guidanceIntroActive: false,
+        demoAutoWalkActive: true,
+        highlightPathLength: 0,
+      }),
+    ).toBe('walking')
+
+    expect(
+      resolveNavigationMobilityPhase({
+        demoNavigationActive: true,
         demoAutoWalkActive: true,
         highlightPathLength: 12,
       }),

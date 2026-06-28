@@ -4,6 +4,7 @@ export function readVersoRosbridgeDefaultUrl(): string {
   return import.meta.env.VITE_VERSO_ROSBRIDGE_URL?.trim() ?? ''
 }
 
+/** Last saved URL or env default — pre-fills the connection input only (no auto-connect). */
 export function readStoredVersoRosbridgeUrl(): string {
   try {
     const stored = localStorage.getItem(LS_KEY)?.trim() ?? ''

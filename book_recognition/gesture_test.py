@@ -51,8 +51,8 @@ is_identifying = False
 
 # --- 설정 -----------------------------------------------------------------
 CAMERA_INDEX = 0
-CONFIRM_FRAMES = 15
-COOLDOWN_FRAMES = 45
+CONFIRM_FRAMES = 8
+COOLDOWN_FRAMES = 24
 CAPTURE_WIDTH = 640
 CAPTURE_HEIGHT = 480
 
@@ -120,7 +120,7 @@ def main() -> None:
     options = vision.HandLandmarkerOptions(
         base_options=python.BaseOptions(model_asset_path=str(model_path)),
         running_mode=vision.RunningMode.VIDEO,
-        num_hands=2,
+        num_hands=1,
         min_hand_detection_confidence=0.7,
         min_hand_presence_confidence=0.5,
         min_tracking_confidence=0.5,

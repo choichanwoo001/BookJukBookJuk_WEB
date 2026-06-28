@@ -1,5 +1,6 @@
 import type { Point2 } from '../data/floorPlan'
 import type { NavigationRouteVisual } from '../hooks/useNavigationRoute'
+import { concatPaths } from './gridPathfinding'
 import { robotMapToWorldXz } from './robotMapCoords'
 
 export function splitRobotPathByPosition(
@@ -46,10 +47,11 @@ export function buildVersoRouteVisual(
 
   const dimPath = mapPosesToWorld(traveled)
   const highlightPath = mapPosesToWorld(remaining)
+
   const currentGoal = highlightPath.length > 0 ? highlightPath[highlightPath.length - 1] : null
 
   return {
-    planPath: [...dimPath, ...highlightPath],
+    planPath: concatPaths(dimPath, highlightPath),
     dimPath,
     highlightPath,
     highlightDistanceToGoalM: null,

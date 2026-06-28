@@ -11,10 +11,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const REFS_DIR = join(__dirname, '..', 'book_recognition', 'refs')
 
 const EXPECTED = [
-  { file: '어른이된다는것.jpg', title: '어른이 된다는 것', authors: '우치다 타츠루' },
+  { file: '어른이된다는것.jpg', title: '어른이 된다는 것', authors: '김창진' },
   { file: '오직두사람.jpg', title: '오직 두 사람', authors: '김영하' },
   { file: '단한사람.jpeg', title: '단 한 사람', authors: '최진영' },
-  { file: '시선으로부터.webp', title: '시선으로부터', authors: '정세랑' },
+  { file: '너무나많은여름이.jpg', title: '너무나 많은 여름이', authors: '김연수' },
 ]
 
 let ok = 0

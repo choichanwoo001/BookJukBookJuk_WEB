@@ -1,16 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { QRCodeSVG } from 'qrcode.react'
-import { ChatActionCard } from './ChatActionCard'
 import { ConfirmationCard } from './ConfirmationCard'
-import { useSpeechInput } from '../hooks/useSpeechInput'
-import type { UseTtsReturn } from '../hooks/useTts'
+import { KakaoPayQrModal } from './KakaoPayQrModal'
+import { ShelfRegisterQrModal } from './ShelfRegisterQrModal'
+import { VoiceStatusIndicator } from './VoiceStatusIndicator'
+import type { VoiceCommandPhase } from '../hooks/useVoiceCommandLoop'
 import { mapListTypeToShelfType } from '../lib/supabase/shelves'
-import { buildNavStartPrompt, CHAT_NAV_START_GUIDE } from '../hooks/chatAgent/messages'
-import type { AgentContext, AgentMessage, ChatActionCard as ChatActionCardModel } from '../agent/types'
-
-const chatEmptyGuideExamples = ['추천해줘', '책 검색 데미안', '책 추가 데미안', '계산하러 가자'] as const
+import type { AgentContext, AgentMessage } from '../agent/types'
 
 function ChatPanel({
   activePane,
@@ -25,16 +21,22 @@ function ChatPanel({
   retryLastFailed,
   listLoadStatus,
   listLoadMessage,
-  actionCard,
-  onVoiceRecognized,
-  tts,
   ttsSpeaking,
+  voicePhase,
+  voiceLivePreview,
+  voiceSupported,
+  voicePermissionDenied,
+  voiceArmRemainingMs,
+  voiceMicOn,
+  onToggleVoiceMic,
+  onStartKakaoPayCheckout,
+  onConfirmKakaoPayCheckout,
+  onCancelKakaoPayCheckout,
 }: {
   activePane: 'map' | 'chat'
   onActivateChat: () => void
   messages: AgentMessage[]
   submitUserText: (text: string) => Promise<void>
-  onVoiceRecognized?: (transcript: string) => void
   context: AgentContext
   busy: boolean
   lastFailedUserText: string | null
@@ -43,53 +45,33 @@ function ChatPanel({
   retryLastFailed: () => void
   listLoadStatus: 'idle' | 'loading' | 'ok' | 'error'
   listLoadMessage: string | null
-  actionCard: ChatActionCardModel | null
-  tts: UseTtsReturn
   ttsSpeaking: boolean
+  voicePhase: VoiceCommandPhase
+  voiceLivePreview: string
+  voiceSupported: boolean
+  voicePermissionDenied: boolean
+  voiceArmRemainingMs: number | null
+  voiceMicOn: boolean
+  onToggleVoiceMic: () => void
+  onStartKakaoPayCheckout: () => void
+  onConfirmKakaoPayCheckout: () => void
+  onCancelKakaoPayCheckout: () => void
 }) {
   const [draft, setDraft] = useState('')
-  const [receiptQrOpen, setReceiptQrOpen] = useState(false)
+  const [shelfRegisterQrOpen, setShelfRegisterQrOpen] = useState(false)
   const messageListRef = useRef<HTMLDivElement | null>(null)
-  const receiptQrHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const openReceiptQr = useCallback(() => {
-    if (receiptQrHideTimerRef.current) {
-      clearTimeout(receiptQrHideTimerRef.current)
-      receiptQrHideTimerRef.current = null
-    }
-    setReceiptQrOpen(true)
-  }, [])
-
-  const scheduleCloseReceiptQr = useCallback(() => {
-    if (receiptQrHideTimerRef.current) clearTimeout(receiptQrHideTimerRef.current)
-    receiptQrHideTimerRef.current = setTimeout(() => setReceiptQrOpen(false), 280)
-  }, [])
+  const lastReceiptIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    return () => {
-      if (receiptQrHideTimerRef.current) clearTimeout(receiptQrHideTimerRef.current)
-    }
-  }, [])
+    const receiptId = context.receipt?.receiptId ?? null
+    if (!receiptId || receiptId === lastReceiptIdRef.current) return
+    lastReceiptIdRef.current = receiptId
+    setShelfRegisterQrOpen(true)
+  }, [context.receipt])
 
-  const handleSpeechResult = useCallback((transcript: string) => {
-    const trimmed = transcript.trim()
-    if (!trimmed) return
-    onVoiceRecognized?.(trimmed)
-    setDraft((prev) => {
-      const prevTrimmed = prev.trim()
-      return prevTrimmed ? `${prevTrimmed} ${trimmed}` : trimmed
-    })
-  }, [onVoiceRecognized])
-
-  const speech = useSpeechInput({ onResult: handleSpeechResult })
   const canSend = useMemo(() => draft.trim().length > 0 && !busy, [draft, busy])
   const shelfKind = mapListTypeToShelfType(context.listType)
   const cartItems = context.cartItems.length > 0 ? context.cartItems : context.shoppingList
-  const showNavStartGuide =
-    messages.length === 0 &&
-    cartItems.length > 0 &&
-    context.checkoutStatus !== 'completed' &&
-    context.state !== 'SESSION_END'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -97,12 +79,6 @@ function ChatPanel({
     await submitUserText(draft)
     setDraft('')
   }
-
-  const handleGuideExample = useCallback(async (text: string) => {
-    if (busy) return
-    setDraft('')
-    await submitUserText(text)
-  }, [busy, submitUserText])
 
   useEffect(() => {
     const listEl = messageListRef.current
@@ -130,23 +106,20 @@ function ChatPanel({
                 <button
                   type="button"
                   className="chatReceiptTrigger"
-                  aria-label="전자 영수증 QR 보기"
-                  aria-expanded={receiptQrOpen}
-                  onMouseEnter={openReceiptQr}
-                  onMouseLeave={scheduleCloseReceiptQr}
-                  onFocus={openReceiptQr}
-                  onBlur={scheduleCloseReceiptQr}
+                  aria-label="앱 책장 등록 QR 보기"
+                  aria-expanded={shelfRegisterQrOpen}
+                  onClick={() => setShelfRegisterQrOpen(true)}
                 >
-                  영수증 QR
+                  책장 등록 QR
                 </button>
               )}
               <button
                 type="button"
                 className="chatShelfLoadButton"
-                onClick={() => void submitUserText('계산하러 가자')}
-                disabled={busy || cartItems.length === 0 || context.checkoutStatus === 'going_to_counter'}
+                onClick={() => void onStartKakaoPayCheckout()}
+                disabled={busy || cartItems.length === 0 || context.kakaoPaySession !== null}
               >
-                계산하러 가기
+                계산하기
               </button>
             </div>
           </div>
@@ -181,36 +154,21 @@ function ChatPanel({
           )}
         </section>
 
-        {context.receipt &&
-          receiptQrOpen &&
-          createPortal(
-            <div
-              className="chatReceiptOverlay"
-              role="dialog"
-              aria-label="전자 영수증 QR"
-              onMouseEnter={openReceiptQr}
-              onMouseLeave={scheduleCloseReceiptQr}
-            >
-              <div className="chatReceiptOverlayCard">
-                <div className="chatReceiptOverlayHead">
-                  <span>전자 영수증</span>
-                  <strong>{context.receipt.items.length}권</strong>
-                </div>
-                <p className="chatReceiptOverlayHint">앱에서 스캔하면 보관함에 추가돼요</p>
-                <div className="chatReceiptOverlayQr" aria-hidden>
-                  <QRCodeSVG
-                    value={context.receipt.qrPayload}
-                    size={220}
-                    marginSize={2}
-                    bgColor="#ffffff"
-                    fgColor="#111827"
-                  />
-                </div>
-                <code className="chatReceiptOverlayPayload breakAnywhere">{context.receipt.qrPayload}</code>
-              </div>
-            </div>,
-            document.body,
-          )}
+        {context.kakaoPaySession && (
+          <KakaoPayQrModal
+            session={context.kakaoPaySession}
+            busy={busy}
+            onPaymentComplete={() => void onConfirmKakaoPayCheckout()}
+            onCancel={onCancelKakaoPayCheckout}
+          />
+        )}
+
+        {context.receipt && shelfRegisterQrOpen && (
+          <ShelfRegisterQrModal
+            receipt={context.receipt}
+            onClose={() => setShelfRegisterQrOpen(false)}
+          />
+        )}
 
         {context.pendingConfirmation && (
           <ConfirmationCard
@@ -220,57 +178,8 @@ function ChatPanel({
           />
         )}
 
-        {busy && (
-          <div className="chatBusyRow" aria-live="polite">
-            <span className="chatSpinner" aria-hidden />
-            처리 중
-          </div>
-        )}
-
-        {actionCard && <ChatActionCard card={actionCard} disabled={busy} onSelect={(inputText) => void submitUserText(inputText)} />}
-
         <div ref={messageListRef} className="chatMessages">
-          {messages.length === 0 ? (
-            showNavStartGuide ? (
-              <section className="chatEmptyGuide" aria-label="경로 안내 시작">
-                <h2 className="chatEmptyGuideTitle">{CHAT_NAV_START_GUIDE.title}</h2>
-                <p className="chatEmptyGuideText">{buildNavStartPrompt(cartItems.length)}</p>
-                <div className="chatEmptyGuideActions" aria-label="안내 시작 예시">
-                  {CHAT_NAV_START_GUIDE.examples.map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      className="chatEmptyGuideButton"
-                      onClick={() => void handleGuideExample(example)}
-                      disabled={busy}
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ) : (
-              <section className="chatEmptyGuide" aria-label="채팅 시작 안내">
-                <h2 className="chatEmptyGuideTitle">무엇을 도와드릴까요?</h2>
-                <p className="chatEmptyGuideText">
-                  책 추천, 도서 검색, 장바구니 담기/삭제, 경로 안내, 계산대 이동을 도와드릴 수 있어요.
-                </p>
-                <div className="chatEmptyGuideActions" aria-label="예시 요청">
-                  {chatEmptyGuideExamples.map((example) => (
-                    <button
-                      key={example}
-                      type="button"
-                      className="chatEmptyGuideButton"
-                      onClick={() => void handleGuideExample(example)}
-                      disabled={busy}
-                    >
-                      {example}
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )
-          ) : messages.map((message) => (
+          {messages.map((message) => (
             <article
               key={message.id}
               className={`chatBubble breakAnywhere ${
@@ -306,51 +215,56 @@ function ChatPanel({
         )}
 
         <div className="chatVoiceBar">
-          <button
-            type="button"
-            className="chatTtsToggle"
-            data-enabled={tts.enabled}
-            onClick={() => tts.setEnabled(!tts.enabled)}
-            aria-pressed={tts.enabled}
-            aria-label={tts.enabled ? '음성 응답 끄기' : '음성 응답 켜기'}
-          >
-            {tts.enabled ? '음성 켜짐' : '음성 꺼짐'}
-          </button>
-          {ttsSpeaking && (
-            <span className="chatTtsSpeaking" aria-live="polite">
-              읽는 중
-            </span>
-          )}
+          <div className="chatVoiceBarControls">
+            {voiceSupported && (
+              <button
+                type="button"
+                className="chatMicButton"
+                data-listening={voiceMicOn || undefined}
+                disabled={busy || voicePermissionDenied}
+                onClick={onToggleVoiceMic}
+                aria-pressed={voiceMicOn}
+                aria-label={voiceMicOn ? '마이크 끄기' : '마이크 켜기'}
+              >
+                <svg
+                  className="chatMicIcon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden
+                >
+                  <path
+                    d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3Z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.08A7 7 0 0 0 19 11Z"
+                    fill="currentColor"
+                  />
+                </svg>
+                <span className="chatMicButtonLabel">{voiceMicOn ? '듣는 중' : '마이크'}</span>
+              </button>
+            )}
+            <VoiceStatusIndicator
+              phase={voicePhase}
+              livePreview={voiceLivePreview}
+              isSupported={voiceSupported}
+              permissionDenied={voicePermissionDenied}
+              busy={busy}
+              ttsSpeaking={ttsSpeaking}
+              armRemainingMs={voiceArmRemainingMs}
+              isMicOn={voiceMicOn}
+            />
+            {ttsSpeaking && (
+              <span className="chatTtsSpeaking" aria-live="polite">
+                읽는 중
+              </span>
+            )}
+          </div>
         </div>
 
         <form className="chatForm" onSubmit={handleSubmit}>
-          {speech.isSupported && speech.isListening && (
-            <div className="chatMicPreviewBar">
-              <div className="chatMicPreviewRow">
-                <span className="chatMicPreviewStatus" aria-live="polite">
-                  <span className="chatMicPreviewDot" aria-hidden />
-                  듣는 중
-                  {speech.livePreview ? (
-                    <>
-                      <span className="chatMicPreviewSep" aria-hidden>
-                        ·
-                      </span>
-                      <span className="chatMicPreviewText">{speech.livePreview}</span>
-                    </>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  className="chatMicPreviewCancel"
-                  onClick={() => speech.cancelListening()}
-                  disabled={busy}
-                  aria-label="음성 인식 취소"
-                >
-                  인식 취소
-                </button>
-              </div>
-            </div>
-          )}
           <div className="chatFormInputRow">
             <textarea
               value={draft}
@@ -367,41 +281,6 @@ function ChatPanel({
               disabled={busy}
               rows={1}
             />
-            {speech.isSupported && (
-              <button
-                type="button"
-                className="chatMicButton"
-                data-listening={speech.isListening}
-                onClick={() => (speech.isListening ? speech.stopListening() : speech.startListening())}
-                aria-label={speech.isListening ? '음성 인식 끝내고 입력에 넣기' : '음성으로 말하기 시작'}
-                aria-pressed={speech.isListening}
-                disabled={busy}
-              >
-                <span className="chatMicButtonInner">
-                  {speech.isListening ? (
-                    <svg className="chatMicIcon" width="18" height="18" viewBox="0 0 24 24" aria-hidden>
-                      <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
-                    </svg>
-                  ) : (
-                    <svg
-                      className="chatMicIcon"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      aria-hidden
-                    >
-                      <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3z" />
-                      <path d="M19 10v1a7 7 0 0 1-14 0v-1M12 18v3M8 22h8" />
-                    </svg>
-                  )}
-                  <span className="chatMicButtonLabel">{speech.isListening ? '입력에 넣기' : '말하기'}</span>
-                </span>
-              </button>
-            )}
             <button type="submit" disabled={!canSend}>
               전송
             </button>

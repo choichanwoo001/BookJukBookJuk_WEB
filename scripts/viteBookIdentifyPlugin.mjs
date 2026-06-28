@@ -1,9 +1,14 @@
 import { cpSync, createReadStream, existsSync } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadRefs, getRefCount, handleIdentifyRequest } from './identifyApiCore.mjs'
+import { loadRefs, getRefCount } from './identifyApiCore.mjs'
+import { PYTHON_ORB_UNAVAILABLE, createPythonApiClient, readBody, sendJson, setCors } from './identifyProxyCore.mjs'
 
 const REFS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'book_recognition', 'refs')
+const ROOT_DIR = join(fileURLToPath(new URL('.', import.meta.url)), '..')
+const PYTHON_API_HOST = process.env.BOOK_RECOGNITION_PY_HOST ?? '127.0.0.1'
+const PYTHON_API_PORT = Number(process.env.BOOK_RECOGNITION_PY_PORT ?? 8787)
+const IS_TEST = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test'
 
 const REF_CONTENT_TYPES = {
   '.jpg': 'image/jpeg',
@@ -33,29 +38,33 @@ function sendRefCover(res, fileName) {
   return true
 }
 
-function readBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = []
-    req.on('data', (c) => chunks.push(c))
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
+function createVitePythonApi(server) {
+  return createPythonApiClient({
+    host: PYTHON_API_HOST,
+    port: PYTHON_API_PORT,
+    cwd: ROOT_DIR,
+    disabled: IS_TEST,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    onStdout: () => {},
+    onStderr: () => {},
+    onExit: (code, signal) => {
+      if (code || signal) {
+        server.config.logger.warn(`[book-identify] Python ORB API 종료됨(code=${code}, signal=${signal})`)
+      }
+    },
+    onReadyExisting: () => {},
+    onReadyStarted: (_baseUrl, child) => {
+      server.httpServer?.once('close', () => child.kill())
+    },
+    onStartFailed: () => {
+      server.config.logger.warn(
+        '[book-identify] Python ORB API를 시작하지 못했습니다. `pip install -r book_recognition/requirements.txt` 후 다시 실행하세요.',
+      )
+    },
   })
 }
 
-function sendJson(res, status, body) {
-  const { status: _drop, ...payload } = body
-  res.statusCode = status
-  res.setHeader('Content-Type', 'application/json; charset=utf-8')
-  res.end(JSON.stringify(payload))
-}
-
-function setCors(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-}
-
-/** Vite dev: /book-recognition/* 를 별도 포트 없이 처리 */
+/** Vite dev: /book-recognition/identify 요청을 Python ORB API로 프록시합니다. */
 export function bookIdentifyPlugin() {
   return {
     name: 'book-identify-dev',
@@ -65,11 +74,10 @@ export function bookIdentifyPlugin() {
       cpSync(REFS_DIR, targetDir, { recursive: true })
     },
     async configureServer(server) {
-      const refs = await loadRefs()
-      console.log(`[book-identify] refs ${refs.length}권 로드 (npm run dev 내장)`)
-      for (const r of refs) {
-        console.log(`  - ${r.file} → "${r.query}"`)
-      }
+      await loadRefs()
+
+      const pythonApi = createVitePythonApi(server)
+      let pythonReady = await pythonApi.ensure()
 
       server.middlewares.use(async (req, res, next) => {
         const pathname = (req.url ?? '').split('?')[0]
@@ -102,9 +110,13 @@ export function bookIdentifyPlugin() {
           if (req.method === 'POST' && sub === '/identify') {
             const raw = await readBody(req)
             const body = JSON.parse(raw || '{}')
-            const result = await handleIdentifyRequest(body)
-            const status = result.status ?? 200
-            sendJson(res, status, result)
+            if (!pythonReady) pythonReady = await pythonApi.ensure()
+            if (!pythonReady) {
+              sendJson(res, 502, PYTHON_ORB_UNAVAILABLE)
+              return
+            }
+            const result = await pythonApi.proxyIdentify(body)
+            sendJson(res, result.status, result.payload)
             return
           }
 

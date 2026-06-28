@@ -46,7 +46,7 @@ export function getFloorOuterAndHolePolygons(
   return { outer: outerPts, holes }
 }
 
-function pointInPolygon2D(x: number, z: number, ring: [number, number][]): boolean {
+export function pointInPolygon2D(x: number, z: number, ring: [number, number][]): boolean {
   if (ring.length < 3) return false
   let inside = false
   const n = ring.length

@@ -1,29 +1,64 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { getBookRecognitionClient } from '../agent/bridges/bookRecognitionBridge'
+import { DESTINATION_ARRIVAL_PAUSE_MS } from '../config/constants'
+import { isDemoMode } from '../config/demoMode'
 import { GESTURE_CONFIRM_FRAMES, GESTURE_LABELS_KO, type GestureId } from '../lib/gestureClassifiers'
 import { useBookRecognitionCamera } from '../hooks/useBookRecognitionCamera'
 import { useGestureRecognition } from '../hooks/useGestureRecognition'
 
+export type RecognizedBookPreview = {
+  title: string
+  author?: string
+}
+
 export type BookRecognitionPanelProps = {
   busy: boolean
-  onCapture: (
+  /** 레거시 UI 캡처 (현재 패널에서는 미사용). */
+  onCapture?: (
     reason: 'add' | 'remove' | 'browse',
     imageBase64: string,
     trigger?: 'gesture' | 'ui',
   ) => void | Promise<void>
+  /** 표지 인식 후 제스처로 담기/빼기 (인식된 제목 기준). */
+  onGestureBookDecision?: (
+    reason: 'add' | 'remove',
+    book: RecognizedBookPreview,
+  ) => void | Promise<void>
   onBrowse?: (imageBase64: string) => void | Promise<void>
   onGestureConfirmed?: (gestureId: GestureId) => void
+  /** 데모 시나리오: 서가/우연한 발견 구간에서 표시할 책. */
+  activeBook?: RecognizedBookPreview | null
+  /** 카메라 켜진 뒤 책 살펴보기 카운트다운 표시. */
+  dwellCountdownActive?: boolean
+  dwellCountdownMs?: number
+  /** 카운트다운 완료 시 관심 있음으로 보고 (우연한 발견). */
+  trackBrowseInterest?: boolean
+  onBrowseInterestDetected?: (book: RecognizedBookPreview) => void
   placement?: 'map' | 'chat'
 }
 
+const IDENTIFY_POLL_MS = 1400
+
 export function BookRecognitionPanel({
   busy,
-  onCapture,
+  onGestureBookDecision,
   onGestureConfirmed,
+  activeBook = null,
+  dwellCountdownActive = false,
+  dwellCountdownMs = DESTINATION_ARRIVAL_PAUSE_MS,
+  trackBrowseInterest = false,
+  onBrowseInterestDetected,
   placement = 'map',
 }: BookRecognitionPanelProps) {
   const [gestureEnabled, setGestureEnabled] = useState(false)
   const [identifying, setIdentifying] = useState(false)
+  const [recognizedBook, setRecognizedBook] = useState<RecognizedBookPreview | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [gestureHint, setGestureHint] = useState<string | null>(null)
+  const [countdownSec, setCountdownSec] = useState<number | null>(null)
+  const scanInFlightRef = useRef(false)
+  const interestReportedRef = useRef(false)
 
   const {
     videoRef,
@@ -34,18 +69,112 @@ export function BookRecognitionPanel({
     captureFrameBase64,
   } = useBookRecognitionCamera()
 
-  const runCapture = useCallback(
-    (reason: 'add' | 'remove', trigger: 'gesture' | 'ui') => {
-      if (busy || identifying || !onCapture || !isActive) return
+  const handleToggleCamera = useCallback(async () => {
+    if (isActive) {
+      stop()
+      setGestureEnabled(false)
+      setRecognizedBook(null)
+      setGestureHint(null)
+      setCountdownSec(null)
+      interestReportedRef.current = false
+      return
+    }
+    await start()
+  }, [isActive, start, stop])
+
+  useEffect(() => {
+    if (!isDemoMode() || !isActive || !activeBook) {
+      if (isDemoMode() && !isActive) {
+        setRecognizedBook(null)
+      }
+      return
+    }
+    setRecognizedBook(activeBook)
+    setGestureHint(null)
+  }, [activeBook, isActive])
+
+  useEffect(() => {
+    interestReportedRef.current = false
+    setCountdownSec(null)
+    if (!dwellCountdownActive || !isActive || !activeBook) return undefined
+
+    const totalMs = dwellCountdownMs
+    const startedAt = Date.now()
+    setCountdownSec(Math.ceil(totalMs / 1000))
+
+    const timerId = window.setInterval(() => {
+      const remaining = Math.max(0, totalMs - (Date.now() - startedAt))
+      setCountdownSec(Math.ceil(remaining / 1000))
+      if (remaining <= 0) {
+        window.clearInterval(timerId)
+        if (trackBrowseInterest && !interestReportedRef.current) {
+          interestReportedRef.current = true
+          onBrowseInterestDetected?.(activeBook)
+        }
+      }
+    }, 200)
+
+    return () => window.clearInterval(timerId)
+  }, [
+    activeBook,
+    dwellCountdownActive,
+    dwellCountdownMs,
+    isActive,
+    onBrowseInterestDetected,
+    trackBrowseInterest,
+  ])
+
+  useEffect(() => {
+    if (!isActive || busy || identifying) return undefined
+    if (isDemoMode()) return undefined
+
+    const tick = async () => {
+      if (scanInFlightRef.current) return
       const frame = captureFrameBase64()
       if (!frame) return
 
+      scanInFlightRef.current = true
+      setScanning(true)
+      try {
+        const result = await getBookRecognitionClient().identifyBook({
+          reason: 'add',
+          imageBase64: frame,
+        })
+        if (result.ok && result.title?.trim()) {
+          setRecognizedBook({
+            title: result.title.trim(),
+            author: result.author?.trim() || undefined,
+          })
+          setGestureHint(null)
+        } else {
+          setRecognizedBook(null)
+        }
+      } finally {
+        scanInFlightRef.current = false
+        setScanning(false)
+      }
+    }
+
+    void tick()
+    const timerId = window.setInterval(() => {
+      void tick()
+    }, IDENTIFY_POLL_MS)
+    return () => window.clearInterval(timerId)
+  }, [busy, captureFrameBase64, identifying, isActive])
+
+  const runGestureDecision = useCallback(
+    (reason: 'add' | 'remove') => {
+      if (busy || identifying || !onGestureBookDecision) return
+      if (!recognizedBook) {
+        setGestureHint('표지를 인식한 뒤 제스처를 해 주세요.')
+        return
+      }
       setIdentifying(true)
-      void Promise.resolve(onCapture(reason, frame, trigger)).finally(() => {
+      void Promise.resolve(onGestureBookDecision(reason, recognizedBook)).finally(() => {
         setIdentifying(false)
       })
     },
-    [busy, captureFrameBase64, identifying, isActive, onCapture],
+    [busy, identifying, onGestureBookDecision, recognizedBook],
   )
 
   const handleGestureConfirmed = useCallback(
@@ -55,32 +184,22 @@ export function BookRecognitionPanel({
       if (!gestureEnabled) return
 
       if (gestureId === 'thumbs_up') {
-        runCapture('add', 'gesture')
+        runGestureDecision('add')
       } else if (gestureId === 'thumbs_down') {
-        runCapture('remove', 'gesture')
+        runGestureDecision('remove')
       }
     },
-    [gestureEnabled, onGestureConfirmed, runCapture],
+    [gestureEnabled, onGestureConfirmed, runGestureDecision],
   )
 
   const gesture = useGestureRecognition({
     videoRef,
     isActive,
-    enabled: isActive && gestureEnabled && Boolean(onGestureConfirmed),
+    enabled: isActive && gestureEnabled && Boolean(onGestureConfirmed || onGestureBookDecision),
     onConfirmed: handleGestureConfirmed,
   })
 
-  const handleToggleCamera = useCallback(async () => {
-    if (isActive) {
-      stop()
-      setGestureEnabled(false)
-      return
-    }
-    await start()
-  }, [isActive, start, stop])
-
   const previewLabel = gesture.previewGesture ? GESTURE_LABELS_KO[gesture.previewGesture] : null
-  const captureDisabled = busy || identifying || !isActive
 
   return (
     <div
@@ -111,9 +230,20 @@ export function BookRecognitionPanel({
         {!isActive && (
           <div className="bookRecognitionVideoPlaceholder">카메라 미리보기</div>
         )}
+        {isActive && countdownSec !== null && countdownSec > 0 && (
+          <div className="bookRecognitionCountdownOverlay" aria-live="polite">
+            <span className="bookRecognitionCountdownLabel">책 살펴보기</span>
+            <span className="bookRecognitionCountdownValue">{countdownSec}초</span>
+          </div>
+        )}
+        {isActive && countdownSec === 0 && trackBrowseInterest && (
+          <div className="bookRecognitionCountdownOverlay" aria-live="polite">
+            <span className="bookRecognitionCountdownDone">관심 있음으로 기록됨</span>
+          </div>
+        )}
         {isActive && !gestureEnabled && (
           <div className="bookRecognitionGestureOverlay" aria-live="polite">
-            <span className="bookRecognitionGestureChip muted">표지를 맞춘 뒤 담기/빼기</span>
+            <span className="bookRecognitionGestureChip muted">표지 인식 후 제스처로 담기·빼기</span>
           </div>
         )}
         {isActive && gestureEnabled && (
@@ -134,23 +264,31 @@ export function BookRecognitionPanel({
         )}
       </div>
 
+      {isActive && (
+        <div className="bookRecognitionDetected" aria-live="polite">
+          {scanning && !recognizedBook ? (
+            <span className="bookRecognitionDetectedStatus">표지 인식 중…</span>
+          ) : recognizedBook ? (
+            <>
+              <span className="bookRecognitionDetectedLabel">인식됨</span>
+              <strong className="bookRecognitionDetectedTitle">{recognizedBook.title}</strong>
+              {recognizedBook.author ? (
+                <span className="bookRecognitionDetectedAuthor">{recognizedBook.author}</span>
+              ) : null}
+              {gestureEnabled ? (
+                <span className="bookRecognitionDetectedHint">엄지 ↑ 담기 · ↓ 빼기</span>
+              ) : null}
+            </>
+          ) : (
+            <span className="bookRecognitionDetectedStatus">인식된 책 없음</span>
+          )}
+          {gestureHint ? (
+            <span className="bookRecognitionDetectedWarn">{gestureHint}</span>
+          ) : null}
+        </div>
+      )}
+
       <div className="bookRecognitionActions">
-        <button
-          type="button"
-          className="bookRecognitionActionButton"
-          onClick={() => runCapture('add', 'ui')}
-          disabled={captureDisabled}
-        >
-          담기
-        </button>
-        <button
-          type="button"
-          className="bookRecognitionActionButton"
-          onClick={() => runCapture('remove', 'ui')}
-          disabled={captureDisabled}
-        >
-          빼기
-        </button>
         <button
           type="button"
           className="bookRecognitionGestureToggle"

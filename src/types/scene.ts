@@ -1,4 +1,5 @@
-export type ViewMode = 'firstPerson' | 'thirdPerson' | 'overview' | 'edit'
+export type ViewMode = 'topDown' | 'overview' | 'edit'
+export type EditTool = 'areaSelection' | 'bookshelfEdit' | 'wallSelect'
 export type SurfaceKind = 'floor' | 'wall' | 'bookshelf' | 'pillar'
 
 export type PickPoint = {
@@ -23,4 +24,5 @@ export type FixtureRenderInstance = {
   d: number
   yaw: number
   h: number
+  footprint?: [number, number][]
 }

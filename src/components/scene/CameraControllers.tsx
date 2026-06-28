@@ -1,59 +1,32 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Vector3 } from 'three'
 import type { RefObject } from 'react'
 import type { PerspectiveCamera as ThreePerspectiveCamera } from 'three'
 import { useMouseDrag } from '../../hooks/useMouseDrag'
 import {
-  THIRD_PERSON_DISTANCE_M,
-  THIRD_PERSON_TARGET_HEIGHT_M,
-  THIRD_PERSON_LOOK_AHEAD_M,
-  THIRD_PERSON_MIN_CAMERA_Y_M,
-  THIRD_PERSON_MAX_CAMERA_Y_M,
-  FIRST_PERSON_EYE_HEIGHT_M,
-  MOUSE_LOOK_SENSITIVITY,
-  MOUSE_LOOK_PITCH_MIN,
-  MOUSE_LOOK_PITCH_MAX,
-  ZOOM_FOV_MIN,
-  ZOOM_FOV_MAX,
-  ZOOM_FOV_SENSITIVITY,
+  TOP_DOWN_CAMERA_Y_M,
+  TOP_DOWN_FOLLOW_YAW_LAMBDA,
+  TOP_DOWN_ROBOT_FOLLOW_YAW_LAMBDA,
+  TOP_DOWN_Y_MIN,
+  TOP_DOWN_Y_MAX,
+  TOP_DOWN_ZOOM_SENSITIVITY,
   OVERVIEW_ZOOM_SENSITIVITY,
   OVERVIEW_Y_MIN,
   OVERVIEW_Y_MAX,
   OVERVIEW_PAN_SPEED,
   MAP_VIEW_YAW_OFFSET_RAD,
 } from '../../config/constants'
-import { overviewPanDy, overviewYawInput } from '../../utils/overviewDisplayFlip'
+import { overviewPanDy } from '../../utils/overviewDisplayFlip'
 
-export function CameraZoomController({
-  enabled,
-  onFovChange,
-}: {
-  enabled: boolean
-  onFovChange?: (fov: number) => void
-}) {
-  const { camera, gl } = useThree()
+function normalizeAngle(angle: number) {
+  let normalized = angle
+  while (normalized > Math.PI) normalized -= Math.PI * 2
+  while (normalized < -Math.PI) normalized += Math.PI * 2
+  return normalized
+}
 
-  useEffect(() => {
-    const element = gl.domElement
-    if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
-    const perspectiveCamera = camera as ThreePerspectiveCamera
-
-    const onWheel = (event: WheelEvent) => {
-      if (!enabled) return
-      event.preventDefault()
-      const delta = event.deltaY * ZOOM_FOV_SENSITIVITY
-      const next = Math.min(ZOOM_FOV_MAX, Math.max(ZOOM_FOV_MIN, perspectiveCamera.fov + delta))
-      perspectiveCamera.fov = next
-      perspectiveCamera.updateProjectionMatrix()
-      onFovChange?.(next)
-    }
-
-    element.addEventListener('wheel', onWheel, { passive: false })
-    return () => element.removeEventListener('wheel', onWheel)
-  }, [camera, enabled, gl, onFovChange])
-
-  return null
+function lerpAngle(current: number, target: number, alpha: number) {
+  return current + normalizeAngle(target - current) * alpha
 }
 
 export function OverviewZoomController() {
@@ -78,151 +51,74 @@ export function OverviewZoomController() {
   return null
 }
 
-export function MouseLookController({
-  yawRef,
-  pitchRef,
-  enabled,
-  isFreeLookRef,
-  mouseLookDraggingRef,
-  pitchMin = MOUSE_LOOK_PITCH_MIN,
-  pitchMax = MOUSE_LOOK_PITCH_MAX,
-  /** false: yaw/pitch ref만 갱신(3인칭은 ThirdPersonCameraRig가 position+lookAt으로 담당) */
-  applyRotationToCamera = true,
-}: {
-  yawRef: RefObject<number>
-  pitchRef: RefObject<number>
-  enabled: boolean
-  isFreeLookRef: RefObject<boolean>
-  mouseLookDraggingRef?: RefObject<boolean>
-  pitchMin?: number
-  pitchMax?: number
-  applyRotationToCamera?: boolean
-}) {
-  const { get, gl } = useThree()
-
-  const onStart = useCallback(() => {
-    isFreeLookRef.current = true
-    if (mouseLookDraggingRef) mouseLookDraggingRef.current = true
-  }, [isFreeLookRef, mouseLookDraggingRef])
-
-  const onEnd = useCallback(() => {
-    if (mouseLookDraggingRef) mouseLookDraggingRef.current = false
-  }, [mouseLookDraggingRef])
-
-  const onMove = useCallback(
-    (dx: number, dy: number) => {
-      yawRef.current -= overviewYawInput(dx) * MOUSE_LOOK_SENSITIVITY
-      pitchRef.current = Math.max(
-        pitchMin,
-        Math.min(pitchMax, pitchRef.current - dy * MOUSE_LOOK_SENSITIVITY),
-      )
-      if (!applyRotationToCamera) return
-      const cam = get().camera
-      if ('isPerspectiveCamera' in cam && cam.isPerspectiveCamera) {
-        const perspectiveCamera = cam as ThreePerspectiveCamera
-        perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
-      }
-    },
-    [applyRotationToCamera, get, pitchMax, pitchMin, pitchRef, yawRef],
-  )
-
-  const options = useMemo(() => ({ onStart, onEnd }), [onStart, onEnd])
-
-  useMouseDrag(enabled ? gl.domElement : null, onMove, options)
+export function TopDownZoomController({ enabled }: { enabled: boolean }) {
+  const { camera, gl } = useThree()
 
   useEffect(() => {
-    if (!enabled || !applyRotationToCamera) return
-    const cam = get().camera
-    if (!('isPerspectiveCamera' in cam) || !cam.isPerspectiveCamera) return
-    const perspectiveCamera = cam as ThreePerspectiveCamera
-    perspectiveCamera.rotation.set(pitchRef.current, yawRef.current, 0, 'YXZ')
-  }, [applyRotationToCamera, get, enabled, pitchRef, yawRef])
-
-  return null
-}
-
-export function FirstPersonCameraRig({
-  yawRef,
-  pitchRef,
-  enabled,
-}: {
-  yawRef: RefObject<number>
-  pitchRef: RefObject<number>
-  enabled: boolean
-}) {
-  useFrame((state) => {
-    if (!enabled) return
-    const camera = state.camera
+    const element = gl.domElement
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
-    camera.position.set(0, FIRST_PERSON_EYE_HEIGHT_M, 0)
-    camera.rotation.set(pitchRef.current, yawRef.current + Math.PI, Math.PI, 'YXZ')
-  })
+    const perspectiveCamera = camera as ThreePerspectiveCamera
+
+    const onWheel = (event: WheelEvent) => {
+      if (!enabled) return
+      event.preventDefault()
+      const delta = event.deltaY * TOP_DOWN_ZOOM_SENSITIVITY
+      perspectiveCamera.position.y = Math.min(
+        TOP_DOWN_Y_MAX,
+        Math.max(TOP_DOWN_Y_MIN, perspectiveCamera.position.y + delta),
+      )
+      perspectiveCamera.updateProjectionMatrix()
+    }
+
+    element.addEventListener('wheel', onWheel, { passive: false })
+    return () => element.removeEventListener('wheel', onWheel)
+  }, [camera, enabled, gl])
 
   return null
 }
 
-export function ThirdPersonCameraRig({
+export function TopDownCameraRig({
   yawRef,
-  pitchRef,
   enabled,
-  snapOnMount = false,
+  robotFollowMode = false,
 }: {
   yawRef: RefObject<number>
-  pitchRef: RefObject<number>
   enabled: boolean
-  snapOnMount?: boolean
+  robotFollowMode?: boolean
 }) {
-  const desiredPositionRef = useRef(new Vector3())
-  const lookTargetRef = useRef(new Vector3(0, THIRD_PERSON_TARGET_HEIGHT_M, 0))
+  const displayYawRef = useRef(0)
   const snapOnNextFrameRef = useRef(true)
 
   useLayoutEffect(() => {
     snapOnNextFrameRef.current = true
-  }, [enabled])
+    displayYawRef.current = yawRef.current
+  }, [enabled, yawRef])
 
   useFrame((state, delta) => {
     if (!enabled) return
     const camera = state.camera
     if (!('isPerspectiveCamera' in camera) || !camera.isPerspectiveCamera) return
 
-    const desiredPosition = desiredPositionRef.current
-    const yaw = yawRef.current
-    const pitch = pitchRef.current
-    const cosPitch = Math.cos(pitch)
+    const yawLambda = robotFollowMode
+      ? TOP_DOWN_ROBOT_FOLLOW_YAW_LAMBDA
+      : TOP_DOWN_FOLLOW_YAW_LAMBDA
 
-    desiredPosition
-      .set(-Math.sin(yaw) * cosPitch, -Math.sin(pitch), -Math.cos(yaw) * cosPitch)
-      .multiplyScalar(THIRD_PERSON_DISTANCE_M)
-    desiredPosition.y += THIRD_PERSON_TARGET_HEIGHT_M
-    desiredPosition.y = Math.min(
-      THIRD_PERSON_MAX_CAMERA_Y_M,
-      Math.max(THIRD_PERSON_MIN_CAMERA_Y_M, desiredPosition.y),
-    )
-
-    lookTargetRef.current.set(
-      Math.sin(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
-      THIRD_PERSON_TARGET_HEIGHT_M,
-      Math.cos(yaw) * THIRD_PERSON_LOOK_AHEAD_M,
-    )
-
-    const shouldSnap =
-      snapOnNextFrameRef.current
-      || camera.position.distanceToSquared(desiredPosition) > THIRD_PERSON_DISTANCE_M * THIRD_PERSON_DISTANCE_M
-    if (shouldSnap) {
-      camera.position.copy(desiredPosition)
+    if (snapOnNextFrameRef.current) {
+      displayYawRef.current = yawRef.current
       snapOnNextFrameRef.current = false
     } else {
-      const lerpAlpha = 1 - Math.exp(-delta * 10)
-      camera.position.lerp(desiredPosition, lerpAlpha)
+      const yawAlpha = 1 - Math.exp(-delta * yawLambda)
+      displayYawRef.current = lerpAngle(displayYawRef.current, yawRef.current, yawAlpha)
     }
-    camera.up.set(0, -1, 0)
-    camera.lookAt(lookTargetRef.current)
-  })
 
-  useLayoutEffect(() => {
-    if (!snapOnMount || !enabled) return
-    snapOnNextFrameRef.current = true
-  }, [enabled, snapOnMount])
+    if (camera.position.y < TOP_DOWN_Y_MIN || camera.position.y > TOP_DOWN_Y_MAX) {
+      camera.position.y = TOP_DOWN_CAMERA_Y_M
+    }
+    camera.position.x = 0
+    camera.position.z = 0
+    camera.rotation.set(-Math.PI / 2, displayYawRef.current, 0, 'YXZ')
+    camera.up.set(0, 0, -1)
+  })
 
   return null
 }

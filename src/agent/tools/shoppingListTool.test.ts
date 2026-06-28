@@ -46,8 +46,13 @@ function makeCtx(cartItems: AgentContext['cartItems']): ToolExecutionContext {
     cartItems,
     pendingDwellBook: null,
     awaitingDwellFeedback: false,
+    skippedDwellBook: null,
+    extendedRouteActive: false,
+    transitDetourPhase: 'idle' as const,
+    resumeLegAfterDetour: null,
     checkoutStatus: 'idle',
     receipt: null,
+    kakaoPaySession: null,
   }
   return {
     getContext: () => ctx,

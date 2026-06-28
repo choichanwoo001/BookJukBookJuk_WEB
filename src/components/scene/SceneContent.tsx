@@ -5,27 +5,25 @@ import { Group } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import { isEditableDomTarget } from '../../utils/domTarget'
 import {
-  wallRects as baseWallRects,
   pillarRects,
-  floorRects,
-  floorFillRects,
+  floorRenderRects,
+  buildFixtureFloorSupportRects,
+  wallRenderRects,
   FLOOR_HEIGHT_M,
   ENTRANCE_SPAWN,
 } from '../../data/floorPlan'
 import { subscribeMapCommand } from '../../agent/runtime/agentEventBus'
 import { axisAlignedBoundsForRotatedBookshelf } from '../../utils/bookshelfCollision'
 import { useWorldMovement, INITIAL_PLAYER_POS } from '../../hooks/useWorldMovement'
-import { syncPlayerPositionFromWorldRef, useGuidanceIntroMotion } from '../../hooks/useGuidanceIntroMotion'
+import { syncPlayerPositionFromWorldRef } from '../../utils/playerWorldSync'
+import { pathHeadingAtPoint } from '../../utils/pathSampling'
 import {
   bookshelfOverlayLayerInstances,
   counterOverlayLayerInstances,
   isCounterOverlaidByBookshelfOverlayLayer,
 } from '../../data/bookshelfOverlayLayer'
 import {
-  FIRST_PERSON_DEFAULT_PITCH,
-  THIRD_PERSON_LOCKED_PITCH,
   floorMaterial,
-  ceilingMaterial,
   bookshelfMaterial,
   bookshelfOverlayLayerMaterial,
   bookshelfOverlayInteriorWoodMaterial,
@@ -34,11 +32,11 @@ import {
   markerMaterial,
   areaMaterial,
   FIXED_SELECTION_RADIUS_M,
-  WALK_DEFAULT_FOV,
 } from '../../config/constants'
-import type { ViewMode, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
+import type { ViewMode, EditTool, PickPoint, CircleSelection, FixtureRenderInstance } from '../../types/scene'
 import type { Point2 } from '../../data/floorPlan'
-import { WallRibbonMesh, EntranceDoorwayDecor } from './Walls'
+import { WallRibbonMesh } from './Walls'
+import { WallSelectOverlay } from './WallSelectOverlay'
 import { FloorPolygonMesh, BookstoreLights } from './Floor'
 import {
   PillarCylinderInstances,
@@ -47,7 +45,6 @@ import {
 } from './Fixtures'
 import { SupermarketCounterInstances } from './SupermarketCounter'
 import { BookshelfOverlayInterior } from './BookshelfOverlayInterior'
-import { ThirdPersonOcclusionFader } from './ThirdPersonOcclusionFader'
 import type { MinimapUvPoint } from './MinimapViewportReporter'
 import {
   PlayerPositionReporter,
@@ -55,19 +52,16 @@ import {
   EditDragController,
 } from './reporters/SceneReporters'
 import type { MinimapPlayerPos } from './reporters/SceneReporters'
-import { WalkRig, OverviewRig } from './rigs/CameraRigs'
+import { TopDownRig, OverviewRig } from './rigs/CameraRigs'
 import { useScenePickHandlers } from './useScenePickHandlers'
-import { useSceneWalkModeSync } from './useSceneWalkModeSync'
-import { useVersoRobotSync } from '../../hooks/useVersoRobotSync'
-import { useDemoNavigationAutoWalk } from '../../hooks/useDemoNavigationAutoWalk'
+import { useSceneTopDownSync } from './useSceneTopDownSync'
+import { useNavigationMovement } from '../../hooks/useNavigationMovement'
 import type { VersoStatus } from '../../lib/verso/types'
 import { NavigationRouteMesh } from './NavigationRouteMesh'
-import { ScenarioRouteSegmentsMesh } from './ScenarioRouteSegmentsMesh'
 import type { NavigationRouteVisual } from '../../hooks/useNavigationRoute'
-import type { DemoScenarioRoute } from '../../utils/demoScenarioRoute'
 import type { RoutePathDisplayMode } from '../../utils/pathSmoothing'
 import type { WalkabilityContext } from '../../utils/walkability'
-import { ScenarioRouteStopMarkers } from './ScenarioRouteStopMarkers'
+import type { WallSegmentRef } from '../../utils/wallSelectBetweenPoints'
 import {
   resolveNavigationMobilityPhase,
   type NavigationMobilityPhase,
@@ -83,83 +77,84 @@ export function SceneContent({
   staticFixtureInstances,
   selections,
   onAddSelection,
+  wallSelectPointA = null,
+  wallSelectPointB = null,
+  wallSelectPreviewPoint = null,
+  wallSelectSegments = [],
+  onWallSelectPoint,
+  onWallSelectPreview,
   selectedBookshelfIndex,
   onSelectBookshelf,
   onUpdateBookshelf,
-  forwardArrowRef,
-  walkFov = WALK_DEFAULT_FOV,
-  onWalkFovChange,
   onMinimapViewportUv,
   onPlayerPosition,
   playerWorldXzRef,
   navigationRoute,
   navigationRouteVariant = 'preview',
   routePathDisplayMode = 'curved',
-  scenarioRoute = null,
   walkabilityCtx,
   navHighlightPath = null,
   navCurrentGoal = null,
   demoNavigationActive = false,
-  scenarioRoutePreviewActive = false,
-  ttsSpeaking = false,
+  mobilityHold = false,
   onMobilityPhaseChange,
   onMovementSyncSample,
   onNavigationSpawnReady,
   scenarioPlaybackHeadingRef,
   robotSyncActive = false,
   robotStatus = null,
+  robotLiveStatusRef,
 }: {
   mode: ViewMode
   activePane: 'map' | 'chat'
-  editTool: 'areaSelection' | 'bookshelfEdit'
+  editTool: EditTool
   bookshelfRenderInstances: FixtureRenderInstance[]
   staticFixtureInstances: FixtureRenderInstance[]
   selections: CircleSelection[]
   onAddSelection: (point: PickPoint) => void
+  wallSelectPointA?: Point2 | null
+  wallSelectPointB?: Point2 | null
+  wallSelectPreviewPoint?: Point2 | null
+  wallSelectSegments?: WallSegmentRef[]
+  onWallSelectPoint?: (point: PickPoint) => void
+  onWallSelectPreview?: (point: PickPoint | null) => void
   selectedBookshelfIndex?: number | null
   onSelectBookshelf?: (index: number | null) => void
   onUpdateBookshelf?: (index: number, patch: Partial<FixtureRenderInstance>) => void
-  forwardArrowRef?: RefObject<HTMLDivElement | null>
-  walkFov?: number
-  onWalkFovChange?: (fov: number) => void
   onMinimapViewportUv?: (quad: MinimapUvPoint[] | null) => void
   onPlayerPosition?: (pos: MinimapPlayerPos | null) => void
   playerWorldXzRef?: RefObject<Point2 | null>
   navigationRoute?: NavigationRouteVisual | null
   navigationRouteVariant?: 'preview' | 'nav'
   routePathDisplayMode?: RoutePathDisplayMode
-  scenarioRoute?: DemoScenarioRoute | null
   walkabilityCtx?: WalkabilityContext
   navHighlightPath?: Point2[] | null
   navCurrentGoal?: Point2 | null
   demoNavigationActive?: boolean
-  scenarioRoutePreviewActive?: boolean
-  ttsSpeaking?: boolean
+  mobilityHold?: boolean
   onMobilityPhaseChange?: (phase: NavigationMobilityPhase) => void
   onMovementSyncSample?: (sample: { isManualWalking: boolean; isAutoWalking: boolean }) => void
   onNavigationSpawnReady?: () => void
   scenarioPlaybackHeadingRef?: RefObject<number | null>
   robotSyncActive?: boolean
   robotStatus?: VersoStatus | null
+  robotLiveStatusRef?: RefObject<VersoStatus | null>
 }) {
   const worldRef = useRef<Group>(null)
   const storedWorldPositionRef = useRef<[number, number]>([-INITIAL_PLAYER_POS[0], -INITIAL_PLAYER_POS[1]])
   const yawRef = useRef(0)
-  const pitchRef = useRef(FIRST_PERSON_DEFAULT_PITCH)
   const characterYawRef = useRef(0)
-  const isFreeLookRef = useRef(false)
-  const mouseLookDraggingRef = useRef(false)
   const walkMovingRef = useRef(false)
   const playerPositionRef = useRef<[number, number]>([...INITIAL_PLAYER_POS])
-  const prevWalkModeRef = useRef<'firstPerson' | 'thirdPerson' | null>(null)
-  const isFirstPerson = mode === 'firstPerson'
-  const isThirdPerson = mode === 'thirdPerson'
-  const isWalkMode = isFirstPerson || isThirdPerson
+  const navigationInitialHeadingRef = useRef<number | null>(null)
+  const pathYawAppliedRef = useRef(false)
+  const prevTopDownModeRef = useRef<'topDown' | null>(null)
+  const isTopDown = mode === 'topDown'
+  const isWalkMode = isTopDown
   const isEdit = mode === 'edit'
   const isBookshelfEdit = isEdit && editTool === 'bookshelfEdit'
   const isAreaSelection = isEdit && editTool === 'areaSelection'
-  /** 전시대(displayLow)는 바닥 밖에 안 보이도록 1인칭에서만 표시. */
-  const showDisplayLowFixtures = isFirstPerson
+  const isWallSelect = isEdit && editTool === 'wallSelect'
   const [isSpacePressed, setIsSpacePressed] = useState(false)
   const isBookshelfDraggingRef = useRef(false)
   const controlsEnabled = activePane === 'map' || demoNavigationActive
@@ -171,6 +166,14 @@ export function SceneContent({
     () => staticFixtureInstances.filter((inst) => inst.kind === 'displayLow'),
     [staticFixtureInstances],
   )
+  const fixtureFloorSupportRects = useMemo(
+    () => buildFixtureFloorSupportRects([
+      ...bookshelfRenderInstances,
+      ...counterRenderInstances,
+      ...displayRenderInstances,
+    ]),
+    [bookshelfRenderInstances, counterRenderInstances, displayRenderInstances],
+  )
   const bookshelfCollisionRects = useMemo(
     () =>
       bookshelfRenderInstances.map(inst =>
@@ -178,29 +181,21 @@ export function SceneContent({
       ),
     [bookshelfRenderInstances],
   )
-  const guidanceIntroActive = useGuidanceIntroMotion({
+  const autoWalkActive = useNavigationMovement({
     worldRef,
     yawRef,
     characterYawRef,
     playerPositionRef,
-    enabled: isWalkMode && controlsEnabled && !robotSyncActive,
-    collisionOverrides: {
-      floorRects,
-      wallRects: baseWallRects,
-      bookshelfRects: bookshelfCollisionRects,
-    },
-  })
-
-  const demoAutoWalkActive = useDemoNavigationAutoWalk({
-    worldRef,
-    yawRef,
-    characterYawRef,
-    playerPositionRef,
+    storedWorldPositionRef,
+    playerWorldXzRef,
+    robotSyncActive,
+    robotStatus,
+    robotLiveStatusRef,
     highlightPath: navHighlightPath,
     currentGoal: navCurrentGoal,
-    enabled: isWalkMode && demoNavigationActive && !robotSyncActive,
-    pauseForIntro: guidanceIntroActive,
-    pauseForSpeech: ttsSpeaking,
+    demoNavigationActive,
+    mobilityHold,
+    isWalkMode,
   })
 
   useWorldMovement(
@@ -208,51 +203,55 @@ export function SceneContent({
     yawRef,
     isWalkMode && controlsEnabled && !robotSyncActive,
     {
-      floorRects,
-      wallRects: baseWallRects,
+      floorRects: floorRenderRects,
+      wallRects: wallRenderRects,
       bookshelfRects: bookshelfCollisionRects,
     },
     characterYawRef,
     walkMovingRef,
-    controlsEnabled && !robotSyncActive && !guidanceIntroActive && !demoAutoWalkActive,
+    controlsEnabled && !robotSyncActive && !autoWalkActive && !mobilityHold,
     playerPositionRef,
   )
 
-  useVersoRobotSync({
-    robotSyncActive,
-    status: robotStatus,
-    worldRef,
-    storedWorldPositionRef,
-    playerWorldXzRef,
-    yawRef,
-    characterYawRef,
-    isWalkMode,
-  })
-
-  useSceneWalkModeSync({
+  useSceneTopDownSync({
     mode,
     worldRef,
     storedWorldPositionRef,
     yawRef,
-    pitchRef,
-    prevWalkModeRef,
+    prevTopDownModeRef,
     preserveHeadingOnEnter: robotSyncActive,
     playerWorldXzRef,
     scenarioPlaybackHeadingRef,
     characterYawRef,
-    syncFromScenarioPreview: scenarioRoutePreviewActive && !demoNavigationActive,
+    syncFromScenarioPreview: false,
+    navigationHeadingRef: navigationInitialHeadingRef,
   })
+
+  const applyPathAlignedYaw = useCallback((path: Point2[] | null | undefined) => {
+    if (!path || path.length < 2) return
+    const pos = playerPositionRef.current
+    const heading = pathHeadingAtPoint(path, [pos[0], pos[1]])
+    if (heading == null) return
+    navigationInitialHeadingRef.current = heading
+    yawRef.current = heading
+    characterYawRef.current = heading + Math.PI
+    pathYawAppliedRef.current = true
+  }, [])
+
+  useEffect(() => {
+    if (pathYawAppliedRef.current) return
+    applyPathAlignedYaw(navHighlightPath ?? navigationRoute?.highlightPath ?? navigationRoute?.planPath)
+  }, [applyPathAlignedYaw, navHighlightPath, navigationRoute?.highlightPath, navigationRoute?.planPath])
 
   const highlightPathLength = navHighlightPath?.length ?? 0
   const mobilityPhase = useMemo(
     () =>
       resolveNavigationMobilityPhase({
         demoNavigationActive,
-        guidanceIntroActive,
-        demoAutoWalkActive,
+        demoAutoWalkActive: autoWalkActive,
         highlightPathLength,
       }),
-    [demoAutoWalkActive, demoNavigationActive, guidanceIntroActive, highlightPathLength],
+    [autoWalkActive, demoNavigationActive, highlightPathLength],
   )
 
   useEffect(() => {
@@ -262,38 +261,43 @@ export function SceneContent({
   useEffect(() => {
     onMovementSyncSample?.({
       isManualWalking: walkMovingRef.current,
-      isAutoWalking: demoAutoWalkActive,
+      isAutoWalking: autoWalkActive,
     })
-  }, [demoAutoWalkActive, onMovementSyncSample])
+  }, [autoWalkActive, onMovementSyncSample])
 
   const prevManualWalkingRef = useRef(false)
   useFrame(() => {
     const moving = walkMovingRef.current
     if (moving === prevManualWalkingRef.current) return
     prevManualWalkingRef.current = moving
-    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: demoAutoWalkActive })
+    onMovementSyncSample?.({ isManualWalking: moving, isAutoWalking: autoWalkActive })
   })
 
   useLayoutEffect(() => {
     return subscribeMapCommand((command) => {
       if (command.type !== 'START_NAVIGATION') return
-      const wx = -ENTRANCE_SPAWN[0]
-      const wz = -ENTRANCE_SPAWN[1]
-      storedWorldPositionRef.current = [wx, wz]
-      playerPositionRef.current[0] = ENTRANCE_SPAWN[0]
-      playerPositionRef.current[1] = ENTRANCE_SPAWN[1]
-      if (playerWorldXzRef) {
-        playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
-      }
-      if (worldRef.current) {
-        worldRef.current.position.set(wx, 0, wz)
+      // 로봇 연동 중에는 /verso/status 현재 위치 유지 (고정 출발점으로 스냅하지 않음)
+      if (!robotSyncActive) {
+        const wx = -ENTRANCE_SPAWN[0]
+        const wz = -ENTRANCE_SPAWN[1]
+        storedWorldPositionRef.current = [wx, wz]
+        playerPositionRef.current[0] = ENTRANCE_SPAWN[0]
+        playerPositionRef.current[1] = ENTRANCE_SPAWN[1]
+        if (playerWorldXzRef) {
+          playerWorldXzRef.current = [ENTRANCE_SPAWN[0], ENTRANCE_SPAWN[1]]
+        }
+        if (worldRef.current) {
+          worldRef.current.position.set(wx, 0, wz)
+        }
       }
       if (scenarioPlaybackHeadingRef) {
         scenarioPlaybackHeadingRef.current = null
       }
+      pathYawAppliedRef.current = false
+      navigationInitialHeadingRef.current = null
       onNavigationSpawnReady?.()
     })
-  }, [onNavigationSpawnReady, playerWorldXzRef, scenarioPlaybackHeadingRef])
+  }, [onNavigationSpawnReady, playerWorldXzRef, robotSyncActive, scenarioPlaybackHeadingRef])
 
   useEffect(() => {
     if (!isWalkMode) return
@@ -307,10 +311,6 @@ export function SceneContent({
       if (isEditableDomTarget(event.target)) return
       event.preventDefault()
       setIsSpacePressed(true)
-      isFreeLookRef.current = false
-      yawRef.current = characterYawRef.current
-      if (mode === 'firstPerson') pitchRef.current = FIRST_PERSON_DEFAULT_PITCH
-      else if (mode === 'thirdPerson') pitchRef.current = THIRD_PERSON_LOCKED_PITCH
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.code !== 'Space') return
@@ -333,14 +333,22 @@ export function SceneContent({
       window.removeEventListener('blur', handleWindowBlur)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [controlsEnabled, mode])
+  }, [controlsEnabled])
 
   const {
     floorPickHandler,
+    floorPointerMoveHandler,
     wallPickHandler,
     bookshelfPickHandler,
     pillarPickHandler,
-  } = useScenePickHandlers({ isAreaSelection, worldRef, onAddSelection })
+  } = useScenePickHandlers({
+    isAreaSelection,
+    isWallSelect,
+    worldRef,
+    onAddSelection,
+    onWallSelectPoint,
+    onWallSelectPreview,
+  })
 
   const handleBookshelfPointerDown = useCallback((event: ThreeEvent<PointerEvent>) => {
     if (!isBookshelfEdit || !onSelectBookshelf) return
@@ -373,19 +381,11 @@ export function SceneContent({
       <directionalLight position={[20, 30, 10]} color="#FFECD2" intensity={0.8} />
       <directionalLight position={[-20, 25, -15]} color="#FFECD2" intensity={0.3} />
 
-      {isWalkMode ? (
-        <WalkRig
-          mode={isFirstPerson ? 'firstPerson' : 'thirdPerson'}
-          walkFov={walkFov}
+      {isTopDown ? (
+        <TopDownRig
           controlsEnabled={controlsEnabled}
+          robotFollowMode={robotSyncActive}
           yawRef={yawRef}
-          pitchRef={pitchRef}
-          characterYawRef={characterYawRef}
-          worldRef={worldRef}
-          isFreeLookRef={isFreeLookRef}
-          mouseLookDraggingRef={mouseLookDraggingRef}
-          forwardArrowRef={forwardArrowRef}
-          onWalkFovChange={onWalkFovChange}
         />
       ) : (
         <OverviewRig
@@ -401,6 +401,8 @@ export function SceneContent({
           worldRef={worldRef}
           characterYawRef={characterYawRef}
           onPlayerPosition={onPlayerPosition}
+          robotSyncActive={robotSyncActive}
+          playerWorldXzRef={playerWorldXzRef}
         />
       )}
       {playerWorldXzRef && (
@@ -428,23 +430,21 @@ export function SceneContent({
           <FloorPolygonMesh
             yOffset={0}
             material={floorMaterial}
-            fillRects={floorFillRects}
+            rects={floorRenderRects}
             onPointerDown={floorPickHandler}
+            onPointerMove={floorPointerMoveHandler}
+          />
+          <FloorPolygonMesh
+            yOffset={0.004}
+            material={floorMaterial}
+            rects={fixtureFloorSupportRects}
           />
         </group>
-        {isWalkMode && (
-          <group userData={{ excludeCameraCollision: true }}>
-            <FloorPolygonMesh
-              yOffset={FLOOR_HEIGHT_M}
-              material={ceilingMaterial}
-              fillRects={floorFillRects}
-            />
-          </group>
-        )}
         <BookshelfOverlayInterior
           instances={bookshelfOverlayLayerInstances}
           shellMaterial={bookshelfOverlayLayerMaterial}
           woodMaterial={bookshelfOverlayInteriorWoodMaterial}
+          disableRaycast={isEdit}
         />
         <group userData={{ excludeCameraCollision: true }}>
           <SupermarketCounterInstances
@@ -456,7 +456,6 @@ export function SceneContent({
         <WallRibbonMesh
           onPointerDown={wallPickHandler}
         />
-        <EntranceDoorwayDecor />
         <RotatedFixtureInstances
           instances={bookshelfRenderInstances}
           material={bookshelfMaterial}
@@ -470,13 +469,11 @@ export function SceneContent({
           instances={counterRenderInstances}
           onPointerDown={bookshelfPickHandler}
         />
-        {showDisplayLowFixtures && (
-          <RotatedFixtureInstances
-            instances={displayRenderInstances}
-            material={displayLowMaterial}
-            onPointerDown={bookshelfPickHandler}
-          />
-        )}
+        <RotatedFixtureInstances
+          instances={displayRenderInstances}
+          material={displayLowMaterial}
+          onPointerDown={bookshelfPickHandler}
+        />
         {isBookshelfEdit && selectedInst && (
           <group userData={{ excludeCameraCollision: true }}>
             <SelectedBookshelfOverlay instance={selectedInst} />
@@ -489,25 +486,14 @@ export function SceneContent({
           material={pillarMaterial}
           onPointerDown={pillarPickHandler}
         />
-        <BookstoreLights floorRenderRects={floorRects} />
-        {scenarioRoute ? (
-          <>
-            <ScenarioRouteSegmentsMesh
-              route={scenarioRoute}
-              walkabilityCtx={walkabilityCtx}
-              pathDisplayMode={routePathDisplayMode}
-            />
-            <ScenarioRouteStopMarkers route={scenarioRoute} activeStopIndex={-1} />
-          </>
-        ) : (
-          navigationRoute && (
-            <NavigationRouteMesh
-              route={navigationRoute}
-              variant={navigationRouteVariant}
-              walkabilityCtx={walkabilityCtx}
-              pathDisplayMode={routePathDisplayMode}
-            />
-          )
+        <BookstoreLights floorRenderRects={floorRenderRects} />
+        {navigationRoute && (
+          <NavigationRouteMesh
+            route={navigationRoute}
+            variant={navigationRouteVariant}
+            walkabilityCtx={walkabilityCtx}
+            pathDisplayMode={routePathDisplayMode}
+          />
         )}
         {selections.map((selection) => (
           <group key={selection.id} userData={{ excludeCameraCollision: true }}>
@@ -521,10 +507,15 @@ export function SceneContent({
             </mesh>
           </group>
         ))}
+        {isWallSelect && (
+          <WallSelectOverlay
+            pointA={wallSelectPointA}
+            pointB={wallSelectPointB}
+            previewPoint={wallSelectPreviewPoint}
+            segments={wallSelectSegments}
+          />
+        )}
       </group>
-      {isThirdPerson && (
-        <ThirdPersonOcclusionFader enabled worldRef={worldRef} />
-      )}
     </>
   )
 }

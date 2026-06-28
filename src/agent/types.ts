@@ -1,3 +1,6 @@
+import type { DemoBookKey } from '../data/demoScenario'
+import type { KakaoPaySession } from '../lib/payment/kakaoPay'
+
 export type AgentState =
   | 'INIT'
   | 'MODE_SELECT'
@@ -9,11 +12,12 @@ export type AgentState =
   | 'SESSION_END'
 
 export type AgentIntentType =
-  | 'select_list_mode'
   | 'select_browse_mode'
   | 'search_books'
   | 'pause_mobility'
   | 'resume_mobility'
+  | 'follow_robot'
+  | 'lead_robot'
   | 'checkout'
   | 'add_book'
   | 'remove_book'
@@ -111,7 +115,7 @@ export type DwellBookCandidate = ShoppingListEntry & {
   source: 'route' | 'cover' | 'manual'
 }
 
-export type CheckoutStatus = 'idle' | 'going_to_counter' | 'completed' | 'error'
+export type CheckoutStatus = 'idle' | 'awaiting_payment' | 'going_to_counter' | 'completed' | 'error'
 
 export type Receipt = {
   receiptId: string
@@ -120,6 +124,14 @@ export type Receipt = {
   purchasedAt: string
   qrPayload: string
 }
+
+export type TransitDetourPhase =
+  | 'idle'
+  | 'paused_for_follow'
+  | 'serendipity_nav'
+  | 'serendipity_arrived'
+  | 'serendipity_dwell'
+  | 'await_reco_accept'
 
 export type AgentContext = {
   state: AgentState
@@ -130,14 +142,30 @@ export type AgentContext = {
   cartItems: CartItem[]
   pendingDwellBook: DwellBookCandidate | null
   awaitingDwellFeedback: boolean
+  /**
+   * dwell 피드백 처리 후 보존되는 책 정보.
+   * recommendationTool 결과가 나온 뒤 사용자가 "경로에 추가" 요청 시
+   * 이 책과 추천 책을 함께 경로에 추가하기 위해 사용한다.
+   */
+  skippedDwellBook: DwellBookCandidate | null
+  /** true이면 확장 경로가 활성화된 상태 — browse stop dwell 재감지를 막는다. */
+  extendedRouteActive: boolean
+  /** leg1 transit 중 STOP → follow_me serendipity detour 단계. */
+  transitDetourPhase: TransitDetourPhase
+  /** detour 후 이어갈 원래 nav leg (보통 1 = ② 너무나 많은 여름이). */
+  resumeLegAfterDetour: number | null
   checkoutStatus: CheckoutStatus
   receipt: Receipt | null
+  /** 카카오페이 QR 데모 결제 세션 (모달 표시용). */
+  kakaoPaySession: KakaoPaySession | null
   /** 세션 내 최근 추천에 노출된 책 id (연속 추천 다양화용, 쇼핑리스트와 별도). */
   recentlyRecommendedBookIds: string[]
   /** 취향 추천 상위 창 슬라이스 로테이션 카운터. */
   recommendationDiversityRound: number
   pendingConfirmation: PendingConfirmation | null
   lastToolResult: ToolResult | null
+  dwellDialogueActiveBookKey: DemoBookKey | null
+  dwellDialogueStep: 'intro' | 'feedback' | 'done' | null
 }
 
 export type RecognitionKind = 'voice' | 'gesture'

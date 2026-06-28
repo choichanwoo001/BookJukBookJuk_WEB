@@ -1,84 +1,68 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
-  BufferGeometry,
   MeshStandardMaterial,
-  Path,
-  Shape,
-  ShapeGeometry,
+  Object3D,
+  PlaneGeometry,
 } from 'three'
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import type { InstancedMesh as ThreeInstancedMesh } from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import {
   FLOOR_HEIGHT_M,
   type WallRect,
-  wallPolylines,
 } from '../../data/floorPlan'
 import { pointInAnyRect } from '../../utils/rectUtils'
-import { buildFillGeometriesClippedToValidFloor, getFloorOuterAndHolePolygons } from '../../utils/floorPolygon'
+
+const _floorDummy = new Object3D()
 
 export function FloorPolygonMesh({
   yOffset,
   material,
-  fillRects,
+  rects,
   onDoubleClick,
   onClick,
   onPointerDown,
+  onPointerMove,
 }: {
   yOffset: number
   material: MeshStandardMaterial
-  fillRects?: WallRect[]
+  rects: WallRect[]
   onDoubleClick?: (event: ThreeEvent<MouseEvent>) => void
   onClick?: (event: ThreeEvent<MouseEvent>) => void
   onPointerDown?: (event: ThreeEvent<PointerEvent>) => void
+  onPointerMove?: (event: ThreeEvent<PointerEvent>) => void
 }) {
-  const geometry = useMemo(() => {
-    if (wallPolylines.length === 0) return new BufferGeometry()
+  const meshRef = useRef<ThreeInstancedMesh>(null)
+  const geometry = useMemo(() => new PlaneGeometry(1, 1), [])
 
-    const { outer: outerPts, holes: holePolys } = getFloorOuterAndHolePolygons(wallPolylines)
-    if (outerPts.length < 3) return new BufferGeometry()
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
 
-    const shape = new Shape()
-    shape.moveTo(outerPts[0][0], outerPts[0][1])
-    for (let i = 1; i < outerPts.length; i++) {
-      shape.lineTo(outerPts[i][0], outerPts[i][1])
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i]
+      _floorDummy.position.set(r.cx, yOffset, r.cz)
+      _floorDummy.rotation.set(-Math.PI / 2, 0, 0)
+      _floorDummy.scale.set(r.w, r.d, 1)
+      _floorDummy.updateMatrix()
+      mesh.setMatrixAt(i, _floorDummy.matrix)
     }
-    shape.closePath()
+    mesh.instanceMatrix.needsUpdate = true
+    mesh.boundingSphere = null
+  }, [rects, yOffset])
 
-    for (const holePts of holePolys) {
-      const hole = new Path()
-      hole.moveTo(holePts[0][0], holePts[0][1])
-      for (let j = 1; j < holePts.length; j++) {
-        hole.lineTo(holePts[j][0], holePts[j][1])
-      }
-      hole.closePath()
-      shape.holes.push(hole)
-    }
-
-    const shapeGeo = new ShapeGeometry(shape)
-    const pos = shapeGeo.attributes.position
-    for (let i = 0; i < pos.count; i++) {
-      const x = pos.getX(i)
-      const z = pos.getY(i)
-      pos.setXYZ(i, x, yOffset, z)
-    }
-    pos.needsUpdate = true
-    shapeGeo.computeVertexNormals()
-
-    if (!fillRects || fillRects.length === 0) return shapeGeo
-
-    const fillGeos = buildFillGeometriesClippedToValidFloor(fillRects, outerPts, holePolys, yOffset)
-    if (fillGeos.length === 0) return shapeGeo
-    return mergeGeometries([shapeGeo, ...fillGeos]) ?? shapeGeo
-  }, [yOffset, fillRects])
+  if (rects.length === 0) return null
 
   return (
-    <mesh
+    <instancedMesh
+      ref={meshRef}
+      args={[geometry, material, rects.length]}
       geometry={geometry}
       material={material}
       frustumCulled={false}
       onDoubleClick={onDoubleClick}
       onClick={onClick}
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
     />
   )
 }

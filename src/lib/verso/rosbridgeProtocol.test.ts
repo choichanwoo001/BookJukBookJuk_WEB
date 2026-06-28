@@ -30,10 +30,6 @@ describe('rosbridgeProtocol', () => {
     expect(buildVersoCommandPayload('resume')).toBe('{"type":"command","action":"resume"}')
   })
 
-  it('builds checkout command payload', () => {
-    expect(buildVersoCommandPayload('go_checkout')).toBe('{"type":"command","action":"go_checkout"}')
-  })
-
   it('parses rosbridge publish frames', () => {
     const parsed = parseRosbridgePublish({
       op: 'publish',

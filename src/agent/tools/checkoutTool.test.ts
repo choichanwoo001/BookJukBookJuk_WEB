@@ -1,44 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const completeDemoPurchaseMock = vi.hoisted(() => vi.fn())
-const buildLocalReceiptMock = vi.hoisted(() => vi.fn())
-const tryPublishVersoCommandMock = vi.hoisted(() => vi.fn())
+const createKakaoPaySessionMock = vi.hoisted(() => vi.fn())
 
 vi.mock('../../lib/supabase/env', () => ({
   getDefaultUserId: () => 'demo-user',
 }))
 
-vi.mock('../../lib/supabase/purchases', () => ({
-  completeDemoPurchase: completeDemoPurchaseMock,
-  buildLocalReceipt: buildLocalReceiptMock,
-}))
-
-vi.mock('../../lib/supabase/result', () => ({
-  SUPABASE_NOT_CONFIGURED: 'SUPABASE_NOT_CONFIGURED',
-}))
-
-vi.mock('../../lib/verso/versoCommandBridge', () => ({
-  tryPublishVersoCommand: tryPublishVersoCommandMock,
-}))
-
-vi.mock('../runtime/agentEventBus', () => ({
-  AGENT_MAP_EVENT_VERSION: 1,
-  dispatchMapCommand: vi.fn(),
-  dispatchDwellEvent: vi.fn(),
-}))
-
-vi.mock('../../config/demoMode', () => ({
-  isDemoMode: () => false,
+vi.mock('../../lib/payment/kakaoPayClient', () => ({
+  createKakaoPaySession: createKakaoPaySessionMock,
 }))
 
 import { checkoutTool } from './checkoutTool'
-import type { AgentContext, CartItem, Receipt, ToolExecutionContext } from '../types'
+import type { AgentContext, CartItem, ToolExecutionContext } from '../types'
 
 const item: CartItem = {
   booksId: 'book-1',
   title: '작별하지 않는다',
   authors: '한강',
   coverImageUrl: 'cover.jpg',
+}
+
+const paySession = {
+  orderId: 'order-1',
+  amountKrw: 15000,
+  itemCount: 1,
+  qrPayload: 'https://mockup-pg-web.kakao.com/v1/xxxxxxxxxx/mInfo',
+  lineItems: [{ ...item, priceKrw: 15000 }],
+  itemName: '작별하지 않는다',
+  status: 'pending' as const,
+  createdAt: '2026-06-14T00:00:00.000Z',
 }
 
 function makeCtx(cartItems: CartItem[]): ToolExecutionContext {
@@ -50,8 +40,13 @@ function makeCtx(cartItems: CartItem[]): ToolExecutionContext {
     cartItems,
     pendingDwellBook: { ...item, detectedAt: Date.now(), source: 'cover' },
     awaitingDwellFeedback: true,
+    skippedDwellBook: null,
+    extendedRouteActive: false,
+    transitDetourPhase: 'idle' as const,
+    resumeLegAfterDetour: null,
     checkoutStatus: 'idle',
     receipt: null,
+    kakaoPaySession: null,
     recentlyRecommendedBookIds: [],
     recommendationDiversityRound: 0,
     pendingConfirmation: null,
@@ -68,10 +63,8 @@ function makeCtx(cartItems: CartItem[]): ToolExecutionContext {
 
 describe('checkoutTool', () => {
   beforeEach(() => {
-    completeDemoPurchaseMock.mockReset()
-    buildLocalReceiptMock.mockReset()
-    tryPublishVersoCommandMock.mockReset()
-    tryPublishVersoCommandMock.mockReturnValue(true)
+    createKakaoPaySessionMock.mockReset()
+    createKakaoPaySessionMock.mockResolvedValue({ ok: true, session: paySession })
   })
 
   it('rejects checkout when the cart is empty', async () => {
@@ -80,53 +73,19 @@ describe('checkoutTool', () => {
 
     expect(result.ok).toBe(false)
     expect(result.errorCode).toBe('CART_EMPTY')
-    expect(completeDemoPurchaseMock).not.toHaveBeenCalled()
+    expect(createKakaoPaySessionMock).not.toHaveBeenCalled()
   })
 
-  it('moves to checkout, creates a receipt, clears cart, and ends dwell feedback', async () => {
-    const receipt: Receipt = {
-      receiptId: 'receipt-1',
-      usersId: 'user-1',
-      items: [item],
-      purchasedAt: '2026-06-06T00:00:00.000Z',
-      qrPayload: 'bookjuk://receipt?receiptId=receipt-1&usersId=user-1',
-    }
-    completeDemoPurchaseMock.mockResolvedValue({ ok: true, data: receipt })
-
+  it('creates a Kakao Pay session with a real payment QR URL', async () => {
     const exec = makeCtx([item])
     const result = await checkoutTool.run({}, exec)
 
     expect(result.ok).toBe(true)
-    expect(tryPublishVersoCommandMock).toHaveBeenCalledWith('go_checkout')
-    expect(completeDemoPurchaseMock).toHaveBeenCalledWith({ usersId: 'user-1', items: [item] })
-    expect(exec.getContext().checkoutStatus).toBe('completed')
-    expect(exec.getContext().receipt).toEqual(receipt)
-    expect(exec.getContext().cartItems).toEqual([])
-    expect(exec.getContext().shoppingList).toEqual([])
-    expect(exec.getContext().pendingDwellBook).toBeNull()
-    expect(exec.getContext().awaitingDwellFeedback).toBe(false)
-  })
-
-  it('falls back to a local receipt when Supabase is not configured', async () => {
-    const localReceipt: Receipt = {
-      receiptId: 'local-1',
-      usersId: 'user-1',
-      items: [item],
-      purchasedAt: '2026-06-06T00:00:00.000Z',
-      qrPayload: 'bookjuk://receipt?receiptId=local-1&usersId=user-1',
-    }
-    completeDemoPurchaseMock.mockResolvedValue({
-      ok: false,
-      errorCode: 'SUPABASE_NOT_CONFIGURED',
-      message: 'not configured',
-    })
-    buildLocalReceiptMock.mockReturnValue(localReceipt)
-
-    const exec = makeCtx([item])
-    const result = await checkoutTool.run({}, exec)
-
-    expect(result.ok).toBe(true)
-    expect(buildLocalReceiptMock).toHaveBeenCalledWith('user-1', [item])
-    expect(exec.getContext().receipt).toEqual(localReceipt)
+    expect(createKakaoPaySessionMock).toHaveBeenCalled()
+    expect(result.message).toBe('카카오페이 QR을 스캔해 결제해 주세요.')
+    expect(result.data).toEqual({ kakaoPaySession: paySession })
+    expect(exec.getContext().checkoutStatus).toBe('awaiting_payment')
+    expect(exec.getContext().kakaoPaySession).toEqual(paySession)
+    expect(exec.getContext().kakaoPaySession?.qrPayload).toMatch(/^https:\/\//)
   })
 })

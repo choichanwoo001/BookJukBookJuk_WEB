@@ -279,8 +279,7 @@ export function findPathWorldGrid(
         out.push(gridToWorldCenter(cx, cz, bounds, cellSize))
       }
       out.reverse()
-      const col = simplifyPathCollinear(out)
-      return shortcutPathWorld(col, ctx, NAV_SEGMENT_SAMPLE_STEP_M)
+      return shortcutPathWorld(out, ctx, NAV_SEGMENT_SAMPLE_STEP_M)
     }
 
     for (let k = 0; k < NEI.length; k++) {
@@ -292,6 +291,16 @@ export function findPathWorldGrid(
       if (!isCellWalkable(nix, niz, nx, nz, ctx, bounds, cellSize)) continue
       if (
         !isDiagonalNeighborAllowed(cur.ix, cur.iz, dix, diz, nx, nz, ctx, bounds, cellSize)
+      ) {
+        continue
+      }
+      if (
+        !isSegmentWalkableWorld(
+          gridToWorldCenter(cur.ix, cur.iz, bounds, cellSize),
+          gridToWorldCenter(nix, niz, bounds, cellSize),
+          ctx,
+          Math.max(0.04, cellSize * 0.25),
+        )
       ) {
         continue
       }
@@ -336,4 +345,20 @@ export function concatPaths(a: Point2[], b: Point2[], eps = 0.08): Point2[] {
   const fb = b[0]
   if (Math.hypot(la[0] - fb[0], la[1] - fb[1]) < eps) return [...a.slice(0, -1), ...b]
   return [...a, ...b]
+}
+
+export function segmentPathWorld(
+  from: Point2,
+  to: Point2,
+  ctx: WalkabilityContext,
+  bounds: WorldBounds,
+  gridCellM: number,
+  sampleStepM: number = NAV_SEGMENT_SAMPLE_STEP_M,
+): Point2[] {
+  const routed = findPathWorldGrid(from, to, ctx, bounds, gridCellM)
+  if (routed && routed.length >= 2) return routed
+  if (isSegmentWalkableWorld(from, to, ctx, sampleStepM)) {
+    return [from, to]
+  }
+  return []
 }

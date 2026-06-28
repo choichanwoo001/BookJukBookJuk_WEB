@@ -27,12 +27,3 @@ export async function appendUserMessageAndStore(params: {
     intent,
   })
 }
-
-export function formatAbCandidateAttachments(
-  candidates: { title: string; authors: string; reason: string; reviewKeywords: string[] }[],
-): string[] {
-  return candidates.map(
-    (candidate, index) =>
-      `${index === 0 ? 'A' : 'B'}. ${candidate.title} - ${candidate.authors} | 이유: ${candidate.reason} | 리뷰 키워드: ${candidate.reviewKeywords.join(', ')}`,
-  )
-}

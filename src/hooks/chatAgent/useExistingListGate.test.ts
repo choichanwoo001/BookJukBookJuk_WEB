@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ExistingListGateStatus } from './useExistingListGate'
 
-describe('ExistingListGateStatus', () => {
-  it('includes navigation gate states', () => {
+describe('useExistingListGate', () => {
+  it('defines nav gate statuses', () => {
     const statuses: ExistingListGateStatus[] = [
       'inactive',
-      'awaiting',
-      'confirmed',
       'awaiting_nav',
       'nav_started',
     ]
-    expect(statuses).toHaveLength(5)
+    expect(statuses).toHaveLength(3)
   })
 
   it('models awaiting_nav to nav_started transition', () => {

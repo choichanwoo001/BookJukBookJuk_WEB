@@ -1,26 +1,37 @@
 import { describe, expect, it } from 'vitest'
+import { bookshelfOverlayLayerInstances } from './bookshelfOverlayLayer'
 import {
   DEMO_BOOKS,
+  DEMO_DWELL_BOOK,
   DEMO_PLANNED_BOOK_KEYS,
-  DEMO_SCENARIO_ROUTE_KEYS,
+  DEMO_RECOMMENDED_BOOK,
   demoBookToEntry,
   demoRefCoverUrl,
   findDemoBookByTitle,
   demoPoolIndicesForKeys,
-} from '../data/demoScenario'
-import { bookKeysToPoolIndices } from '../utils/bookShelfNavigation'
-import {
-  beginDemoNavigationFromShoppingList,
   resolveDemoMissionKeys,
-} from '../hooks/chatAgent/demoOrchestrator'
+} from './demoScenario'
+import { robotMapBook2WorldXz } from '../lib/verso/robotMissionCoords'
 
 describe('demoScenario', () => {
   it('defines four demo books', () => {
     expect(Object.keys(DEMO_BOOKS)).toHaveLength(4)
   })
 
-  it('lists planned demo books for similar-readers selection', () => {
-    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book1', 'book2'])
+  it('lists planned demo book as 오직 두 사람 only', () => {
+    expect(DEMO_PLANNED_BOOK_KEYS).toEqual(['book2'])
+  })
+
+  it('maps book2 shelf near robot waypoint world coords', () => {
+    const shelf = bookshelfOverlayLayerInstances[DEMO_BOOKS.book2.poolIndex]
+    const [wx, wz] = robotMapBook2WorldXz()
+    expect(shelf).toBeDefined()
+    expect(Math.hypot(shelf!.cx - wx, shelf!.cz - wz)).toBeLessThan(2.5)
+  })
+
+  it('uses serendipity for dwell and book1 for recommendation', () => {
+    expect(DEMO_DWELL_BOOK.title).toBe(DEMO_BOOKS.serendipity.title)
+    expect(DEMO_RECOMMENDED_BOOK.title).toBe(DEMO_BOOKS.book1.title)
   })
 
   it('uses ref cover urls when no db cover is provided', () => {
@@ -36,14 +47,14 @@ describe('demoScenario', () => {
 
   it('finds demo book by partial title', () => {
     expect(findDemoBookByTitle('어른이 된다는 것')?.key).toBe('book1')
-    expect(findDemoBookByTitle('시선으로부터')?.key).toBe('alternative')
+    expect(findDemoBookByTitle('너무나 많은 여름이')?.key).toBe('alternative')
     expect(DEMO_BOOKS.book2.authors).toBe('김영하')
     expect(DEMO_BOOKS.serendipity.authors).toBe('최진영')
+    expect(DEMO_BOOKS.book1.authors).toBe('김창진')
   })
 
   it('maps book keys to pool indices', () => {
-    const indices = bookKeysToPoolIndices(['book1', 'book2'])
-    expect(indices).toEqual([
+    expect(demoPoolIndicesForKeys(['book1', 'book2'])).toEqual([
       DEMO_BOOKS.book1.poolIndex,
       DEMO_BOOKS.book2.poolIndex,
     ])
@@ -53,17 +64,7 @@ describe('demoScenario', () => {
   it('resolves mission keys from a shopping list in visit order', () => {
     const keys = resolveDemoMissionKeys([
       { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
-      { booksId: 'demo-book-adult', title: '어른이 된다는 것', authors: '우치다 타츠루', coverImageUrl: '' },
     ])
-    expect(keys).toEqual(['book1', 'book2'])
-  })
-
-  it('begins shelf visit with the full automatic demo route', () => {
-    const keys = beginDemoNavigationFromShoppingList([
-      { booksId: 'demo-book-two', title: '오직 두 사람', authors: '김영하', coverImageUrl: '' },
-      { booksId: 'demo-book-adult', title: '어른이 된다는 것', authors: '우치다 타츠루', coverImageUrl: '' },
-    ])
-    expect(keys).toEqual(DEMO_SCENARIO_ROUTE_KEYS)
+    expect(keys).toEqual(['book2'])
   })
 })
-

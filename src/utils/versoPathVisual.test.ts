@@ -27,4 +27,12 @@ describe('versoPathVisual', () => {
     expect(buildVersoRouteVisual({ x: 0, y: 0 }, { poses: [] })).toBeNull()
     expect(buildVersoRouteVisual({ x: 0, y: 0 }, null)).toBeNull()
   })
+
+  it('maps robot poses to world without re-routing', () => {
+    const poses = [{ x: 0, y: 0 }, { x: 1, y: 2 }, { x: 3, y: 4 }]
+    const route = buildVersoRouteVisual(null, { poses })
+    expect(route).not.toBeNull()
+    expect(route!.highlightPath).toHaveLength(poses.length)
+    expect(route!.planPath).toHaveLength(poses.length)
+  })
 })

@@ -24,12 +24,7 @@ export function useAgentMission(defaultVersion: number): AgentMissionState & {
 
   useEffect(() => {
     return subscribeMapCommand((command: AgentMapCommand) => {
-      if (command.type === 'SET_MISSION' || command.type === 'PREVIEW_ROUTE') {
-        setPoolIndices(command.poolIndices)
-        setDirectGoals(null)
-        setMissionVersion((v) => v + 1)
-      }
-      if (command.type === 'SET_DIRECT_GOALS') {
+      if (command.type === 'SET_DIRECT_GOALS' || command.type === 'PREVIEW_NAV_PLAN') {
         setDirectGoals(command.goals)
         setPoolIndices(null)
         setMissionVersion((v) => v + 1)

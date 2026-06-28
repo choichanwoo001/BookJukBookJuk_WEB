@@ -29,7 +29,13 @@ interface ImportMetaEnv {
    * true면 shoppingListTool이 identify API fallback을 건너뜀
    */
   readonly VITE_SHOPPING_LIST_SKIP_RECOGNITION?: string
+  /** 카카오페이 QR 데모 권당 가격 (원). */
+  readonly VITE_KAKAO_PAY_DEMO_BOOK_PRICE_KRW?: string
+  /** 카카오페이 API base (기본 /kakao-pay). */
+  readonly VITE_KAKAO_PAY_API_BASE?: string
   readonly VITE_DEMO_MODE?: string
+  /** true면 온보딩·채팅 없이 Map3DView만 전체 화면 (맵 작업용). ?mapOnly=1 로도 켤 수 있음. */
+  readonly VITE_MAP_DEV?: string
   readonly VITE_OPENAI_API_KEY?: string
   readonly VITE_OPENAI_MODEL?: string
   readonly VITE_OPENAI_TIMEOUT_MS?: string

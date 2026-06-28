@@ -13,11 +13,8 @@ export function MapViewButtons({
 }: MapViewButtonsProps) {
   return (
     <div className="mapViewButtons">
-      <button type="button" data-active={mode === 'firstPerson'} onClick={() => onModeChange('firstPerson')}>
-        1인칭 시점
-      </button>
-      <button type="button" data-active={mode === 'thirdPerson'} onClick={() => onModeChange('thirdPerson')}>
-        3인칭 시점
+      <button type="button" data-active={mode === 'topDown'} onClick={() => onModeChange('topDown')}>
+        탑뷰
       </button>
       <button type="button" data-active={isEdit} onClick={() => onModeChange('edit')}>
         편집 모드

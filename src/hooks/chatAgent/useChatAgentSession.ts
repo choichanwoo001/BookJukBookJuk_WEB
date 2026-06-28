@@ -20,14 +20,12 @@ function toContextShoppingList(items: { booksId: string; title: string; authors:
 }
 
 export function useChatAgentSession({
-  contextRef,
   initialShoppingList,
   listType,
   setContext,
   setMessages,
   shouldAutoLoadShelf,
 }: {
-  contextRef: { current: AgentContext }
   initialShoppingList?: ShoppingListEntry[]
   listType: AgentContext['listType']
   setContext: (patch: Partial<AgentContext>) => void
@@ -35,6 +33,8 @@ export function useChatAgentSession({
   shouldAutoLoadShelf: boolean
 }) {
   const conversationIdRef = useRef<string | null>(null)
+  const conversationOwnerRef = useRef<string | null>(null)
+  const conversationInitGenerationRef = useRef(0)
   const [listLoadStatus, setListLoadStatus] = useState<'idle' | 'loading' | 'ok' | 'error'>('loading')
   const [listLoadMessage, setListLoadMessage] = useState<string | null>(null)
   const [activeUsersId, setActiveUsersId] = useState<string | null>(null)
@@ -63,18 +63,27 @@ export function useChatAgentSession({
 
   useEffect(() => {
     if (!activeUsersId) return
+
+    const userChanged =
+      conversationOwnerRef.current !== null && conversationOwnerRef.current !== activeUsersId
+    if (userChanged) {
+      setMessages([])
+      conversationIdRef.current = null
+      setReadyForUsersId(null)
+    }
+    conversationOwnerRef.current = activeUsersId
+
+    const generation = ++conversationInitGenerationRef.current
     let disposed = false
     const initializeConversation = async () => {
-      setMessages([])
       const conversationId = await createConversation(activeUsersId)
-      if (disposed) return
+      if (disposed || generation !== conversationInitGenerationRef.current) return
       conversationIdRef.current = conversationId
       setReadyForUsersId(activeUsersId)
     }
     void initializeConversation()
     return () => {
       disposed = true
-      conversationIdRef.current = null
     }
   }, [activeUsersId, setMessages])
 
@@ -124,31 +133,12 @@ export function useChatAgentSession({
     })
   }, [])
 
-  const loadExistingListOnDemand = useCallback(async () => {
-    if (!activeUsersId) return false
-    setListLoadStatus('loading')
-    setListLoadMessage(null)
-    const shelfType = mapListTypeToShelfType(contextRef.current.listType)
-    const res = await loadShelfBooks(activeUsersId, shelfType)
-    if (!res.ok) {
-      setListLoadStatus('error')
-      setListLoadMessage(shelfListLoadUserMessage(res.errorCode, res.message))
-      return false
-    }
-    const loaded = toContextShoppingList(res.data)
-    setContext({ shoppingList: loaded, cartItems: loaded })
-    setListLoadStatus('ok')
-    setListLoadMessage(null)
-    return true
-  }, [activeUsersId, contextRef, setContext])
-
   return {
     activeUsersId,
     appendAssistantConversationMessage,
     conversationIdRef,
     listLoadMessage,
     listLoadStatus,
-    loadExistingListOnDemand,
     sessionReady,
   }
 }

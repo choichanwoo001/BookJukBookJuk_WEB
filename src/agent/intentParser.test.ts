@@ -19,6 +19,11 @@ describe('parseIntent', () => {
     expect(i.type).toBe('pause_mobility')
   })
 
+  it('parses follow and lead robot intents', () => {
+    expect(parseIntent('따라와', 'chat').type).toBe('follow_robot')
+    expect(parseIntent('다시 리드', 'voice').type).toBe('lead_robot')
+  })
+
   it('parses natural remove sentence without a leading book keyword', () => {
     const i = parseIntent('위시리스트에서 기초영어 빼줘', 'chat')
     expect(i.type).toBe('remove_book')
@@ -26,6 +31,7 @@ describe('parseIntent', () => {
 
   it('maps checkout language to checkout intent', () => {
     expect(parseIntent('큐레이션 종료하고 계산하러 가자', 'chat').type).toBe('checkout')
+    expect(parseIntent('계산', 'chat').type).toBe('checkout')
   })
 
   it('maps cart and purchase language to add_book intent across sources', () => {

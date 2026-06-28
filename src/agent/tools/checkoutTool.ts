@@ -1,8 +1,8 @@
-import { tryPublishVersoCommand } from '../../lib/verso/versoCommandBridge'
-import { AGENT_MAP_EVENT_VERSION, dispatchMapCommand } from '../runtime/agentEventBus'
+import { getDefaultUserId } from '../../lib/supabase/env'
+import { createKakaoPaySession } from '../../lib/payment/kakaoPayClient'
+import { buildKakaoPayLineItems } from '../../lib/payment/kakaoPay'
 import type { ToolDefinition } from './types'
-import { checkoutNavigationMessage, completeCheckoutPurchase } from './checkoutCompletion'
-import { isDemoMode } from '../../config/demoMode'
+import { completeCheckoutPurchase } from './checkoutCompletion'
 
 export const checkoutTool: ToolDefinition = {
   name: 'checkoutTool',
@@ -21,28 +21,30 @@ export const checkoutTool: ToolDefinition = {
       }
     }
 
-    ctx.setContext({ checkoutStatus: 'going_to_counter', mobilityPaused: false })
-    const published = tryPublishVersoCommand('go_checkout')
-    dispatchMapCommand({ type: 'GO_CHECKOUT', version: AGENT_MAP_EVENT_VERSION })
-
-    if (isDemoMode()) {
+    const lineItems = buildKakaoPayLineItems(cartItems)
+    const partnerUserId = context.activeUsersId ?? getDefaultUserId()
+    const ready = await createKakaoPaySession({ partnerUserId, lineItems })
+    if (!ready.ok) {
       return {
-        ok: true,
+        ok: false,
         toolName: 'checkoutTool',
-        message: checkoutNavigationMessage(published),
-        data: { deferred: true },
+        message: ready.message,
+        errorCode: ready.errorCode ?? 'KAKAO_PAY_READY_FAILED',
       }
     }
 
-    return completeCheckoutPurchase(ctx)
+    ctx.setContext({
+      kakaoPaySession: ready.session,
+      checkoutStatus: 'awaiting_payment',
+    })
+
+    return {
+      ok: true,
+      toolName: 'checkoutTool',
+      message: '카카오페이 QR을 스캔해 결제해 주세요.',
+      data: { kakaoPaySession: ready.session },
+    }
   },
 }
 
 export { completeCheckoutPurchase }
-
-
-
-
-
-
-
